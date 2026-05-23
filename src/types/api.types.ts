@@ -82,3 +82,38 @@ export interface DocumentListResponse {
   documents: DocumentResponse[];
   total: number;
 }
+
+export interface AskQuestionRequest {
+  question: string;
+  documentId?: string;
+  subject?: string;
+}
+
+export interface ChatSource {
+  documentId: string;
+  title: string;
+  chunkIndex: number;
+  contentPreview: string;
+}
+
+export interface AskQuestionResponse {
+  answer: string;
+  sources: ChatSource[];
+}
+
+export interface ChatHistoryResponse {
+  id: string;
+  userId: string | Types.ObjectId;
+  question: string;
+  answer: string;
+  sources: ChatSource[];
+  documentId?: string | Types.ObjectId;
+  subject?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChatHistoryListResponse {
+  histories: ChatHistoryResponse[];
+  total: number;
+}

@@ -4,6 +4,7 @@ import {
   AskQuestionResponse,
   ChatSource,
 } from "../types/api.types";
+import { RagAnswerResult } from "../types/rag.types";
 import { splitTextIntoChunks } from "../utils/textSplitter";
 import { AppError } from "../middlewares/error.middleware";
 import { generateAnswerFromContext } from "./embedding.service";
@@ -64,7 +65,9 @@ export const removeDocumentFromRag = async (
 export const askQuestionWithRag = async (
   userId: string,
   payload: AskQuestionRequest,
-): Promise<AskQuestionResponse> => {
+): Promise<RagAnswerResult> => {
+  const startedAt = Date.now();
+
   if (payload.documentId) {
     const document = await StudyDocument.findOne({
       _id: payload.documentId,
@@ -87,7 +90,18 @@ export const askQuestionWithRag = async (
   if (chunks.length === 0) {
     return {
       answer: INSUFFICIENT_CONTEXT_ANSWER,
+      mode: "basic",
+      originalQuestion: payload.question,
       sources: [],
+      evaluation: {
+        retrievedChunksCount: 0,
+        relevantChunksCount: 0,
+        averageRelevanceScore: 0,
+        correctiveAttempted: false,
+        isGrounded: true,
+        confidenceScore: 0,
+        responseTimeMs: Date.now() - startedAt,
+      },
     };
   }
 
@@ -112,6 +126,17 @@ export const askQuestionWithRag = async (
 
   return {
     answer: answer || INSUFFICIENT_CONTEXT_ANSWER,
+    mode: "basic",
+    originalQuestion: payload.question,
     sources,
+    evaluation: {
+      retrievedChunksCount: chunks.length,
+      relevantChunksCount: chunks.length,
+      averageRelevanceScore: chunks.length > 0 ? 1 : 0,
+      correctiveAttempted: false,
+      isGrounded: true,
+      confidenceScore: 1,
+      responseTimeMs: Date.now() - startedAt,
+    },
   };
 };

@@ -1,4 +1,5 @@
 import { Types } from "mongoose";
+import { RagEvaluation, RagMode } from "./rag.types";
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -87,6 +88,7 @@ export interface AskQuestionRequest {
   question: string;
   documentId?: string;
   subject?: string;
+  mode?: RagMode;
 }
 
 export interface ChatSource {
@@ -94,21 +96,30 @@ export interface ChatSource {
   title: string;
   chunkIndex: number;
   contentPreview: string;
+  relevanceScore?: number;
 }
 
 export interface AskQuestionResponse {
   answer: string;
+  mode?: RagMode;
+  originalQuestion?: string;
+  rewrittenQuery?: string;
   sources: ChatSource[];
+  evaluation?: RagEvaluation;
 }
 
 export interface ChatHistoryResponse {
   id: string;
   userId: string | Types.ObjectId;
   question: string;
+  originalQuestion?: string;
+  rewrittenQuery?: string;
   answer: string;
   sources: ChatSource[];
   documentId?: string | Types.ObjectId;
   subject?: string;
+  mode?: RagMode;
+  evaluation?: RagEvaluation;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -1,13 +1,18 @@
 import mongoose, { Document, Schema, Types } from "mongoose";
 import { ChatSource } from "../types/api.types";
+import { RagEvaluation, RagMode } from "../types/rag.types";
 
 export interface IChatHistory extends Document {
   userId: Types.ObjectId;
   question: string;
+  originalQuestion?: string;
+  rewrittenQuery?: string;
   answer: string;
   sources: ChatSource[];
   documentId?: Types.ObjectId;
   subject?: string;
+  mode?: RagMode;
+  evaluation?: RagEvaluation;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,6 +35,22 @@ const chatSourceSchema = new Schema<ChatSource>(
       type: String,
       required: true,
     },
+    relevanceScore: {
+      type: Number,
+    },
+  },
+  { _id: false },
+);
+
+const ragEvaluationSchema = new Schema<RagEvaluation>(
+  {
+    retrievedChunksCount: { type: Number, required: true },
+    relevantChunksCount: { type: Number, required: true },
+    averageRelevanceScore: { type: Number, required: true },
+    correctiveAttempted: { type: Boolean, required: true },
+    isGrounded: { type: Boolean, required: true },
+    confidenceScore: { type: Number, required: true },
+    responseTimeMs: { type: Number, required: true },
   },
   { _id: false },
 );
@@ -47,6 +68,14 @@ const chatHistorySchema = new Schema<IChatHistory>(
       required: true,
       trim: true,
     },
+    originalQuestion: {
+      type: String,
+      trim: true,
+    },
+    rewrittenQuery: {
+      type: String,
+      trim: true,
+    },
     answer: {
       type: String,
       required: true,
@@ -62,6 +91,14 @@ const chatHistorySchema = new Schema<IChatHistory>(
     subject: {
       type: String,
       trim: true,
+    },
+    mode: {
+      type: String,
+      enum: ["basic", "corrective"],
+      default: "basic",
+    },
+    evaluation: {
+      type: ragEvaluationSchema,
     },
   },
   {

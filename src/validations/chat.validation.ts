@@ -5,6 +5,7 @@ export const askQuestionSchema = z.object({
     question: z.string().trim().min(1).max(2000),
     documentId: z.string().trim().min(1).optional(),
     subject: z.string().trim().min(1).max(80).optional(),
+    mode: z.enum(["basic", "corrective"]).optional(),
   }),
 });
 

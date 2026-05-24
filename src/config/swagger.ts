@@ -94,6 +94,19 @@ const options: swaggerJsdoc.Options = {
               type: "string",
               example: "This chunk contains the relevant lesson content...",
             },
+            relevanceScore: { type: "number", example: 0.82 },
+          },
+        },
+        RagEvaluation: {
+          type: "object",
+          properties: {
+            retrievedChunksCount: { type: "number", example: 8 },
+            relevantChunksCount: { type: "number", example: 4 },
+            averageRelevanceScore: { type: "number", example: 0.72 },
+            correctiveAttempted: { type: "boolean", example: true },
+            isGrounded: { type: "boolean", example: true },
+            confidenceScore: { type: "number", example: 0.88 },
+            responseTimeMs: { type: "number", example: 2450 },
           },
         },
         AskQuestionData: {
@@ -103,10 +116,21 @@ const options: swaggerJsdoc.Options = {
               type: "string",
               example: "The answer based on uploaded documents.",
             },
+            mode: { type: "string", enum: ["basic", "corrective"] },
+            originalQuestion: {
+              type: "string",
+              example: "cái này dùng để làm gì",
+            },
+            rewrittenQuery: {
+              type: "string",
+              example:
+                "Explain the purpose and usage of the concept mentioned in the uploaded study document.",
+            },
             sources: {
               type: "array",
               items: { $ref: "#/components/schemas/ChatSource" },
             },
+            evaluation: { $ref: "#/components/schemas/RagEvaluation" },
           },
         },
       },
@@ -290,6 +314,11 @@ const options: swaggerJsdoc.Options = {
                       example: "665f2a9d2a5b6f0012a67890",
                     },
                     subject: { type: "string", example: "Math" },
+                    mode: {
+                      type: "string",
+                      enum: ["basic", "corrective"],
+                      example: "corrective",
+                    },
                   },
                 },
               },
@@ -362,6 +391,28 @@ const options: swaggerJsdoc.Options = {
           responses: {
             "200": { description: "Chat history deleted successfully" },
             "404": { description: "Chat history not found" },
+          },
+        },
+      },
+      "/api/evaluation/logs": {
+        get: {
+          tags: ["Evaluation"],
+          summary: "List current user's RAG evaluation logs",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "Evaluation logs fetched successfully" },
+            "401": { description: "Unauthorized" },
+          },
+        },
+      },
+      "/api/evaluation/summary": {
+        get: {
+          tags: ["Evaluation"],
+          summary: "Get RAG evaluation summary for current user",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "Evaluation summary fetched successfully" },
+            "401": { description: "Unauthorized" },
           },
         },
       },

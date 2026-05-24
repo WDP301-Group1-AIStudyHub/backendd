@@ -6,6 +6,8 @@ import {
   ChatHistoryResponse,
 } from "../types/api.types";
 import { AppError } from "../middlewares/error.middleware";
+import { askQuestionWithCorrectiveRag } from "./correctiveRag.service";
+import { createEvaluationLog } from "./evaluation.service";
 import { askQuestionWithRag } from "./rag.service";
 
 const toChatHistoryResponse = (
@@ -14,10 +16,14 @@ const toChatHistoryResponse = (
   id: history._id.toString(),
   userId: history.userId,
   question: history.question,
+  originalQuestion: history.originalQuestion,
+  rewrittenQuery: history.rewrittenQuery,
   answer: history.answer,
   sources: history.sources,
   documentId: history.documentId,
   subject: history.subject,
+  mode: history.mode,
+  evaluation: history.evaluation,
   createdAt: history.createdAt,
   updatedAt: history.updatedAt,
 });
@@ -26,15 +32,37 @@ export const askQuestion = async (
   userId: string,
   payload: AskQuestionRequest,
 ): Promise<AskQuestionResponse> => {
-  const result = await askQuestionWithRag(userId, payload);
+  const mode = payload.mode || "basic";
+  const result =
+    mode === "corrective"
+      ? await askQuestionWithCorrectiveRag(userId, payload)
+      : await askQuestionWithRag(userId, payload);
 
   await ChatHistory.create({
     userId,
     question: payload.question,
+    originalQuestion: result.originalQuestion,
+    rewrittenQuery: result.rewrittenQuery,
     answer: result.answer,
     sources: result.sources,
     documentId: payload.documentId,
     subject: payload.subject,
+    mode: result.mode,
+    evaluation: result.evaluation,
+  });
+
+  await createEvaluationLog({
+    userId,
+    question: result.originalQuestion,
+    rewrittenQuery: result.rewrittenQuery,
+    retrievalMode: result.mode || "basic",
+    retrievedChunksCount: result.evaluation?.retrievedChunksCount || 0,
+    relevantChunksCount: result.evaluation?.relevantChunksCount || 0,
+    averageRelevanceScore: result.evaluation?.averageRelevanceScore || 0,
+    correctiveAttempted: result.evaluation?.correctiveAttempted || false,
+    isGrounded: result.evaluation?.isGrounded ?? true,
+    confidenceScore: result.evaluation?.confidenceScore || 0,
+    responseTimeMs: result.evaluation?.responseTimeMs || 0,
   });
 
   return result;

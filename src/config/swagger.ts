@@ -84,6 +84,31 @@ const options: swaggerJsdoc.Options = {
             total: { type: "number", example: 1 },
           },
         },
+        ChatSource: {
+          type: "object",
+          properties: {
+            documentId: { type: "string", example: "665f2a9d2a5b6f0012a67890" },
+            title: { type: "string", example: "Lesson 1" },
+            chunkIndex: { type: "number", example: 0 },
+            contentPreview: {
+              type: "string",
+              example: "This chunk contains the relevant lesson content...",
+            },
+          },
+        },
+        AskQuestionData: {
+          type: "object",
+          properties: {
+            answer: {
+              type: "string",
+              example: "The answer based on uploaded documents.",
+            },
+            sources: {
+              type: "array",
+              items: { $ref: "#/components/schemas/ChatSource" },
+            },
+          },
+        },
       },
     },
     paths: {
@@ -240,6 +265,103 @@ const options: swaggerJsdoc.Options = {
           },
           responses: {
             "200": { description: "Forgot password request accepted" },
+          },
+        },
+      },
+      "/api/chat/ask": {
+        post: {
+          tags: ["Chat"],
+          summary: "Ask a question about uploaded documents",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["question"],
+                  properties: {
+                    question: {
+                      type: "string",
+                      example: "Tài liệu nói gì về phương trình bậc hai?",
+                    },
+                    documentId: {
+                      type: "string",
+                      example: "665f2a9d2a5b6f0012a67890",
+                    },
+                    subject: { type: "string", example: "Math" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Question answered successfully",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example: "Question answered successfully",
+                      },
+                      data: { $ref: "#/components/schemas/AskQuestionData" },
+                    },
+                  },
+                },
+              },
+            },
+            "401": { description: "Unauthorized" },
+          },
+        },
+      },
+      "/api/chat/history": {
+        get: {
+          tags: ["Chat"],
+          summary: "List current user's chat history",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "Chat history fetched successfully" },
+            "401": { description: "Unauthorized" },
+          },
+        },
+      },
+      "/api/chat/history/{id}": {
+        get: {
+          tags: ["Chat"],
+          summary: "Get one chat history item",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Chat history fetched successfully" },
+            "404": { description: "Chat history not found" },
+          },
+        },
+        delete: {
+          tags: ["Chat"],
+          summary: "Delete one chat history item",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Chat history deleted successfully" },
+            "404": { description: "Chat history not found" },
           },
         },
       },

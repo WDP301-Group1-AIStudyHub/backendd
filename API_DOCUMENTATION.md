@@ -267,3 +267,104 @@ GET /api/documents/search?keyword=algebra&subject=Math
 ```
 
 Response data shape is `DocumentListResponse`.
+
+## Chat RAG
+
+All chat routes are protected and require a bearer token.
+
+Before testing RAG, create a Pinecone index and configure:
+
+```env
+GEMINI_API_KEY=your-gemini-api-key
+PINECONE_API_KEY=your-pinecone-api-key
+PINECONE_INDEX_NAME=ai-study-hub
+PINECONE_NAMESPACE=ai-study-hub
+```
+
+The Pinecone index dimension must match the Gemini embedding model output.
+For `text-embedding-004`, create a dense index with dimension `768` and cosine metric.
+
+### POST `/chat/ask`
+
+Protected. Ask a question against uploaded document chunks.
+
+Request:
+
+```json
+{
+  "question": "Tài liệu nói gì về phương trình bậc hai?",
+  "documentId": "665f2a..."
+}
+```
+
+You can omit `documentId` and use `subject` instead:
+
+```json
+{
+  "question": "Tóm tắt nội dung chính của tài liệu môn Math",
+  "subject": "Math"
+}
+```
+
+If neither `documentId` nor `subject` is provided, the backend searches all documents uploaded by the current user.
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Question answered successfully",
+  "data": {
+    "answer": "Câu trả lời dựa trên nội dung tài liệu đã upload.",
+    "sources": [
+      {
+        "documentId": "665f2a...",
+        "title": "Lesson 1",
+        "chunkIndex": 0,
+        "contentPreview": "Đoạn nội dung liên quan..."
+      }
+    ]
+  }
+}
+```
+
+If the retrieved context is insufficient, the answer is:
+
+```text
+Tôi không tìm thấy thông tin này trong tài liệu đã upload.
+```
+
+### GET `/chat/history`
+
+Protected. Returns the current user's chat history.
+
+Response data shape is `ChatHistoryListResponse`.
+
+### GET `/chat/history/:id`
+
+Protected. Returns one chat history item owned by the current user.
+
+Response data shape is `ChatHistoryResponse`.
+
+### DELETE `/chat/history/:id`
+
+Protected. Deletes one chat history item.
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Chat history deleted successfully"
+}
+```
+
+## RAG Test Flow
+
+1. Start MongoDB and the backend, and make sure your Pinecone index exists.
+2. Register or login to get `accessToken`.
+3. Upload a PDF with `POST /api/documents/upload`.
+4. Confirm Pinecone has chunks by checking the upload request succeeds; the upload flow now indexes chunks after saving the document.
+5. Ask a question with `POST /api/chat/ask`.
+6. Check `data.answer` and `data.sources`.
+7. Check saved history with `GET /api/chat/history`.

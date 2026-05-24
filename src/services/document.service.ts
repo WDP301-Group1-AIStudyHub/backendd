@@ -12,6 +12,11 @@ import {
   uploadPdfToCloudinary,
 } from "./cloudinary.service";
 import { extractPdfText } from "./pdf.service";
+import {
+  indexDocumentForRag,
+  reindexDocumentForRag,
+  removeDocumentFromRag,
+} from "./rag.service";
 
 export const toDocumentResponse = (document: IDocument): DocumentResponse => ({
   id: document._id.toString(),
@@ -53,6 +58,8 @@ export const createDocument = async (
     extractedText,
     uploadedBy: userId,
   });
+
+  await indexDocumentForRag(document._id.toString(), userId);
 
   return toDocumentResponse(document);
 };
@@ -104,6 +111,10 @@ export const updateDocument = async (
     throw new AppError("Document not found", 404);
   }
 
+  if (payload.subject !== undefined) {
+    await reindexDocumentForRag(document._id.toString(), userId);
+  }
+
   return toDocumentResponse(document);
 };
 
@@ -120,6 +131,7 @@ export const deleteDocument = async (
     throw new AppError("Document not found", 404);
   }
 
+  await removeDocumentFromRag(document._id.toString(), userId);
   await deleteCloudinaryFile(document.filePublicId);
 };
 

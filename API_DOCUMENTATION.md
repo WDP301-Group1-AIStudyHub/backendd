@@ -288,12 +288,18 @@ For `text-embedding-004`, create a dense index with dimension `768` and cosine m
 
 Protected. Ask a question against uploaded document chunks.
 
+Modes:
+
+- `basic`: Phase 2 naive RAG. Uses the original question for retrieval.
+- `corrective`: Phase 3 improved RAG. Rewrites the query, scores chunk relevance, retries retrieval if needed, self-checks grounding, and logs evaluation metrics.
+
 Request:
 
 ```json
 {
   "question": "Tài liệu nói gì về phương trình bậc hai?",
-  "documentId": "665f2a..."
+  "documentId": "665f2a...",
+  "mode": "corrective"
 }
 ```
 
@@ -316,14 +322,27 @@ Response:
   "message": "Question answered successfully",
   "data": {
     "answer": "Câu trả lời dựa trên nội dung tài liệu đã upload.",
+    "mode": "corrective",
+    "originalQuestion": "Tài liệu nói gì về phương trình bậc hai?",
+    "rewrittenQuery": "Explain the concept of quadratic equations in the uploaded study document.",
     "sources": [
       {
         "documentId": "665f2a...",
         "title": "Lesson 1",
         "chunkIndex": 0,
-        "contentPreview": "Đoạn nội dung liên quan..."
+        "contentPreview": "Đoạn nội dung liên quan...",
+        "relevanceScore": 0.82
       }
-    ]
+    ],
+    "evaluation": {
+      "retrievedChunksCount": 8,
+      "relevantChunksCount": 4,
+      "averageRelevanceScore": 0.72,
+      "correctiveAttempted": true,
+      "isGrounded": true,
+      "confidenceScore": 0.88,
+      "responseTimeMs": 2450
+    }
   }
 }
 ```
@@ -359,12 +378,62 @@ Response:
 }
 ```
 
+## Evaluation Logs
+
+### GET `/evaluation/logs`
+
+Protected. Returns research logs for comparing basic vs corrective RAG.
+
+### GET `/evaluation/summary`
+
+Protected.
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Evaluation summary fetched successfully",
+  "data": {
+    "totalQuestions": 10,
+    "averageRelevanceScore": 0.71,
+    "averageConfidenceScore": 0.84,
+    "averageResponseTime": 2200,
+    "basicModeCount": 4,
+    "correctiveModeCount": 6
+  }
+}
+```
+
 ## RAG Test Flow
 
 1. Start MongoDB and the backend, and make sure your Pinecone index exists.
 2. Register or login to get `accessToken`.
 3. Upload a PDF with `POST /api/documents/upload`.
 4. Confirm Pinecone has chunks by checking the upload request succeeds; the upload flow now indexes chunks after saving the document.
-5. Ask a question with `POST /api/chat/ask`.
-6. Check `data.answer` and `data.sources`.
-7. Check saved history with `GET /api/chat/history`.
+5. Ask a basic question with `POST /api/chat/ask` and `"mode": "basic"`.
+6. Ask the same question with `"mode": "corrective"`.
+7. Compare `data.evaluation` in both responses.
+8. Check saved history with `GET /api/chat/history`.
+9. Check research logs with `GET /api/evaluation/logs`.
+10. Check aggregate metrics with `GET /api/evaluation/summary`.
+
+Example basic request:
+
+```json
+{
+  "question": "Tài liệu nói gì về phương trình bậc hai?",
+  "documentId": "665f2a...",
+  "mode": "basic"
+}
+```
+
+Example corrective request:
+
+```json
+{
+  "question": "cái này dùng để làm gì",
+  "documentId": "665f2a...",
+  "mode": "corrective"
+}
+```

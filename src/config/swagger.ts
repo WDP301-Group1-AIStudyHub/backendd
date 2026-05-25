@@ -63,10 +63,17 @@ const options: swaggerJsdoc.Options = {
             },
             filePublicId: {
               type: "string",
-              example: "ai-study-hub/documents/1710000000000-lesson",
+              example: "ai-study-hub/documents/1710000000000-lesson.pdf",
             },
             fileName: { type: "string", example: "lesson.pdf" },
             fileType: { type: "string", example: "application/pdf" },
+            originalFileName: { type: "string", example: "lesson.pdf" },
+            storedFileName: {
+              type: "string",
+              example: "1710000000000-lesson.pdf",
+            },
+            fileExtension: { type: "string", example: ".pdf" },
+            mimeType: { type: "string", example: "application/pdf" },
             fileSize: { type: "number", example: 123456 },
             extractedText: { type: "string", example: "Extracted PDF text..." },
             uploadedBy: { type: "string", example: "665f1c9d2a5b6f0012a12345" },
@@ -90,6 +97,7 @@ const options: swaggerJsdoc.Options = {
             documentId: { type: "string", example: "665f2a9d2a5b6f0012a67890" },
             title: { type: "string", example: "Lesson 1" },
             chunkIndex: { type: "number", example: 0 },
+            section: { type: "string", example: "INSTRUCTIONS" },
             contentPreview: {
               type: "string",
               example: "This chunk contains the relevant lesson content...",
@@ -107,6 +115,19 @@ const options: swaggerJsdoc.Options = {
             isGrounded: { type: "boolean", example: true },
             confidenceScore: { type: "number", example: 0.88 },
             responseTimeMs: { type: "number", example: 2450 },
+            usedFallbackChunks: { type: "boolean", example: false },
+            relevanceThreshold: { type: "number", example: 0.35 },
+            warning: {
+              type: "string",
+              example:
+                "Used fallback top retrieved chunks because relevance evaluator rejected all chunks.",
+            },
+            detectedIntent: { type: "string", example: "entity_extraction" },
+            retrievedSections: {
+              type: "array",
+              items: { type: "string" },
+              example: ["INSTRUCTIONS", "CONTENT"],
+            },
           },
         },
         AskQuestionData: {

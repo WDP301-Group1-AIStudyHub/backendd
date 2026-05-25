@@ -13,6 +13,11 @@ export interface IRagEvaluationLog extends Document {
   isGrounded: boolean;
   confidenceScore: number;
   responseTimeMs: number;
+  usedFallbackChunks?: boolean;
+  relevanceThreshold?: number;
+  warning?: string;
+  detectedIntent?: string;
+  retrievedSections?: string[];
   createdAt: Date;
 }
 
@@ -66,6 +71,21 @@ const ragEvaluationLogSchema = new Schema<IRagEvaluationLog>(
     responseTimeMs: {
       type: Number,
       required: true,
+    },
+    usedFallbackChunks: {
+      type: Boolean,
+    },
+    relevanceThreshold: {
+      type: Number,
+    },
+    warning: {
+      type: String,
+    },
+    detectedIntent: {
+      type: String,
+    },
+    retrievedSections: {
+      type: [String],
     },
   },
   {

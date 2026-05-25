@@ -26,6 +26,12 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction,
 ): void => {
+  console.error("ERROR HANDLER:", {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+  });
+
   let statusCode = 500;
   let message = "Internal server error";
 
@@ -52,6 +58,9 @@ export const errorHandler = (
   res.status(statusCode).json({
     success: false,
     message,
-    error: process.env.NODE_ENV === "production" ? undefined : error.message,
+    debug: {
+      name: error.name,
+      message: error.message,
+    },
   });
 };

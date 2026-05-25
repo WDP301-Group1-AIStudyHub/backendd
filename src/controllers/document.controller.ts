@@ -9,6 +9,7 @@ import {
   deleteDocument,
   getDocumentById,
   getDocumentsByUser,
+  reindexUserDocument,
   searchDocuments,
   updateDocument,
 } from "../services/document.service";
@@ -26,6 +27,7 @@ export const uploadDocument = asyncHandler(async (
     message: "Document uploaded successfully",
     data,
   });
+  
 });
 
 export const listDocuments = asyncHandler(async (
@@ -50,6 +52,22 @@ export const getDocument = asyncHandler(async (
   sendResponse(res, 200, {
     success: true,
     message: "Document fetched successfully",
+    data,
+  });
+});
+
+export const reindexDocument = asyncHandler(async (
+  req: Request<{ documentId: string }>,
+  res: Response,
+): Promise<void> => {
+  const data = await reindexUserDocument(
+    req.params.documentId,
+    req.authUser!.id,
+  );
+
+  sendResponse(res, 200, {
+    success: true,
+    message: "Document reindexed successfully",
     data,
   });
 });

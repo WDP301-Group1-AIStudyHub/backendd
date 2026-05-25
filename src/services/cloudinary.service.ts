@@ -1,15 +1,28 @@
 import { UploadApiResponse } from "cloudinary";
 import cloudinary from "../config/cloudinary";
+import { generateSafeFileName, getFileExtension } from "../utils/fileName";
+
+export type CloudinaryDocumentUpload = {
+  result: UploadApiResponse;
+  originalFileName: string;
+  storedFileName: string;
+  fileExtension: string;
+  mimeType: string;
+};
 
 export const uploadPdfToCloudinary = async (
   file: Express.Multer.File,
-): Promise<UploadApiResponse> => {
+): Promise<CloudinaryDocumentUpload> => {
+  const storedFileName = generateSafeFileName(file.originalname);
+
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: "ai-study-hub/documents",
         resource_type: "raw",
-        public_id: `${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, "")}`,
+        // Cloudinary raw assets need the extension in public_id. Removing it
+        // makes downloaded files lose their OS-detectable type.
+        public_id: storedFileName,
       },
       (error, result) => {
         if (error || !result) {
@@ -17,7 +30,13 @@ export const uploadPdfToCloudinary = async (
           return;
         }
 
-        resolve(result);
+        resolve({
+          result,
+          originalFileName: file.originalname,
+          storedFileName,
+          fileExtension: getFileExtension(file.originalname),
+          mimeType: file.mimetype,
+        });
       },
     );
 

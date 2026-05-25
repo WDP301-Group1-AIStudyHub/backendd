@@ -11,19 +11,9 @@ const getGeminiClient = (): GoogleGenerativeAI => {
   return new GoogleGenerativeAI(apiKey);
 };
 
-export const generateGeminiText = async (prompt: string): Promise<string> => {
-  const model = getGeminiClient().getGenerativeModel({
-    model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
-  });
-
-  const result = await model.generateContent(prompt);
-
-  return result.response.text().trim();
-};
-
 export const generateEmbedding = async (text: string): Promise<number[]> => {
   const model = getGeminiClient().getGenerativeModel({
-    model: process.env.GEMINI_EMBEDDING_MODEL || "text-embedding-004",
+    model: process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001",
   });
 
   const result = await model.embedContent(text);
@@ -41,25 +31,4 @@ export const generateEmbeddings = async (
   }
 
   return embeddings;
-};
-
-export const generateAnswerFromContext = async (
-  question: string,
-  context: string,
-  strict = false,
-): Promise<string> => {
-  const prompt = `
-Bạn là trợ lý học tập. Chỉ trả lời dựa trên phần CONTEXT bên dưới.
-Nếu CONTEXT không có đủ thông tin để trả lời, hãy trả lời đúng câu:
-"Tôi không tìm thấy thông tin này trong tài liệu đã upload."
-${strict ? "Không suy luận ngoài CONTEXT. Mỗi ý trong câu trả lời phải được hỗ trợ trực tiếp bởi CONTEXT." : ""}
-
-CONTEXT:
-${context}
-
-QUESTION:
-${question}
-`;
-
-  return generateGeminiText(prompt);
 };

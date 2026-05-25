@@ -63,6 +63,11 @@ export const askQuestion = async (
     isGrounded: result.evaluation?.isGrounded ?? true,
     confidenceScore: result.evaluation?.confidenceScore || 0,
     responseTimeMs: result.evaluation?.responseTimeMs || 0,
+    usedFallbackChunks: result.evaluation?.usedFallbackChunks,
+    relevanceThreshold: result.evaluation?.relevanceThreshold,
+    warning: result.evaluation?.warning,
+    detectedIntent: result.evaluation?.detectedIntent,
+    retrievedSections: result.evaluation?.retrievedSections,
   });
 
   return result;

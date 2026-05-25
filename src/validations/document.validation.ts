@@ -29,6 +29,12 @@ export const documentIdSchema = z.object({
   }),
 });
 
+export const documentReindexSchema = z.object({
+  params: z.object({
+    documentId: z.string().trim().min(1),
+  }),
+});
+
 export const searchDocumentSchema = z.object({
   query: z.object({
     keyword: z.string().trim().optional(),

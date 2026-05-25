@@ -1,5 +1,6 @@
 import { Pinecone, RecordMetadata } from "@pinecone-database/pinecone";
 import { AppError } from "../middlewares/error.middleware";
+import { DocumentSection } from "../utils/documentSection";
 import { generateEmbedding, generateEmbeddings } from "./embedding.service";
 
 export interface VectorChunkInput {
@@ -8,6 +9,7 @@ export interface VectorChunkInput {
   subject?: string;
   title: string;
   chunkIndex: number;
+  section?: DocumentSection;
   content: string;
   metadata: Record<string, string | number | boolean>;
 }
@@ -21,13 +23,19 @@ export interface VectorSearchFilters {
 export interface RetrievedChunk {
   id: string;
   content: string;
+  pineconeScore?: number;
   metadata: {
     documentId: string;
     userId: string;
     subject: string;
     title: string;
     chunkIndex: number;
+    section: DocumentSection;
   };
+}
+
+export interface DeleteDocumentChunksResult {
+  deletedVectorCount: number;
 }
 
 interface PineconeChunkMetadata extends RecordMetadata {
@@ -36,6 +44,7 @@ interface PineconeChunkMetadata extends RecordMetadata {
   subject: string;
   title: string;
   chunkIndex: number;
+  section: DocumentSection;
   content: string;
 }
 
@@ -87,9 +96,9 @@ const buildPineconeFilter = (
 
 export const upsertDocumentChunks = async (
   chunks: VectorChunkInput[],
-): Promise<void> => {
+): Promise<number> => {
   if (chunks.length === 0) {
-    return;
+    return 0;
   }
 
   const index = getPineconeIndex();
@@ -106,11 +115,38 @@ export const upsertDocumentChunks = async (
         subject: chunk.subject || "",
         title: chunk.title,
         chunkIndex: chunk.chunkIndex,
+        section: chunk.section || "UNKNOWN",
         content: chunk.content,
         ...chunk.metadata,
       },
     })),
   });
+
+  return chunks.length;
+};
+
+const listDocumentVectorIds = async (documentId: string): Promise<string[]> => {
+  const index = getPineconeIndex();
+  const vectorIds: string[] = [];
+  let paginationToken: string | undefined;
+
+  do {
+    const result = await index.listPaginated({
+      namespace: getPineconeNamespace(),
+      prefix: `${documentId}:`,
+      limit: 100,
+      paginationToken,
+    });
+
+    vectorIds.push(
+      ...(result.vectors
+        ?.map((vector) => vector.id)
+        .filter((id): id is string => Boolean(id)) ?? []),
+    );
+    paginationToken = result.pagination?.next;
+  } while (paginationToken);
+
+  return vectorIds;
 };
 
 export const searchRelevantChunks = async (
@@ -136,12 +172,14 @@ export const searchRelevantChunks = async (
     return {
       id: match.id,
       content: metadata?.content || "",
+      pineconeScore: match.score,
       metadata: {
         documentId: metadata?.documentId || "",
         userId: metadata?.userId || "",
         subject: metadata?.subject || "",
         title: metadata?.title || "",
         chunkIndex: Number(metadata?.chunkIndex || 0),
+        section: (metadata?.section as DocumentSection | undefined) || "UNKNOWN",
       },
     };
   });
@@ -150,8 +188,34 @@ export const searchRelevantChunks = async (
 export const deleteDocumentChunks = async (
   documentId: string,
   userId: string,
-): Promise<void> => {
+): Promise<DeleteDocumentChunksResult> => {
   const index = getPineconeIndex();
+  let vectorIds: string[] = [];
+
+  try {
+    vectorIds = await listDocumentVectorIds(documentId);
+  } catch (error) {
+    console.warn("[RAG reindex] Could not list document vector ids before delete", {
+      documentId,
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+
+  if (vectorIds.length > 0) {
+    await index.deleteMany({
+      namespace: getPineconeNamespace(),
+      ids: vectorIds,
+    });
+
+    console.log("[RAG reindex] Deleted document vectors by id", {
+      documentId,
+      deletedVectorCount: vectorIds.length,
+    });
+
+    return {
+      deletedVectorCount: vectorIds.length,
+    };
+  }
 
   await index.deleteMany({
     namespace: getPineconeNamespace(),
@@ -160,4 +224,13 @@ export const deleteDocumentChunks = async (
       userId: { $eq: userId },
     },
   });
+
+  console.log("[RAG reindex] Deleted document vectors by metadata filter", {
+    documentId,
+    deletedVectorCount: 0,
+  });
+
+  return {
+    deletedVectorCount: 0,
+  };
 };

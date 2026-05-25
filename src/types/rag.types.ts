@@ -1,25 +1,30 @@
 import { Types } from "mongoose";
 import { ChatSource } from "./api.types";
+import { DocumentSection } from "../utils/documentSection";
 
 export type RagMode = "basic" | "corrective";
 
 export interface EvaluatedChunk {
   id: string;
   content: string;
+  pineconeScore?: number;
   metadata: {
     documentId: string;
     userId: string;
     subject: string;
     title: string;
     chunkIndex: number;
+    section: DocumentSection;
   };
   relevanceScore: number;
   isRelevant: boolean;
+  relevanceDecisionReason?: string;
 }
 
 export interface AnswerGroundingCheck {
   isGrounded: boolean;
   confidenceScore: number;
+  reason?: string;
   warning?: string;
 }
 
@@ -31,6 +36,11 @@ export interface RagEvaluation {
   isGrounded: boolean;
   confidenceScore: number;
   responseTimeMs: number;
+  usedFallbackChunks?: boolean;
+  relevanceThreshold?: number;
+  warning?: string;
+  detectedIntent?: string;
+  retrievedSections?: string[];
 }
 
 export interface RagAnswerResult {
@@ -54,6 +64,11 @@ export interface CreateRagEvaluationLogInput {
   isGrounded: boolean;
   confidenceScore: number;
   responseTimeMs: number;
+  usedFallbackChunks?: boolean;
+  relevanceThreshold?: number;
+  warning?: string;
+  detectedIntent?: string;
+  retrievedSections?: string[];
 }
 
 export interface RagEvaluationLogResponse extends CreateRagEvaluationLogInput {

@@ -1,6 +1,8 @@
 import { EvaluatedChunk } from "../types/rag.types";
 import { RetrievedChunk } from "./vector.service";
 
+const PINECONE_RELEVANCE_THRESHOLD = 0.3;
+
 const normalizeTerms = (text: string): string[] => {
   return text
     .toLowerCase()
@@ -12,37 +14,80 @@ const normalizeTerms = (text: string): string[] => {
 export const evaluateChunkRelevance = (
   question: string,
   chunk: RetrievedChunk,
-  threshold = 0.65,
+  threshold = 0.35,
 ): EvaluatedChunk => {
   const questionTerms = new Set(normalizeTerms(question));
   const chunkTerms = new Set(normalizeTerms(chunk.content));
+  const pineconeScore = chunk.pineconeScore ?? 0;
 
   if (questionTerms.size === 0 || chunkTerms.size === 0) {
+    const isRelevant = pineconeScore >= PINECONE_RELEVANCE_THRESHOLD;
+
+    console.log("[RAG relevance]", {
+      chunkId: chunk.id,
+      pineconeScore,
+      evaluatorRelevanceScore: 0,
+      isRelevant,
+      reason: isRelevant
+        ? "pinecone_score_above_threshold"
+        : "empty_question_or_chunk",
+    });
+
     return {
       ...chunk,
       relevanceScore: 0,
-      isRelevant: false,
+      isRelevant,
+      relevanceDecisionReason: isRelevant
+        ? "pinecone_score_above_threshold"
+        : "empty_question_or_chunk",
     };
   }
 
   const matchedTerms = [...questionTerms].filter((term) => chunkTerms.has(term));
   const coverageScore = matchedTerms.length / questionTerms.size;
   const densityScore = Math.min(matchedTerms.length / 8, 1);
-  const relevanceScore = Number(
+  const lexicalRelevanceScore = Number(
     (coverageScore * 0.75 + densityScore * 0.25).toFixed(2),
   );
+  const relevanceScore = Number(
+    Math.max(lexicalRelevanceScore, pineconeScore).toFixed(2),
+  );
+  const hasAnyQuestionSignal = matchedTerms.length > 0;
+  const explicitlyIrrelevant =
+    pineconeScore < PINECONE_RELEVANCE_THRESHOLD && !hasAnyQuestionSignal;
+  const isRelevant =
+    !explicitlyIrrelevant &&
+    (pineconeScore >= PINECONE_RELEVANCE_THRESHOLD ||
+      lexicalRelevanceScore >= threshold);
+  const relevanceDecisionReason = isRelevant
+    ? pineconeScore >= PINECONE_RELEVANCE_THRESHOLD
+      ? "pinecone_score_above_threshold"
+      : "lexical_score_above_threshold"
+    : "pinecone_and_lexical_scores_below_threshold";
+
+  console.log("[RAG relevance]", {
+    chunkId: chunk.id,
+    pineconeScore,
+    evaluatorRelevanceScore: lexicalRelevanceScore,
+    relevanceScore,
+    threshold,
+    matchedTerms,
+    isRelevant,
+    reason: relevanceDecisionReason,
+  });
 
   return {
     ...chunk,
     relevanceScore,
-    isRelevant: relevanceScore >= threshold,
+    isRelevant,
+    relevanceDecisionReason,
   };
 };
 
 export const evaluateRetrievedChunks = (
   question: string,
   chunks: RetrievedChunk[],
-  threshold = 0.65,
+  threshold = 0.35,
 ): EvaluatedChunk[] => {
   return chunks.map((chunk) => evaluateChunkRelevance(question, chunk, threshold));
 };

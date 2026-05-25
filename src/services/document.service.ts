@@ -2,6 +2,7 @@ import { StudyDocument, IDocument } from "../models/document.model";
 import {
   DocumentListResponse,
   DocumentResponse,
+  ReindexDocumentResponse,
   SearchDocumentQuery,
   UpdateDocumentRequest,
   UploadDocumentRequest,
@@ -14,9 +15,11 @@ import {
 import { extractPdfText } from "./pdf.service";
 import {
   indexDocumentForRag,
+  reembedDocumentForRag,
   reindexDocumentForRag,
   removeDocumentFromRag,
 } from "./rag.service";
+import { getFileExtension } from "../utils/fileName";
 
 export const toDocumentResponse = (document: IDocument): DocumentResponse => ({
   id: document._id.toString(),
@@ -27,6 +30,11 @@ export const toDocumentResponse = (document: IDocument): DocumentResponse => ({
   filePublicId: document.filePublicId,
   fileName: document.fileName,
   fileType: document.fileType,
+  originalFileName: document.originalFileName || document.fileName,
+  storedFileName: document.storedFileName || document.fileName,
+  fileExtension:
+    document.fileExtension || getFileExtension(document.fileName || ""),
+  mimeType: document.mimeType || document.fileType,
   fileSize: document.fileSize,
   extractedText: document.extractedText,
   uploadedBy: document.uploadedBy,
@@ -44,16 +52,20 @@ export const createDocument = async (
   }
 
   const extractedText = await extractPdfText(file.buffer);
-  const cloudinaryResult = await uploadPdfToCloudinary(file);
+  const cloudinaryUpload = await uploadPdfToCloudinary(file);
 
   const document = await StudyDocument.create({
     title: payload.title,
     description: payload.description,
     subject: payload.subject,
-    fileUrl: cloudinaryResult.secure_url,
-    filePublicId: cloudinaryResult.public_id,
+    fileUrl: cloudinaryUpload.result.secure_url,
+    filePublicId: cloudinaryUpload.result.public_id,
     fileName: file.originalname,
     fileType: file.mimetype,
+    originalFileName: cloudinaryUpload.originalFileName,
+    storedFileName: cloudinaryUpload.storedFileName,
+    fileExtension: cloudinaryUpload.fileExtension,
+    mimeType: cloudinaryUpload.mimeType,
     fileSize: file.size,
     extractedText,
     uploadedBy: userId,
@@ -91,6 +103,26 @@ export const getDocumentById = async (
   }
 
   return toDocumentResponse(document);
+};
+
+export const reindexUserDocument = async (
+  documentId: string,
+  userId: string,
+): Promise<ReindexDocumentResponse> => {
+  const document = await StudyDocument.findOne({
+    _id: documentId,
+    uploadedBy: userId,
+  });
+
+  if (!document) {
+    throw new AppError("Document not found", 404);
+  }
+
+  const result = await reembedDocumentForRag(document._id.toString(), userId);
+
+  console.log("[RAG reindex] Reindex endpoint completed", result);
+
+  return result;
 };
 
 export const updateDocument = async (

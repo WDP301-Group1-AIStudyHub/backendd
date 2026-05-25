@@ -20,6 +20,12 @@ const toEvaluationLogResponse = (
   isGrounded: log.isGrounded,
   confidenceScore: log.confidenceScore,
   responseTimeMs: log.responseTimeMs,
+  usedFallbackChunks: log.usedFallbackChunks,
+  relevanceThreshold: log.relevanceThreshold,
+  warning: log.warning,
+  detectedIntent: log.detectedIntent,
+  detectedTargetSection: log.detectedTargetSection,
+  retrievedSections: log.retrievedSections,
   createdAt: log.createdAt,
 });
 

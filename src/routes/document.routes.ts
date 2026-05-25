@@ -3,6 +3,7 @@ import {
   editDocument,
   getDocument,
   listDocuments,
+  reindexDocument,
   removeDocument,
   searchUserDocuments,
   uploadDocument,
@@ -12,6 +13,7 @@ import { uploadMiddleware } from "../middlewares/upload.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
   documentIdSchema,
+  documentReindexSchema,
   searchDocumentSchema,
   updateDocumentSchema,
   uploadDocumentSchema,
@@ -29,6 +31,11 @@ router.post(
 );
 router.get("/", listDocuments);
 router.get("/search", validateRequest(searchDocumentSchema), searchUserDocuments);
+router.post(
+  "/:documentId/reindex",
+  validateRequest(documentReindexSchema),
+  reindexDocument,
+);
 router.get("/:id", validateRequest(documentIdSchema), getDocument);
 router.put("/:id", validateRequest(updateDocumentSchema), editDocument);
 router.delete("/:id", validateRequest(documentIdSchema), removeDocument);

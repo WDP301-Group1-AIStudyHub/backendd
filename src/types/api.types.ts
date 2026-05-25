@@ -1,4 +1,5 @@
 import { Types } from "mongoose";
+import { DocumentSection } from "../utils/documentSection";
 import { RagEvaluation, RagMode } from "./rag.types";
 
 export interface ApiResponse<T> {
@@ -72,6 +73,10 @@ export interface DocumentResponse {
   filePublicId: string;
   fileName: string;
   fileType: string;
+  originalFileName: string;
+  storedFileName: string;
+  fileExtension: string;
+  mimeType: string;
   fileSize: number;
   extractedText: string;
   uploadedBy: string | Types.ObjectId;
@@ -82,6 +87,14 @@ export interface DocumentResponse {
 export interface DocumentListResponse {
   documents: DocumentResponse[];
   total: number;
+}
+
+export interface ReindexDocumentResponse {
+  documentId: string;
+  deletedVectorCount: number;
+  chunksCreated: number;
+  detectedSections: string[];
+  upsertedVectorCount: number;
 }
 
 export interface AskQuestionRequest {
@@ -95,6 +108,7 @@ export interface ChatSource {
   documentId: string;
   title: string;
   chunkIndex: number;
+  section?: DocumentSection;
   contentPreview: string;
   relevanceScore?: number;
 }

@@ -3,56 +3,106 @@ import {
   AskQuestionRequest,
   AskQuestionResponse,
   ChatSource,
+  ReindexDocumentResponse,
 } from "../types/api.types";
 import { RagAnswerResult } from "../types/rag.types";
 import { splitTextIntoChunks } from "../utils/textSplitter";
 import { AppError } from "../middlewares/error.middleware";
-import { generateAnswerFromContext } from "./groq.service";
+import {
+  generateAnswerFromContext,
+  generateEntityExtractionAnswer,
+} from "./groq.service";
+import { checkAnswerGrounding } from "./answerCheck.service";
+import { detectQuestionIntent } from "../utils/ragIntent";
+import { detectTargetSection, sectionsMatch } from "../utils/documentSection";
+import {
+  detectAnswerStyle,
+  getInsufficientContextAnswer,
+} from "../utils/answerStyle";
 import {
   deleteDocumentChunks,
   searchRelevantChunks,
   upsertDocumentChunks,
 } from "./vector.service";
 
-const INSUFFICIENT_CONTEXT_ANSWER =
-  "Tôi không tìm thấy thông tin này trong tài liệu đã upload.";
+const DEFAULT_CONTEXT_CHUNK_LIMIT = 5;
+const FOCUSED_CONTEXT_CHUNK_LIMIT = 3;
 
 export const indexDocumentForRag = async (
   documentId: string,
   userId: string,
-): Promise<void> => {
+): Promise<Omit<ReindexDocumentResponse, "deletedVectorCount">> => {
   const document = await StudyDocument.findOne({
     _id: documentId,
     uploadedBy: userId,
   });
 
   if (!document || !document.extractedText.trim()) {
-    return;
+    return {
+      documentId,
+      chunksCreated: 0,
+      detectedSections: [],
+      upsertedVectorCount: 0,
+    };
   }
 
   // RAG indexing: split extracted PDF text into overlapping chunks, then store
   // chunk vectors in Pinecone with metadata for later filtered retrieval.
   const chunks = await splitTextIntoChunks(document.extractedText);
 
-  await upsertDocumentChunks(
-    chunks.map((chunk) => ({
-      documentId: document._id.toString(),
-      userId,
-      subject: document.subject,
+  const vectorChunks = chunks.map((chunk) => ({
+    documentId: document._id.toString(),
+    userId,
+    subject: document.subject,
       title: document.title,
       chunkIndex: chunk.chunkIndex,
-      content: chunk.content,
-      metadata: chunk.metadata,
-    })),
-  );
+      section: chunk.metadata.section,
+    content: chunk.content,
+    metadata: chunk.metadata,
+  }));
+  const upsertedVectorCount = await upsertDocumentChunks(vectorChunks);
+  const detectedSections = [
+    ...new Set(chunks.map((chunk) => chunk.metadata.section)),
+  ];
+
+  console.log("[RAG reindex] Indexed document chunks", {
+    documentId,
+    chunksCreated: chunks.length,
+    detectedSections,
+    upsertedVectorCount,
+  });
+
+  return {
+    documentId,
+    chunksCreated: chunks.length,
+    detectedSections,
+    upsertedVectorCount,
+  };
 };
 
 export const reindexDocumentForRag = async (
   documentId: string,
   userId: string,
-): Promise<void> => {
-  await deleteDocumentChunks(documentId, userId);
-  await indexDocumentForRag(documentId, userId);
+): Promise<ReindexDocumentResponse> => {
+  const deleteResult = await deleteDocumentChunks(documentId, userId);
+  const indexResult = await indexDocumentForRag(documentId, userId);
+  const result = {
+    ...indexResult,
+    deletedVectorCount: deleteResult.deletedVectorCount,
+  };
+
+  console.log("[RAG reindex] Document reindexed", result);
+
+  return result;
+};
+
+export const reembedDocumentForRag = async (
+  documentId: string,
+  userId: string,
+): Promise<ReindexDocumentResponse> => {
+  // Re-embedding deletes stale Pinecone vectors, regenerates chunks with the
+  // latest section metadata, then upserts fresh embeddings.
+  return reindexDocumentForRag(documentId, userId);
 };
 
 export const removeDocumentFromRag = async (
@@ -86,10 +136,19 @@ export const askQuestionWithRag = async (
     documentId: payload.documentId,
     subject: payload.documentId ? undefined : payload.subject,
   });
+  const intent = detectQuestionIntent(payload.question);
+  const answerStyle = detectAnswerStyle(payload.question);
+  const detectedTargetSection =
+    intent === "entity_extraction"
+      ? detectTargetSection(payload.question)
+      : undefined;
+  const insufficientContextAnswer = getInsufficientContextAnswer(
+    answerStyle.language,
+  );
 
   if (chunks.length === 0) {
     return {
-      answer: INSUFFICIENT_CONTEXT_ANSWER,
+      answer: insufficientContextAnswer,
       mode: "basic",
       originalQuestion: payload.question,
       sources: [],
@@ -98,26 +157,64 @@ export const askQuestionWithRag = async (
         relevantChunksCount: 0,
         averageRelevanceScore: 0,
         correctiveAttempted: false,
-        isGrounded: true,
+        isGrounded: false,
         confidenceScore: 0,
         responseTimeMs: Date.now() - startedAt,
+        detectedIntent: intent,
+        detectedTargetSection,
+        retrievedSections: [],
       },
     };
   }
 
-  const context = chunks
+  const sectionMatchedChunks =
+    detectedTargetSection && intent === "entity_extraction"
+      ? chunks.filter((chunk) =>
+          sectionsMatch(chunk.metadata.section, detectedTargetSection),
+        )
+      : [];
+  const sourceChunks = sectionMatchedChunks.length > 0 ? sectionMatchedChunks : chunks;
+  const answerChunks =
+    intent === "entity_extraction" || answerStyle.wantsShortAnswer
+      ? [...sourceChunks]
+          .sort((a, b) => (b.pineconeScore ?? 0) - (a.pineconeScore ?? 0))
+          .slice(0, FOCUSED_CONTEXT_CHUNK_LIMIT)
+      : sourceChunks.slice(0, DEFAULT_CONTEXT_CHUNK_LIMIT);
+
+  const context = answerChunks
     .map(
       (chunk, index) =>
-        `[${index + 1}] Document: ${chunk.metadata.title}\n${chunk.content}`,
+        `[${index + 1}] Document: ${chunk.metadata.title}, section ${chunk.metadata.section}\n${chunk.content}`,
     )
     .join("\n\n");
 
-  const answer = await generateAnswerFromContext(payload.question, context);
+  let answer =
+    intent === "entity_extraction"
+      ? await generateEntityExtractionAnswer(payload.question, context, {
+          targetSection: detectedTargetSection,
+        })
+      : await generateAnswerFromContext(payload.question, context, false, {
+          intent,
+        });
+  let grounding = await checkAnswerGrounding(answer, context);
 
-  const sources: ChatSource[] = chunks.map((chunk) => ({
+  if (!grounding.isGrounded) {
+    answer =
+      intent === "entity_extraction"
+        ? await generateEntityExtractionAnswer(payload.question, context, {
+            targetSection: detectedTargetSection,
+          })
+        : await generateAnswerFromContext(payload.question, context, true, {
+            intent,
+          });
+    grounding = await checkAnswerGrounding(answer, context);
+  }
+
+  const sources: ChatSource[] = answerChunks.map((chunk) => ({
     documentId: chunk.metadata.documentId,
     title: chunk.metadata.title,
     chunkIndex: Number(chunk.metadata.chunkIndex),
+    section: chunk.metadata.section,
     contentPreview:
       chunk.content.length > 220
         ? `${chunk.content.slice(0, 220)}...`
@@ -125,7 +222,7 @@ export const askQuestionWithRag = async (
   }));
 
   return {
-    answer: answer || INSUFFICIENT_CONTEXT_ANSWER,
+    answer: answer || insufficientContextAnswer,
     mode: "basic",
     originalQuestion: payload.question,
     sources,
@@ -134,9 +231,15 @@ export const askQuestionWithRag = async (
       relevantChunksCount: chunks.length,
       averageRelevanceScore: chunks.length > 0 ? 1 : 0,
       correctiveAttempted: false,
-      isGrounded: true,
-      confidenceScore: 1,
+      isGrounded: grounding.isGrounded,
+      confidenceScore: grounding.confidenceScore,
       responseTimeMs: Date.now() - startedAt,
+      warning: grounding.warning,
+      detectedIntent: intent,
+      detectedTargetSection,
+      retrievedSections: [
+        ...new Set(chunks.map((chunk) => chunk.metadata.section)),
+      ],
     },
   };
 };

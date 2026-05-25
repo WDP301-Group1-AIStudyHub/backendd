@@ -8,6 +8,10 @@ export interface IDocument extends Document {
   filePublicId: string;
   fileName: string;
   fileType: string;
+  originalFileName: string;
+  storedFileName: string;
+  fileExtension: string;
+  mimeType: string;
   fileSize: number;
   extractedText: string;
   uploadedBy: Types.ObjectId;
@@ -48,6 +52,22 @@ const documentSchema = new Schema<IDocument>(
       required: true,
     },
     fileType: {
+      type: String,
+      required: true,
+    },
+    originalFileName: {
+      type: String,
+      required: true,
+    },
+    storedFileName: {
+      type: String,
+      required: true,
+    },
+    fileExtension: {
+      type: String,
+      default: "",
+    },
+    mimeType: {
       type: String,
       required: true,
     },

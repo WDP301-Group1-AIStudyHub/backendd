@@ -1,11 +1,16 @@
 import Groq, { APIError, RateLimitError } from "groq-sdk";
 import { ChatCompletionMessageParam } from "groq-sdk/resources/chat";
 import { AppError } from "../middlewares/error.middleware";
+import {
+  detectAnswerStyle,
+  AnswerLanguage,
+  getInsufficientContextAnswer,
+} from "../utils/answerStyle";
+import { DocumentSection } from "../utils/documentSection";
+import { detectQuestionIntent, QuestionIntent } from "../utils/ragIntent";
 import { retryAsync } from "../utils/retry";
 
 const DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant";
-const INSUFFICIENT_CONTEXT_ANSWER =
-  "Tôi không tìm thấy thông tin này trong tài liệu đã upload.";
 
 let groqClient: Groq | null = null;
 
@@ -105,21 +110,150 @@ export const generateGroqTextFromPrompt = async (
     options,
   );
 
+const removeRepeatedLines = (answer: string): string => {
+  const seen = new Set<string>();
+
+  return answer
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) {
+        return false;
+      }
+
+      const normalized = line.toLowerCase();
+
+      if (seen.has(normalized)) {
+        return false;
+      }
+
+      seen.add(normalized);
+      return true;
+    })
+    .join("\n")
+    .trim();
+};
+
+const countSentences = (answer: string): number => {
+  const matches = answer.match(/[^.!?。！？]+[.!?。！？]+/g);
+
+  return matches?.length ?? (answer.trim() ? 1 : 0);
+};
+
+const cleanupAnswer = (answer: string): string =>
+  removeRepeatedLines(answer.replace(/^["']|["']$/g, "").trim());
+
+const parseJsonObject = <T>(text: string): T | null => {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+  if (!jsonMatch) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(jsonMatch[0]) as T;
+  } catch {
+    return null;
+  }
+};
+
+const formatExtractedEntities = (
+  entities: string[],
+  language: AnswerLanguage,
+): string => {
+  const uniqueEntities = [...new Set(entities.map((entity) => entity.trim()))]
+    .filter(Boolean);
+
+  if (uniqueEntities.length === 0) {
+    return "";
+  }
+
+  if (uniqueEntities.length === 1) {
+    return `${uniqueEntities[0]}.`;
+  }
+
+  const conjunction = language === "Vietnamese" ? " và " : " and ";
+  const lastEntity = uniqueEntities[uniqueEntities.length - 1];
+  const leadingEntities = uniqueEntities.slice(0, -1).join(", ");
+
+  return `${leadingEntities}${conjunction}${lastEntity}.`;
+};
+
+const compressShortAnswer = async (
+  question: string,
+  answer: string,
+): Promise<string> => {
+  const style = detectAnswerStyle(question);
+
+  const compressed = await generateGroqText(
+    [
+      {
+        role: "system",
+        content: [
+          "Compress the answer without adding new facts.",
+          `Write in ${style.language}.`,
+          "Return only the compressed answer.",
+          "Maximum 2 sentences.",
+        ].join(" "),
+      },
+      {
+        role: "user",
+        content: `QUESTION:\n${question}\n\nANSWER:\n${answer}`,
+      },
+    ],
+    {
+      temperature: 0,
+      maxTokens: 100,
+    },
+  );
+
+  return cleanupAnswer(compressed || answer);
+};
+
 export const generateAnswerFromContext = async (
   question: string,
   context: string,
   strict = false,
+  options: {
+    intent?: QuestionIntent;
+  } = {},
 ): Promise<string> => {
+  const style = detectAnswerStyle(question);
+  const intent = options.intent ?? detectQuestionIntent(question);
+  const conciseAnswer = intent === "entity_extraction" || style.wantsShortAnswer;
+  const maxSentencesRule = style.wantsShortAnswer
+    ? "Maximum 2 sentences."
+    : "Use the shortest complete answer that satisfies the question.";
+  const insufficientContextAnswer = getInsufficientContextAnswer(style.language);
   const systemMessage = [
-    "Bạn là trợ lý học tập cho hệ thống RAG.",
-    "Chỉ trả lời dựa trên CONTEXT được cung cấp.",
-    `Nếu CONTEXT không có đủ thông tin để trả lời, hãy trả lời đúng câu: "${INSUFFICIENT_CONTEXT_ANSWER}"`,
+    // This prompt is document-type independent. It follows the user's task and
+    // the retrieved context instead of assuming CV, slides, notes, or articles.
+    "You are the answer generation layer in a RAG system.",
+    style.language === "other"
+      ? "Answer in the same language as the user's question."
+      : `Answer in ${style.language}, matching the user's question language.`,
+    "Answer only using the provided CONTEXT.",
+    "Follow the user's requested format exactly.",
+    style.wantsList ? "The user wants a list; use a concise list." : "",
+    "Do not add explanations unless the user asks for them.",
+    "Do not add unrelated information.",
+    "Do not hallucinate. Do not repeat.",
+    maxSentencesRule,
+    `If the CONTEXT is insufficient, answer exactly: "${insufficientContextAnswer}"`,
+    intent === "entity_extraction"
+      ? "Intent: entity_extraction. Extract only the requested entities. No long paragraphs. Prefer a compact comma-separated or natural-language list."
+      : `Intent: ${intent}.`,
     strict
-      ? "Không suy luận ngoài CONTEXT. Mỗi ý trong câu trả lời phải được hỗ trợ trực tiếp bởi CONTEXT."
-      : "Không bịa thêm thông tin ngoài tài liệu.",
-  ].join(" ");
+      ? "Strict mode: every answer item must be directly supported by CONTEXT."
+      : "If multiple chunks contain extra information, ignore anything outside the user's requested scope.",
+    conciseAnswer
+      ? "The user asked for a concise answer. Return only the final answer, with no preface."
+      : "Return the final answer directly.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
-  return generateGroqText(
+  const answer = await generateGroqText(
     [
       {
         role: "system",
@@ -132,7 +266,63 @@ export const generateAnswerFromContext = async (
     ],
     {
       temperature: 0.1,
-      maxTokens: 900,
+      maxTokens: conciseAnswer ? 120 : 700,
     },
   );
+
+  const cleanedAnswer = cleanupAnswer(answer);
+
+  if (style.wantsShortAnswer && countSentences(cleanedAnswer) > 2) {
+    return compressShortAnswer(question, cleanedAnswer);
+  }
+
+  return cleanedAnswer;
+};
+
+export const generateEntityExtractionAnswer = async (
+  question: string,
+  context: string,
+  options: {
+    targetSection?: DocumentSection;
+  } = {},
+): Promise<string> => {
+  const style = detectAnswerStyle(question);
+  const insufficientContextAnswer = getInsufficientContextAnswer(style.language);
+  const extraction = await generateGroqText(
+    [
+      {
+        role: "system",
+        content: [
+          "You are a strict entity extraction engine for a RAG system.",
+          "Use only the provided CONTEXT.",
+          "Return valid JSON only. Do not wrap it in markdown.",
+          "Expected JSON shape: {\"entities\":[\"string\"]}.",
+          "Extract only entities requested by the user.",
+          "Do not infer entities from unrelated sections.",
+          options.targetSection
+            ? `The requested section is ${options.targetSection}; ignore entities from other sections.`
+            : "",
+          "If no requested entities are present, return {\"entities\":[]}.",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      },
+      {
+        role: "user",
+        content: `CONTEXT:\n${context}\n\nQUESTION:\n${question}`,
+      },
+    ],
+    {
+      temperature: 0,
+      maxTokens: 180,
+    },
+  );
+  const parsed = parseJsonObject<{ entities?: unknown[] }>(extraction);
+  const entities =
+    parsed?.entities
+      ?.filter((entity): entity is string => typeof entity === "string")
+      .map((entity) => entity.trim()) ?? [];
+  const answer = formatExtractedEntities(entities, style.language);
+
+  return answer || insufficientContextAnswer;
 };

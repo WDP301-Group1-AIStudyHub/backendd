@@ -35,6 +35,9 @@ const chatSourceSchema = new Schema<ChatSource>(
       type: String,
       required: true,
     },
+    section: {
+      type: String,
+    },
     relevanceScore: {
       type: Number,
     },
@@ -51,6 +54,12 @@ const ragEvaluationSchema = new Schema<RagEvaluation>(
     isGrounded: { type: Boolean, required: true },
     confidenceScore: { type: Number, required: true },
     responseTimeMs: { type: Number, required: true },
+    usedFallbackChunks: { type: Boolean },
+    relevanceThreshold: { type: Number },
+    warning: { type: String },
+    detectedIntent: { type: String },
+    detectedTargetSection: { type: String },
+    retrievedSections: { type: [String] },
   },
   { _id: false },
 );

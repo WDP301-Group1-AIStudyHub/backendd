@@ -23,7 +23,7 @@ export const generateGeminiText = async (prompt: string): Promise<string> => {
 
 export const generateEmbedding = async (text: string): Promise<number[]> => {
   const model = getGeminiClient().getGenerativeModel({
-    model: process.env.GEMINI_EMBEDDING_MODEL || "text-embedding-004",
+    model: process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001",
   });
 
   const result = await model.embedContent(text);

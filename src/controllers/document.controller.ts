@@ -26,6 +26,7 @@ export const uploadDocument = asyncHandler(async (
     message: "Document uploaded successfully",
     data,
   });
+  
 });
 
 export const listDocuments = asyncHandler(async (

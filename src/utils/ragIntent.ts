@@ -9,7 +9,7 @@ export type QuestionIntent =
 
 const ENTITY_PATTERNS = [
   /\b(who|where|when|which|what name|email|date|name|names|location|address)\b/i,
-  /(^|\s)ai(\s|$)|ở đâu|khi nào|ngày nào|tên|email nào|địa chỉ|nơi nào|công ty nào/i,
+  /(^|\s)ai(\s|$)|ở đâu|khi nào|ngày nào|tên|email nào|địa chỉ|nơi nào/i,
 ];
 
 const SUMMARY_PATTERNS = [

@@ -40,7 +40,6 @@ export interface RagEvaluation {
   relevanceThreshold?: number;
   warning?: string;
   detectedIntent?: string;
-  detectedTargetSection?: string;
   retrievedSections?: string[];
 }
 
@@ -69,7 +68,6 @@ export interface CreateRagEvaluationLogInput {
   relevanceThreshold?: number;
   warning?: string;
   detectedIntent?: string;
-  detectedTargetSection?: string;
   retrievedSections?: string[];
 }
 

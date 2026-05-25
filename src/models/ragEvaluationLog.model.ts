@@ -17,7 +17,6 @@ export interface IRagEvaluationLog extends Document {
   relevanceThreshold?: number;
   warning?: string;
   detectedIntent?: string;
-  detectedTargetSection?: string;
   retrievedSections?: string[];
   createdAt: Date;
 }
@@ -83,9 +82,6 @@ const ragEvaluationLogSchema = new Schema<IRagEvaluationLog>(
       type: String,
     },
     detectedIntent: {
-      type: String,
-    },
-    detectedTargetSection: {
       type: String,
     },
     retrievedSections: {

@@ -6,7 +6,6 @@ import {
   AnswerLanguage,
   getInsufficientContextAnswer,
 } from "../utils/answerStyle";
-import { DocumentSection } from "../utils/documentSection";
 import { detectQuestionIntent, QuestionIntent } from "../utils/ragIntent";
 import { retryAsync } from "../utils/retry";
 
@@ -227,7 +226,7 @@ export const generateAnswerFromContext = async (
   const insufficientContextAnswer = getInsufficientContextAnswer(style.language);
   const systemMessage = [
     // This prompt is document-type independent. It follows the user's task and
-    // the retrieved context instead of assuming CV, slides, notes, or articles.
+    // the retrieved context instead of assuming a specific document domain.
     "You are the answer generation layer in a RAG system.",
     style.language === "other"
       ? "Answer in the same language as the user's question."
@@ -282,9 +281,6 @@ export const generateAnswerFromContext = async (
 export const generateEntityExtractionAnswer = async (
   question: string,
   context: string,
-  options: {
-    targetSection?: DocumentSection;
-  } = {},
 ): Promise<string> => {
   const style = detectAnswerStyle(question);
   const insufficientContextAnswer = getInsufficientContextAnswer(style.language);
@@ -298,10 +294,6 @@ export const generateEntityExtractionAnswer = async (
           "Return valid JSON only. Do not wrap it in markdown.",
           "Expected JSON shape: {\"entities\":[\"string\"]}.",
           "Extract only entities requested by the user.",
-          "Do not infer entities from unrelated sections.",
-          options.targetSection
-            ? `The requested section is ${options.targetSection}; ignore entities from other sections.`
-            : "",
           "If no requested entities are present, return {\"entities\":[]}.",
         ]
           .filter(Boolean)

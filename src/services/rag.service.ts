@@ -14,7 +14,6 @@ import {
 } from "./groq.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
 import { detectQuestionIntent } from "../utils/ragIntent";
-import { detectTargetSection, sectionsMatch } from "../utils/documentSection";
 import {
   detectAnswerStyle,
   getInsufficientContextAnswer,
@@ -54,9 +53,9 @@ export const indexDocumentForRag = async (
     documentId: document._id.toString(),
     userId,
     subject: document.subject,
-      title: document.title,
-      chunkIndex: chunk.chunkIndex,
-      section: chunk.metadata.section,
+    title: document.title,
+    chunkIndex: chunk.chunkIndex,
+    section: chunk.metadata.section,
     content: chunk.content,
     metadata: chunk.metadata,
   }));
@@ -138,10 +137,6 @@ export const askQuestionWithRag = async (
   });
   const intent = detectQuestionIntent(payload.question);
   const answerStyle = detectAnswerStyle(payload.question);
-  const detectedTargetSection =
-    intent === "entity_extraction"
-      ? detectTargetSection(payload.question)
-      : undefined;
   const insufficientContextAnswer = getInsufficientContextAnswer(
     answerStyle.language,
   );
@@ -161,25 +156,17 @@ export const askQuestionWithRag = async (
         confidenceScore: 0,
         responseTimeMs: Date.now() - startedAt,
         detectedIntent: intent,
-        detectedTargetSection,
         retrievedSections: [],
       },
     };
   }
 
-  const sectionMatchedChunks =
-    detectedTargetSection && intent === "entity_extraction"
-      ? chunks.filter((chunk) =>
-          sectionsMatch(chunk.metadata.section, detectedTargetSection),
-        )
-      : [];
-  const sourceChunks = sectionMatchedChunks.length > 0 ? sectionMatchedChunks : chunks;
   const answerChunks =
     intent === "entity_extraction" || answerStyle.wantsShortAnswer
-      ? [...sourceChunks]
+      ? [...chunks]
           .sort((a, b) => (b.pineconeScore ?? 0) - (a.pineconeScore ?? 0))
           .slice(0, FOCUSED_CONTEXT_CHUNK_LIMIT)
-      : sourceChunks.slice(0, DEFAULT_CONTEXT_CHUNK_LIMIT);
+      : chunks.slice(0, DEFAULT_CONTEXT_CHUNK_LIMIT);
 
   const context = answerChunks
     .map(
@@ -190,9 +177,7 @@ export const askQuestionWithRag = async (
 
   let answer =
     intent === "entity_extraction"
-      ? await generateEntityExtractionAnswer(payload.question, context, {
-          targetSection: detectedTargetSection,
-        })
+      ? await generateEntityExtractionAnswer(payload.question, context)
       : await generateAnswerFromContext(payload.question, context, false, {
           intent,
         });
@@ -201,9 +186,7 @@ export const askQuestionWithRag = async (
   if (!grounding.isGrounded) {
     answer =
       intent === "entity_extraction"
-        ? await generateEntityExtractionAnswer(payload.question, context, {
-            targetSection: detectedTargetSection,
-          })
+        ? await generateEntityExtractionAnswer(payload.question, context)
         : await generateAnswerFromContext(payload.question, context, true, {
             intent,
           });
@@ -236,7 +219,6 @@ export const askQuestionWithRag = async (
       responseTimeMs: Date.now() - startedAt,
       warning: grounding.warning,
       detectedIntent: intent,
-      detectedTargetSection,
       retrievedSections: [
         ...new Set(chunks.map((chunk) => chunk.metadata.section)),
       ],

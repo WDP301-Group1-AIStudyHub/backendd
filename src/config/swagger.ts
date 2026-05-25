@@ -97,7 +97,7 @@ const options: swaggerJsdoc.Options = {
             documentId: { type: "string", example: "665f2a9d2a5b6f0012a67890" },
             title: { type: "string", example: "Lesson 1" },
             chunkIndex: { type: "number", example: 0 },
-            section: { type: "string", example: "WORK_EXPERIENCE" },
+            section: { type: "string", example: "INSTRUCTIONS" },
             contentPreview: {
               type: "string",
               example: "This chunk contains the relevant lesson content...",
@@ -123,14 +123,10 @@ const options: swaggerJsdoc.Options = {
                 "Used fallback top retrieved chunks because relevance evaluator rejected all chunks.",
             },
             detectedIntent: { type: "string", example: "entity_extraction" },
-            detectedTargetSection: {
-              type: "string",
-              example: "WORK_EXPERIENCE",
-            },
             retrievedSections: {
               type: "array",
               items: { type: "string" },
-              example: ["EDUCATION", "WORK_EXPERIENCE"],
+              example: ["INSTRUCTIONS", "CONTENT"],
             },
           },
         },

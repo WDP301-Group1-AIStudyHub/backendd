@@ -67,7 +67,6 @@ export const askQuestion = async (
     relevanceThreshold: result.evaluation?.relevanceThreshold,
     warning: result.evaluation?.warning,
     detectedIntent: result.evaluation?.detectedIntent,
-    detectedTargetSection: result.evaluation?.detectedTargetSection,
     retrievedSections: result.evaluation?.retrievedSections,
   });
 

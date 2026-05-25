@@ -11,11 +11,6 @@ import {
 } from "./relevance.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
 import { searchRelevantChunks } from "./vector.service";
-import {
-  DocumentSection,
-  detectTargetSection,
-  sectionsMatch,
-} from "../utils/documentSection";
 import { detectQuestionIntent, QuestionIntent } from "../utils/ragIntent";
 import {
   detectAnswerStyle,
@@ -82,62 +77,18 @@ const selectAnswerChunks = (
   chunks: EvaluatedChunk[],
   intent: QuestionIntent,
   wantsShortAnswer: boolean,
-  targetSection?: DocumentSection,
 ): EvaluatedChunk[] => {
   const maxChunks =
     intent === "entity_extraction" || wantsShortAnswer
       ? FOCUSED_CONTEXT_CHUNK_LIMIT
       : DEFAULT_CONTEXT_CHUNK_LIMIT;
-  const sectionMatchedChunks =
-    targetSection && intent === "entity_extraction"
-      ? chunks.filter((chunk) => sectionsMatch(chunk.metadata.section, targetSection))
-      : [];
-  const sourceChunks = sectionMatchedChunks.length > 0 ? sectionMatchedChunks : chunks;
 
   // Document-type independent context selection: rank by retrieval/evaluation
-  // relevance only, without assuming CVs, slides, notes, or any fixed domain.
-  return [...sourceChunks]
+  // relevance only, without assuming any document category or domain.
+  return [...chunks]
     .filter((chunk) => chunk.relevanceScore >= RELEVANCE_THRESHOLD)
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
     .slice(0, maxChunks);
-};
-
-const applySectionAwareRelevance = (
-  chunks: EvaluatedChunk[],
-  targetSection?: DocumentSection,
-): EvaluatedChunk[] => {
-  if (!targetSection) {
-    return chunks;
-  }
-
-  return chunks.map((chunk) => {
-    const sectionMatches = sectionsMatch(chunk.metadata.section, targetSection);
-    const relevanceScore = Number(
-      Math.max(
-        0,
-        Math.min(1, chunk.relevanceScore + (sectionMatches ? 0.25 : -0.2)),
-      ).toFixed(2),
-    );
-    const adjustedChunk = {
-      ...chunk,
-      relevanceScore,
-      isRelevant: relevanceScore >= RELEVANCE_THRESHOLD,
-      relevanceDecisionReason: sectionMatches
-        ? `${chunk.relevanceDecisionReason || "relevant"}_section_match`
-        : `${chunk.relevanceDecisionReason || "relevant"}_section_mismatch`,
-    };
-
-    console.log("[RAG section relevance]", {
-      chunkId: chunk.id,
-      chunkSection: chunk.metadata.section,
-      targetSection,
-      originalRelevanceScore: chunk.relevanceScore,
-      adjustedRelevanceScore: relevanceScore,
-      isRelevant: adjustedChunk.isRelevant,
-    });
-
-    return adjustedChunk;
-  });
 };
 
 const getRetrievedSections = (chunks: EvaluatedChunk[]): string[] => [
@@ -151,10 +102,6 @@ export const askQuestionWithCorrectiveRag = async (
   const startedAt = Date.now();
   const intent = detectQuestionIntent(payload.question);
   const answerStyle = detectAnswerStyle(payload.question);
-  const detectedTargetSection =
-    intent === "entity_extraction"
-      ? detectTargetSection(payload.question)
-      : undefined;
   const insufficientContextAnswer = getInsufficientContextAnswer(
     answerStyle.language,
   );
@@ -171,13 +118,10 @@ export const askQuestionWithCorrectiveRag = async (
     },
     8,
   );
-  let evaluatedChunks = applySectionAwareRelevance(
-    evaluateRetrievedChunks(
-      `${payload.question} ${rewrittenQuery}`,
-      firstPassChunks,
-      RELEVANCE_THRESHOLD,
-    ),
-    detectedTargetSection,
+  let evaluatedChunks = evaluateRetrievedChunks(
+    `${payload.question} ${rewrittenQuery}`,
+    firstPassChunks,
+    RELEVANCE_THRESHOLD,
   );
 
   let correctiveAttempted = false;
@@ -203,13 +147,10 @@ export const askQuestionWithCorrectiveRag = async (
       },
       8,
     );
-    const secondEvaluatedChunks = applySectionAwareRelevance(
-      evaluateRetrievedChunks(
-        `${payload.question} ${rewrittenQuery} ${stricterQuery}`,
-        secondPassChunks,
-        RELEVANCE_THRESHOLD,
-      ),
-      detectedTargetSection,
+    const secondEvaluatedChunks = evaluateRetrievedChunks(
+      `${payload.question} ${rewrittenQuery} ${stricterQuery}`,
+      secondPassChunks,
+      RELEVANCE_THRESHOLD,
     );
 
     evaluatedChunks = dedupeChunks([...evaluatedChunks, ...secondEvaluatedChunks]);
@@ -236,7 +177,6 @@ export const askQuestionWithCorrectiveRag = async (
     candidateAnswerChunks,
     intent,
     answerStyle.wantsShortAnswer,
-    detectedTargetSection,
   );
   if (answerChunks.length === 0 && candidateAnswerChunks.length > 0) {
     usedFallbackChunks = true;
@@ -264,7 +204,6 @@ export const askQuestionWithCorrectiveRag = async (
         relevanceThreshold: RELEVANCE_THRESHOLD,
         warning,
         detectedIntent: intent,
-        detectedTargetSection,
         retrievedSections: getRetrievedSections(evaluatedChunks),
       },
     };
@@ -273,9 +212,7 @@ export const askQuestionWithCorrectiveRag = async (
   const context = buildContext(answerChunks);
   let answer =
     intent === "entity_extraction"
-      ? await generateEntityExtractionAnswer(payload.question, context, {
-          targetSection: detectedTargetSection,
-        })
+      ? await generateEntityExtractionAnswer(payload.question, context)
       : await generateAnswerFromContext(payload.question, context, false, {
           intent,
         });
@@ -284,9 +221,7 @@ export const askQuestionWithCorrectiveRag = async (
   if (!grounding.isGrounded) {
     answer =
       intent === "entity_extraction"
-        ? await generateEntityExtractionAnswer(payload.question, context, {
-            targetSection: detectedTargetSection,
-          })
+        ? await generateEntityExtractionAnswer(payload.question, context)
         : await generateAnswerFromContext(payload.question, context, true, {
             intent,
           });
@@ -311,7 +246,6 @@ export const askQuestionWithCorrectiveRag = async (
       relevanceThreshold: RELEVANCE_THRESHOLD,
       warning: warning || grounding.warning,
       detectedIntent: intent,
-      detectedTargetSection,
       retrievedSections: getRetrievedSections(evaluatedChunks),
     },
   };

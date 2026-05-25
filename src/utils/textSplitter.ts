@@ -1,6 +1,5 @@
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { DocumentSection, detectSectionFromHeading } from "./documentSection";
-import { detectSection } from "./sectionDetector";
 
 export interface DocumentChunk {
   chunkIndex: number;
@@ -14,51 +13,6 @@ export interface DocumentChunk {
 type SectionBlock = {
   section: DocumentSection;
   content: string;
-};
-
-const HEADING_FRAGMENTS = new Set([
-  "WORK",
-  "PROFESSIONAL",
-  "EMPLOYMENT",
-  "HISTORY",
-  "EXPERIENCE",
-  "EDUCATION",
-  "ACADEMIC",
-  "BACKGROUND",
-  "SKILLS",
-  "TECHNICAL",
-  "PROJECT",
-  "PROJECTS",
-  "CERTIFICATIONS",
-  "CERTIFICATES",
-  "INSTRUCTIONS",
-  "GUIDELINES",
-  "OBJECTIVE",
-  "CAREER",
-  "QUESTIONS",
-  "EXERCISES",
-  "SUMMARY",
-  "ABSTRACT",
-  "HỌC",
-  "VẤN",
-  "KỸ",
-  "NĂNG",
-  "DỰ",
-  "ÁN",
-  "CHỨNG",
-  "CHỈ",
-  "HƯỚNG",
-  "DẪN",
-]);
-
-const isHeadingFragment = (line: string): boolean => {
-  const normalizedLine = line
-    .toUpperCase()
-    .replace(/^[\s:;.,|/\\-]+|[\s:;.,|/\\-]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return HEADING_FRAGMENTS.has(normalizedLine);
 };
 
 const splitTextIntoSectionBlocks = (text: string): SectionBlock[] => {
@@ -83,53 +37,23 @@ const splitTextIntoSectionBlocks = (text: string): SectionBlock[] => {
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
+    const previousLine = lines[index - 1] ?? "";
     const nextLine = lines[index + 1] ?? "";
-    const thirdLine = lines[index + 2] ?? "";
-    const headingCandidates = [
-      { text: line, consumedLines: 1, canCheck: true },
-      {
-        text: `${line} ${nextLine}`,
-        consumedLines: 2,
-        canCheck: isHeadingFragment(line) && isHeadingFragment(nextLine),
-      },
-      {
-        text: `${line} ${nextLine} ${thirdLine}`,
-        consumedLines: 3,
-        canCheck:
-          isHeadingFragment(line) &&
-          isHeadingFragment(nextLine) &&
-          isHeadingFragment(thirdLine),
-      },
-    ];
-    const detectedHeading = headingCandidates.find((candidate) => {
-      if (!candidate.canCheck) {
-        return false;
-      }
-
-      const compactCandidate = candidate.text.replace(/\s+/g, " ").trim();
-
-      return (
-        compactCandidate.length > 0 &&
-        compactCandidate.length <= 120 &&
-        detectSection(compactCandidate) !== "UNKNOWN"
-      );
-    });
-    const detectedSection = detectedHeading
-      ? detectSection(detectedHeading.text)
-      : detectSectionFromHeading(line);
+    const detectedSection = detectSectionFromHeading(
+      line,
+      previousLine,
+      nextLine,
+    );
 
     if (detectedSection) {
       flushCurrentBlock();
       console.log("[RAG section transition]", {
         from: currentSection,
         to: detectedSection,
-        heading: detectedHeading?.text.replace(/\s+/g, " ").trim() || line.trim(),
+        heading: line.trim(),
       });
       currentSection = detectedSection;
-      currentLines.push(
-        ...lines.slice(index, index + (detectedHeading?.consumedLines ?? 1)),
-      );
-      index += (detectedHeading?.consumedLines ?? 1) - 1;
+      currentLines.push(line);
       continue;
     }
 

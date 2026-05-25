@@ -58,7 +58,6 @@ const ragEvaluationSchema = new Schema<RagEvaluation>(
     relevanceThreshold: { type: Number },
     warning: { type: String },
     detectedIntent: { type: String },
-    detectedTargetSection: { type: String },
     retrievedSections: { type: [String] },
   },
   { _id: false },

@@ -133,6 +133,20 @@ const options: swaggerJsdoc.Options = {
             evaluation: { $ref: "#/components/schemas/RagEvaluation" },
           },
         },
+        BenchmarkEvaluationScore: {
+          type: "object",
+          properties: {
+            answerCorrectness: { type: "number", example: 0.85 },
+            faithfulness: { type: "number", example: 0.9 },
+            relevance: { type: "number", example: 0.88 },
+            completeness: { type: "number", example: 0.8 },
+            overallScore: { type: "number", example: 0.86 },
+            explanation: {
+              type: "string",
+              example: "The answer covers most expected points and is grounded.",
+            },
+          },
+        },
       },
     },
     paths: {
@@ -289,6 +303,117 @@ const options: swaggerJsdoc.Options = {
           },
           responses: {
             "200": { description: "Forgot password request accepted" },
+          },
+        },
+      },
+      "/api/benchmark/questions": {
+        post: {
+          tags: ["Benchmark"],
+          summary: "Create a benchmark question",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["question", "expectedAnswer", "difficulty"],
+                  properties: {
+                    question: {
+                      type: "string",
+                      example: "What is the purpose of supervised learning?",
+                    },
+                    expectedAnswer: {
+                      type: "string",
+                      example:
+                        "Supervised learning learns from labeled examples to predict outputs for new inputs.",
+                    },
+                    subject: { type: "string", example: "Machine Learning" },
+                    documentId: { type: "string", example: "665f2a..." },
+                    difficulty: {
+                      type: "string",
+                      enum: ["easy", "medium", "hard"],
+                      example: "medium",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "201": { description: "Benchmark question created successfully" },
+          },
+        },
+        get: {
+          tags: ["Benchmark"],
+          summary: "List benchmark questions",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "Benchmark questions fetched successfully" },
+          },
+        },
+      },
+      "/api/benchmark/questions/{id}": {
+        get: {
+          tags: ["Benchmark"],
+          summary: "Get benchmark question",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+          ],
+          responses: {
+            "200": { description: "Benchmark question fetched successfully" },
+            "404": { description: "Benchmark question not found" },
+          },
+        },
+        put: {
+          tags: ["Benchmark"],
+          summary: "Update benchmark question",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+          ],
+          responses: {
+            "200": { description: "Benchmark question updated successfully" },
+          },
+        },
+        delete: {
+          tags: ["Benchmark"],
+          summary: "Delete benchmark question",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+          ],
+          responses: {
+            "200": { description: "Benchmark question deleted successfully" },
+          },
+        },
+      },
+      "/api/benchmark/run/{questionId}": {
+        post: {
+          tags: ["Benchmark"],
+          summary: "Run basic vs corrective benchmark for one question",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "questionId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "201": { description: "Benchmark run completed successfully" },
+          },
+        },
+      },
+      "/api/benchmark/summary": {
+        get: {
+          tags: ["Benchmark"],
+          summary: "Get benchmark summary metrics",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "Benchmark summary fetched successfully" },
           },
         },
       },

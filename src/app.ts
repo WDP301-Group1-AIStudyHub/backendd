@@ -4,6 +4,7 @@ import helmet from "helmet";
 import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./config/swagger";
 import authRoutes from "./routes/auth.routes";
+import benchmarkRoutes from "./routes/benchmark.routes";
 import chatRoutes from "./routes/chat.routes";
 import documentRoutes from "./routes/document.routes";
 import evaluationRoutes from "./routes/evaluation.routes";
@@ -38,6 +39,7 @@ app.get("/api-docs.json", (_req: Request, res: Response) => {
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use("/api/auth", authRoutes);
+app.use("/api/benchmark", benchmarkRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/evaluation", evaluationRoutes);

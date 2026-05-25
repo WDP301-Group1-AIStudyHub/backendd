@@ -1,6 +1,6 @@
 import { AskQuestionRequest, ChatSource } from "../types/api.types";
 import { EvaluatedChunk, RagAnswerResult } from "../types/rag.types";
-import { generateAnswerFromContext } from "./embedding.service";
+import { generateAnswerFromContext } from "./groq.service";
 import { rewriteAcademicQuery } from "./queryRewrite.service";
 import {
   calculateAverageRelevance,

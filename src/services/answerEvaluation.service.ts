@@ -1,5 +1,5 @@
 import { BenchmarkEvaluationScore } from "../types/api.types";
-import { generateGeminiText } from "./embedding.service";
+import { generateGroqTextFromPrompt } from "./groq.service";
 
 const clampScore = (score: unknown): number => {
   const value = Number(score);
@@ -61,14 +61,17 @@ ACTUAL_ANSWER:
 ${actualAnswer}
 `;
 
-  const response = await generateGeminiText(prompt);
+  const response = await generateGroqTextFromPrompt(prompt, {
+    temperature: 0,
+    maxTokens: 500,
+  });
   const parsed = parseJsonObject<BenchmarkEvaluationScore>(response, {
     answerCorrectness: 0,
     faithfulness: 0,
     relevance: 0,
     completeness: 0,
     overallScore: 0,
-    explanation: "Could not parse Gemini evaluation response.",
+    explanation: "Could not parse Groq evaluation response.",
   });
 
   const answerCorrectness = clampScore(parsed.answerCorrectness);

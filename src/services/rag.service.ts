@@ -7,7 +7,7 @@ import {
 import { RagAnswerResult } from "../types/rag.types";
 import { splitTextIntoChunks } from "../utils/textSplitter";
 import { AppError } from "../middlewares/error.middleware";
-import { generateAnswerFromContext } from "./embedding.service";
+import { generateAnswerFromContext } from "./groq.service";
 import {
   deleteDocumentChunks,
   searchRelevantChunks,

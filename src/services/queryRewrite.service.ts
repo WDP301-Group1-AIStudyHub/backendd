@@ -1,4 +1,4 @@
-import { generateGeminiText } from "./embedding.service";
+import { generateGroqTextFromPrompt } from "./groq.service";
 
 export const rewriteAcademicQuery = async (
   question: string,
@@ -12,7 +12,10 @@ Attempt: ${attempt}
 Original question: ${question}
 `;
 
-  const rewritten = await generateGeminiText(prompt);
+  const rewritten = await generateGroqTextFromPrompt(prompt, {
+    temperature: 0,
+    maxTokens: 120,
+  });
 
   return rewritten.replace(/^["']|["']$/g, "").trim() || question;
 };

@@ -1,6 +1,6 @@
 # AI Study Hub Phase 1 API
 
-Base URL: `http://localhost:5000/api`
+Base URL: `https://backendd-vn1j.onrender.com//api`
 
 All protected routes require:
 

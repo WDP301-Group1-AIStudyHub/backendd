@@ -437,3 +437,143 @@ Example corrective request:
   "mode": "corrective"
 }
 ```
+
+## Benchmark
+
+Benchmark APIs compare Basic RAG and Corrective RAG against an expected answer.
+All benchmark routes are protected.
+
+### POST `/benchmark/questions`
+
+Create one benchmark question.
+
+```json
+{
+  "question": "What is supervised learning used for?",
+  "expectedAnswer": "Supervised learning uses labeled examples to train a model to predict outputs for new inputs.",
+  "subject": "Machine Learning",
+  "documentId": "665f2a...",
+  "difficulty": "medium"
+}
+```
+
+### GET `/benchmark/questions`
+
+Returns all benchmark questions created by the current user.
+
+### GET `/benchmark/questions/:id`
+
+Returns one benchmark question.
+
+### PUT `/benchmark/questions/:id`
+
+Updates one benchmark question.
+
+```json
+{
+  "difficulty": "hard",
+  "expectedAnswer": "Updated expected answer."
+}
+```
+
+### DELETE `/benchmark/questions/:id`
+
+Deletes one benchmark question.
+
+### POST `/benchmark/run/:questionId`
+
+Runs the same question through:
+
+1. `mode = basic`
+2. `mode = corrective`
+
+Then Gemini evaluates both answers using:
+
+- `answerCorrectness`
+- `faithfulness`
+- `relevance`
+- `completeness`
+- `overallScore`
+
+Winner logic:
+
+- Corrective wins if its score is at least `0.05` higher.
+- Basic wins if its score is at least `0.05` higher.
+- Otherwise result is `tie`.
+
+Example response:
+
+```json
+{
+  "success": true,
+  "message": "Benchmark run completed successfully",
+  "data": {
+    "id": "666...",
+    "benchmarkQuestionId": "665...",
+    "question": "What is supervised learning used for?",
+    "expectedAnswer": "Supervised learning uses labeled examples...",
+    "basicAnswer": "Basic RAG answer...",
+    "correctiveAnswer": "Corrective RAG answer...",
+    "basicEvaluation": {
+      "answerCorrectness": 0.7,
+      "faithfulness": 0.8,
+      "relevance": 0.75,
+      "completeness": 0.65,
+      "overallScore": 0.73,
+      "explanation": "The answer is partially correct."
+    },
+    "correctiveEvaluation": {
+      "answerCorrectness": 0.9,
+      "faithfulness": 0.92,
+      "relevance": 0.9,
+      "completeness": 0.85,
+      "overallScore": 0.89,
+      "explanation": "The answer is accurate and complete."
+    },
+    "winner": "corrective"
+  }
+}
+```
+
+### GET `/benchmark/summary`
+
+Example response:
+
+```json
+{
+  "success": true,
+  "message": "Benchmark summary fetched successfully",
+  "data": {
+    "totalRuns": 10,
+    "basicAverageScore": 0.72,
+    "correctiveAverageScore": 0.84,
+    "correctiveWinRate": 0.7,
+    "basicWinRate": 0.2,
+    "tieRate": 0.1,
+    "averageFaithfulnessImprovement": 0.11,
+    "averageCorrectnessImprovement": 0.09
+  }
+}
+```
+
+Example benchmark questions:
+
+```json
+[
+  {
+    "question": "What is the main purpose of supervised learning?",
+    "expectedAnswer": "It learns from labeled data to predict outputs for unseen inputs.",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Why is normalization used before training a model?",
+    "expectedAnswer": "Normalization scales features to comparable ranges, helping optimization converge more reliably.",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Compare overfitting and underfitting based on the uploaded document.",
+    "expectedAnswer": "Overfitting performs well on training data but poorly on new data, while underfitting fails to capture the underlying pattern in both training and test data.",
+    "difficulty": "hard"
+  }
+]
+```

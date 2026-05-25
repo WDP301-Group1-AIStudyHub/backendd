@@ -128,3 +128,60 @@ export interface ChatHistoryListResponse {
   histories: ChatHistoryResponse[];
   total: number;
 }
+
+export type BenchmarkDifficulty = "easy" | "medium" | "hard";
+export type BenchmarkWinner = "basic" | "corrective" | "tie";
+
+export interface BenchmarkQuestionRequest {
+  question: string;
+  expectedAnswer: string;
+  subject?: string;
+  documentId?: string;
+  difficulty: BenchmarkDifficulty;
+}
+
+export interface BenchmarkQuestionResponse {
+  id: string;
+  question: string;
+  expectedAnswer: string;
+  subject?: string;
+  documentId?: string | Types.ObjectId;
+  difficulty: BenchmarkDifficulty;
+  createdBy: string | Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface BenchmarkEvaluationScore {
+  answerCorrectness: number;
+  faithfulness: number;
+  relevance: number;
+  completeness: number;
+  overallScore: number;
+  explanation: string;
+}
+
+export interface BenchmarkResultResponse {
+  id: string;
+  benchmarkQuestionId: string | Types.ObjectId;
+  question: string;
+  expectedAnswer: string;
+  basicAnswer: string;
+  correctiveAnswer: string;
+  basicEvaluation: BenchmarkEvaluationScore;
+  correctiveEvaluation: BenchmarkEvaluationScore;
+  winner: BenchmarkWinner;
+  createdBy: string | Types.ObjectId;
+  createdAt: Date;
+}
+
+export interface BenchmarkSummaryResponse {
+  totalRuns: number;
+  basicAverageScore: number;
+  correctiveAverageScore: number;
+  correctiveWinRate: number;
+  basicWinRate: number;
+  tieRate: number;
+  averageFaithfulnessImprovement: number;
+  averageCorrectnessImprovement: number;
+}

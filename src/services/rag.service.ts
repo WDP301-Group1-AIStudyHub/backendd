@@ -13,11 +13,11 @@ import {
   generateEntityExtractionAnswer,
 } from "./groq.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
-import { detectQuestionIntent } from "../utils/ragIntent";
 import {
   detectAnswerStyle,
   getInsufficientContextAnswer,
 } from "../utils/answerStyle";
+import { classifyQuestionIntent } from "./intentClassifier.service";
 import {
   deleteDocumentChunks,
   searchRelevantChunks,
@@ -56,12 +56,23 @@ export const indexDocumentForRag = async (
     title: document.title,
     chunkIndex: chunk.chunkIndex,
     section: chunk.metadata.section,
+    inferredSection: chunk.metadata.inferredSection,
+    semanticSectionLabel: chunk.metadata.semanticSectionLabel,
     content: chunk.content,
-    metadata: chunk.metadata,
+    metadata: {
+      textLength: chunk.metadata.textLength,
+      section: chunk.metadata.section || "",
+      inferredSection: chunk.metadata.inferredSection || "",
+      semanticSectionLabel: chunk.metadata.semanticSectionLabel || "",
+    },
   }));
   const upsertedVectorCount = await upsertDocumentChunks(vectorChunks);
   const detectedSections = [
-    ...new Set(chunks.map((chunk) => chunk.metadata.section)),
+    ...new Set(
+      chunks
+        .map((chunk) => chunk.metadata.inferredSection)
+        .filter((section): section is string => Boolean(section)),
+    ),
   ];
 
   console.log("[RAG reindex] Indexed document chunks", {
@@ -135,7 +146,8 @@ export const askQuestionWithRag = async (
     documentId: payload.documentId,
     subject: payload.documentId ? undefined : payload.subject,
   });
-  const intent = detectQuestionIntent(payload.question);
+  const intentClassification = await classifyQuestionIntent(payload.question);
+  const intent = intentClassification.intent;
   const answerStyle = detectAnswerStyle(payload.question);
   const insufficientContextAnswer = getInsufficientContextAnswer(
     answerStyle.language,
@@ -162,7 +174,7 @@ export const askQuestionWithRag = async (
   }
 
   const answerChunks =
-    intent === "entity_extraction" || answerStyle.wantsShortAnswer
+    intent === "extraction" || answerStyle.wantsShortAnswer
       ? [...chunks]
           .sort((a, b) => (b.pineconeScore ?? 0) - (a.pineconeScore ?? 0))
           .slice(0, FOCUSED_CONTEXT_CHUNK_LIMIT)
@@ -171,12 +183,16 @@ export const askQuestionWithRag = async (
   const context = answerChunks
     .map(
       (chunk, index) =>
-        `[${index + 1}] Document: ${chunk.metadata.title}, section ${chunk.metadata.section}\n${chunk.content}`,
+        `[${index + 1}] Document: ${chunk.metadata.title}${
+          chunk.metadata.inferredSection
+            ? `, inferred section ${chunk.metadata.inferredSection}`
+            : ""
+        }\n${chunk.content}`,
     )
     .join("\n\n");
 
   let answer =
-    intent === "entity_extraction"
+    intent === "extraction"
       ? await generateEntityExtractionAnswer(payload.question, context)
       : await generateAnswerFromContext(payload.question, context, false, {
           intent,
@@ -185,7 +201,7 @@ export const askQuestionWithRag = async (
 
   if (!grounding.isGrounded) {
     answer =
-      intent === "entity_extraction"
+      intent === "extraction"
         ? await generateEntityExtractionAnswer(payload.question, context)
         : await generateAnswerFromContext(payload.question, context, true, {
             intent,
@@ -198,6 +214,8 @@ export const askQuestionWithRag = async (
     title: chunk.metadata.title,
     chunkIndex: Number(chunk.metadata.chunkIndex),
     section: chunk.metadata.section,
+    inferredSection: chunk.metadata.inferredSection,
+    semanticSectionLabel: chunk.metadata.semanticSectionLabel,
     contentPreview:
       chunk.content.length > 220
         ? `${chunk.content.slice(0, 220)}...`
@@ -220,7 +238,14 @@ export const askQuestionWithRag = async (
       warning: grounding.warning,
       detectedIntent: intent,
       retrievedSections: [
-        ...new Set(chunks.map((chunk) => chunk.metadata.section)),
+        ...new Set(
+          chunks
+            .map(
+              (chunk) =>
+                chunk.metadata.inferredSection || chunk.metadata.section || "",
+            )
+            .filter(Boolean),
+        ),
       ],
     },
   };

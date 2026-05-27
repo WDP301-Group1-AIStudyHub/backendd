@@ -97,7 +97,9 @@ const options: swaggerJsdoc.Options = {
             documentId: { type: "string", example: "665f2a9d2a5b6f0012a67890" },
             title: { type: "string", example: "Lesson 1" },
             chunkIndex: { type: "number", example: 0 },
-            section: { type: "string", example: "INSTRUCTIONS" },
+            section: { type: "string", example: "Course Overview" },
+            inferredSection: { type: "string", example: "Course Overview" },
+            semanticSectionLabel: { type: "string", example: "Course Overview" },
             contentPreview: {
               type: "string",
               example: "This chunk contains the relevant lesson content...",
@@ -122,11 +124,11 @@ const options: swaggerJsdoc.Options = {
               example:
                 "Used fallback top retrieved chunks because relevance evaluator rejected all chunks.",
             },
-            detectedIntent: { type: "string", example: "entity_extraction" },
+            detectedIntent: { type: "string", example: "extraction" },
             retrievedSections: {
               type: "array",
               items: { type: "string" },
-              example: ["INSTRUCTIONS", "CONTENT"],
+              example: ["Course Overview", "Practice Questions"],
             },
           },
         },

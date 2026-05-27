@@ -16,6 +16,8 @@ export const evaluateChunkRelevance = (
   chunk: RetrievedChunk,
   threshold = 0.35,
 ): EvaluatedChunk => {
+  // Semantic retrieval must remain the primary signal. Lexical overlap is only
+  // a lightweight fallback/debug signal, not a document-specific rule system.
   const questionTerms = new Set(normalizeTerms(question));
   const chunkTerms = new Set(normalizeTerms(chunk.content));
   const pineconeScore = chunk.pineconeScore ?? 0;

@@ -6,8 +6,8 @@ import {
   AnswerLanguage,
   getInsufficientContextAnswer,
 } from "../utils/answerStyle";
-import { detectQuestionIntent, QuestionIntent } from "../utils/ragIntent";
 import { retryAsync } from "../utils/retry";
+import type { SemanticQuestionIntent } from "./intentClassifier.service";
 
 const DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant";
 
@@ -214,12 +214,12 @@ export const generateAnswerFromContext = async (
   context: string,
   strict = false,
   options: {
-    intent?: QuestionIntent;
+    intent?: SemanticQuestionIntent;
   } = {},
 ): Promise<string> => {
   const style = detectAnswerStyle(question);
-  const intent = options.intent ?? detectQuestionIntent(question);
-  const conciseAnswer = intent === "entity_extraction" || style.wantsShortAnswer;
+  const intent = options.intent ?? "unknown";
+  const conciseAnswer = intent === "extraction" || style.wantsShortAnswer;
   const maxSentencesRule = style.wantsShortAnswer
     ? "Maximum 2 sentences."
     : "Use the shortest complete answer that satisfies the question.";
@@ -233,14 +233,14 @@ export const generateAnswerFromContext = async (
       : `Answer in ${style.language}, matching the user's question language.`,
     "Answer only using the provided CONTEXT.",
     "Follow the user's requested format exactly.",
-    style.wantsList ? "The user wants a list; use a concise list." : "",
+    intent === "list" ? "The user wants a list; use a concise list." : "",
     "Do not add explanations unless the user asks for them.",
     "Do not add unrelated information.",
     "Do not hallucinate. Do not repeat.",
     maxSentencesRule,
     `If the CONTEXT is insufficient, answer exactly: "${insufficientContextAnswer}"`,
-    intent === "entity_extraction"
-      ? "Intent: entity_extraction. Extract only the requested entities. No long paragraphs. Prefer a compact comma-separated or natural-language list."
+    intent === "extraction"
+      ? "Intent: extraction. Extract only the requested information. No long paragraphs. Prefer a compact comma-separated or natural-language list when appropriate."
       : `Intent: ${intent}.`,
     strict
       ? "Strict mode: every answer item must be directly supported by CONTEXT."

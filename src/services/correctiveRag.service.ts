@@ -11,11 +11,14 @@ import {
 } from "./relevance.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
 import { searchRelevantChunks } from "./vector.service";
-import { detectQuestionIntent, QuestionIntent } from "../utils/ragIntent";
 import {
   detectAnswerStyle,
   getInsufficientContextAnswer,
 } from "../utils/answerStyle";
+import {
+  classifyQuestionIntent,
+  SemanticQuestionIntent,
+} from "./intentClassifier.service";
 
 const FALLBACK_WARNING =
   "Used fallback top retrieved chunks because relevance evaluator rejected all chunks.";
@@ -29,7 +32,11 @@ const buildContext = (chunks: EvaluatedChunk[]): string => {
   return chunks
     .map(
       (chunk, index) =>
-        `[${index + 1}] Document: ${chunk.metadata.title}, section ${chunk.metadata.section}, chunk ${chunk.metadata.chunkIndex}\n${chunk.content}`,
+        `[${index + 1}] Document: ${chunk.metadata.title}${
+          chunk.metadata.inferredSection
+            ? `, inferred section ${chunk.metadata.inferredSection}`
+            : ""
+        }, chunk ${chunk.metadata.chunkIndex}\n${chunk.content}`,
     )
     .join("\n\n");
 };
@@ -54,6 +61,8 @@ const toSources = (chunks: EvaluatedChunk[]): ChatSource[] => {
     title: chunk.metadata.title,
     chunkIndex: chunk.metadata.chunkIndex,
     section: chunk.metadata.section,
+    inferredSection: chunk.metadata.inferredSection,
+    semanticSectionLabel: chunk.metadata.semanticSectionLabel,
     contentPreview:
       chunk.content.length > 220
         ? `${chunk.content.slice(0, 220)}...`
@@ -75,11 +84,11 @@ const getFallbackChunks = (chunks: EvaluatedChunk[]): EvaluatedChunk[] => {
 
 const selectAnswerChunks = (
   chunks: EvaluatedChunk[],
-  intent: QuestionIntent,
+  intent: SemanticQuestionIntent,
   wantsShortAnswer: boolean,
 ): EvaluatedChunk[] => {
   const maxChunks =
-    intent === "entity_extraction" || wantsShortAnswer
+    intent === "extraction" || wantsShortAnswer
       ? FOCUSED_CONTEXT_CHUNK_LIMIT
       : DEFAULT_CONTEXT_CHUNK_LIMIT;
 
@@ -92,7 +101,11 @@ const selectAnswerChunks = (
 };
 
 const getRetrievedSections = (chunks: EvaluatedChunk[]): string[] => [
-  ...new Set(chunks.map((chunk) => chunk.metadata.section)),
+  ...new Set(
+    chunks
+      .map((chunk) => chunk.metadata.inferredSection || chunk.metadata.section || "")
+      .filter(Boolean),
+  ),
 ];
 
 export const askQuestionWithCorrectiveRag = async (
@@ -100,7 +113,8 @@ export const askQuestionWithCorrectiveRag = async (
   payload: AskQuestionRequest,
 ): Promise<RagAnswerResult> => {
   const startedAt = Date.now();
-  const intent = detectQuestionIntent(payload.question);
+  const intentClassification = await classifyQuestionIntent(payload.question);
+  const intent = intentClassification.intent;
   const answerStyle = detectAnswerStyle(payload.question);
   const insufficientContextAnswer = getInsufficientContextAnswer(
     answerStyle.language,
@@ -130,7 +144,7 @@ export const askQuestionWithCorrectiveRag = async (
   let warning: string | undefined;
 
   if (
-    intent !== "entity_extraction" &&
+    intent !== "extraction" &&
     relevantChunks.length < MIN_RELEVANT_CHUNKS
   ) {
     correctiveAttempted = true;
@@ -211,7 +225,7 @@ export const askQuestionWithCorrectiveRag = async (
 
   const context = buildContext(answerChunks);
   let answer =
-    intent === "entity_extraction"
+    intent === "extraction"
       ? await generateEntityExtractionAnswer(payload.question, context)
       : await generateAnswerFromContext(payload.question, context, false, {
           intent,
@@ -220,7 +234,7 @@ export const askQuestionWithCorrectiveRag = async (
 
   if (!grounding.isGrounded) {
     answer =
-      intent === "entity_extraction"
+      intent === "extraction"
         ? await generateEntityExtractionAnswer(payload.question, context)
         : await generateAnswerFromContext(payload.question, context, true, {
             intent,

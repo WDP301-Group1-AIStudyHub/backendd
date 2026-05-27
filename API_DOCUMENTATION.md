@@ -1,4 +1,4 @@
-# AI Study Hub Phase 1 API
+# AI Study Hub API
 
 Base URL: `https://backendd-vn1j.onrender.com//api`
 
@@ -36,6 +36,42 @@ npm run dev
 ```
 
 Required environment variables are listed in `.env.example`.
+
+## Architecture Notes
+
+The backend uses a generalized RAG architecture for study documents. It does not rely on document-type-specific sections or fixed heading keyword lists.
+
+Current RAG stack:
+
+- Gemini Embedding creates vectors for chunks and questions.
+- Pinecone performs semantic vector search.
+- Groq generates final answers from retrieved context.
+- A grounding check validates whether the answer is supported by retrieved chunks.
+
+Question-answering flow:
+
+```text
+User Question
+↓
+Gemini Embedding
+↓
+Pinecone Semantic Search
+↓
+Relevant Chunks
+↓
+Groq Answer Generation
+↓
+Grounding Check
+```
+
+Generic heading detection uses format signals only:
+
+- short line length
+- uppercase ratio
+- no ending punctuation
+- isolated line detection
+- numbered heading patterns such as `1.1`, `Chapter 1`, `Section 2`
+- fallback to `UNKNOWN` or `CONTENT`
 
 ## Auth
 
@@ -197,6 +233,10 @@ Response:
     "filePublicId": "ai-study-hub/documents/...",
     "fileName": "lesson.pdf",
     "fileType": "application/pdf",
+    "originalFileName": "lesson.pdf",
+    "storedFileName": "1710000000000-lesson.pdf",
+    "fileExtension": ".pdf",
+    "mimeType": "application/pdf",
     "fileSize": 123456,
     "extractedText": "Extracted PDF text...",
     "uploadedBy": "665f1c...",
@@ -268,6 +308,34 @@ GET /api/documents/search?keyword=algebra&subject=Math
 
 Response data shape is `DocumentListResponse`.
 
+### POST `/documents/:documentId/reindex`
+
+Protected. Rebuilds Pinecone vectors for an existing document. Use this endpoint after changing chunking or metadata logic so old vectors are removed and new vectors are inserted.
+
+Flow:
+
+1. Load the document from MongoDB.
+2. Delete old Pinecone vectors for the document.
+3. Re-run text chunking and generic heading detection.
+4. Re-generate Gemini embeddings.
+5. Re-upsert vectors into Pinecone.
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Document reindexed successfully",
+  "data": {
+    "documentId": "665f2a...",
+    "deletedVectorCount": 8,
+    "chunksCreated": 8,
+    "detectedSections": ["CONTENT", "UNKNOWN"],
+    "upsertedVectorCount": 8
+  }
+}
+```
+
 ## Chat RAG
 
 All chat routes are protected and require a bearer token.
@@ -276,9 +344,12 @@ Before testing RAG, create a Pinecone index and configure:
 
 ```env
 GEMINI_API_KEY=your-gemini-api-key
+GEMINI_EMBEDDING_MODEL=gemini-embedding-001
 PINECONE_API_KEY=your-pinecone-api-key
 PINECONE_INDEX_NAME=ai-study-hub
 PINECONE_NAMESPACE=ai-study-hub
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=llama-3.1-8b-instant
 ```
 
 The Pinecone index dimension must match the Gemini embedding model output.
@@ -292,6 +363,8 @@ Modes:
 
 - `basic`: Phase 2 naive RAG. Uses the original question for retrieval.
 - `corrective`: Phase 3 improved RAG. Rewrites the query, scores chunk relevance, retries retrieval if needed, self-checks grounding, and logs evaluation metrics.
+
+Corrective RAG is generalized. It does not boost document-specific sections. Retrieval relies mainly on embeddings, Pinecone similarity scores, relevance evaluation, and user query intent.
 
 Request:
 
@@ -330,6 +403,7 @@ Response:
         "documentId": "665f2a...",
         "title": "Lesson 1",
         "chunkIndex": 0,
+        "section": "CONTENT",
         "contentPreview": "Đoạn nội dung liên quan...",
         "relevanceScore": 0.82
       }
@@ -341,7 +415,11 @@ Response:
       "correctiveAttempted": true,
       "isGrounded": true,
       "confidenceScore": 0.88,
-      "responseTimeMs": 2450
+      "responseTimeMs": 2450,
+      "usedFallbackChunks": false,
+      "relevanceThreshold": 0.35,
+      "detectedIntent": "qa",
+      "retrievedSections": ["CONTENT", "UNKNOWN"]
     }
   }
 }
@@ -411,12 +489,13 @@ Response:
 2. Register or login to get `accessToken`.
 3. Upload a PDF with `POST /api/documents/upload`.
 4. Confirm Pinecone has chunks by checking the upload request succeeds; the upload flow now indexes chunks after saving the document.
-5. Ask a basic question with `POST /api/chat/ask` and `"mode": "basic"`.
-6. Ask the same question with `"mode": "corrective"`.
-7. Compare `data.evaluation` in both responses.
-8. Check saved history with `GET /api/chat/history`.
-9. Check research logs with `GET /api/evaluation/logs`.
-10. Check aggregate metrics with `GET /api/evaluation/summary`.
+5. If the document was uploaded before a chunking/metadata change, reindex it with `POST /api/documents/:documentId/reindex`.
+6. Ask a basic question with `POST /api/chat/ask` and `"mode": "basic"`.
+7. Ask the same question with `"mode": "corrective"`.
+8. Compare `data.evaluation` in both responses.
+9. Check saved history with `GET /api/chat/history`.
+10. Check research logs with `GET /api/evaluation/logs`.
+11. Check aggregate metrics with `GET /api/evaluation/summary`.
 
 Example basic request:
 
@@ -487,7 +566,7 @@ Runs the same question through:
 1. `mode = basic`
 2. `mode = corrective`
 
-Then Gemini evaluates both answers using:
+Then the answer evaluation service evaluates both answers using:
 
 - `answerCorrectness`
 - `faithfulness`

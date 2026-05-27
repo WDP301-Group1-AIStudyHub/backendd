@@ -1,6 +1,6 @@
 import { Pinecone, RecordMetadata } from "@pinecone-database/pinecone";
 import { AppError } from "../middlewares/error.middleware";
-import { DocumentSection } from "../utils/documentSection";
+import { SectionLabel } from "../utils/documentSection";
 import { generateEmbedding, generateEmbeddings } from "./embedding.service";
 
 export interface VectorChunkInput {
@@ -9,7 +9,9 @@ export interface VectorChunkInput {
   subject?: string;
   title: string;
   chunkIndex: number;
-  section?: DocumentSection;
+  section?: SectionLabel;
+  inferredSection?: string;
+  semanticSectionLabel?: string;
   content: string;
   metadata: Record<string, string | number | boolean>;
 }
@@ -30,7 +32,9 @@ export interface RetrievedChunk {
     subject: string;
     title: string;
     chunkIndex: number;
-    section: DocumentSection;
+    section?: SectionLabel;
+    inferredSection?: string;
+    semanticSectionLabel?: string;
   };
 }
 
@@ -44,7 +48,9 @@ interface PineconeChunkMetadata extends RecordMetadata {
   subject: string;
   title: string;
   chunkIndex: number;
-  section: DocumentSection;
+  section: SectionLabel;
+  inferredSection: string;
+  semanticSectionLabel: string;
   content: string;
 }
 
@@ -115,7 +121,9 @@ export const upsertDocumentChunks = async (
         subject: chunk.subject || "",
         title: chunk.title,
         chunkIndex: chunk.chunkIndex,
-        section: chunk.section || "UNKNOWN",
+        section: chunk.section || "",
+        inferredSection: chunk.inferredSection || chunk.section || "",
+        semanticSectionLabel: chunk.semanticSectionLabel || chunk.section || "",
         content: chunk.content,
         ...chunk.metadata,
       },
@@ -179,7 +187,11 @@ export const searchRelevantChunks = async (
         subject: metadata?.subject || "",
         title: metadata?.title || "",
         chunkIndex: Number(metadata?.chunkIndex || 0),
-        section: (metadata?.section as DocumentSection | undefined) || "UNKNOWN",
+        section: (metadata?.section as SectionLabel | undefined) || undefined,
+        inferredSection:
+          (metadata?.inferredSection as string | undefined) || undefined,
+        semanticSectionLabel:
+          (metadata?.semanticSectionLabel as string | undefined) || undefined,
       },
     };
   });

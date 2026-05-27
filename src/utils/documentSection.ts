@@ -1,10 +1,15 @@
-import { DocumentSection, normalizeSectionText } from "./sectionDetector";
-
-export type { DocumentSection };
+export type SectionLabel = string;
 
 const NUMBERED_HEADING_REGEX =
   /^((\d+(\.\d+)*\.?)|((CHAPTER|SECTION)\s+\d+(\.\d+)*))(\s+.+)?$/i;
 const ENDING_PUNCTUATION_REGEX = /[.!?。！？]$/;
+
+const normalizeHeadingCandidate = (text: string): string =>
+  text
+    .replace(/[\t\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s:;.,|/\\-]+|[\s:;.,|/\\-]+$/g, "")
+    .trim();
 
 const getUppercaseRatio = (text: string): number => {
   const letters = text.match(/\p{L}/gu) ?? [];
@@ -28,7 +33,7 @@ export const isLikelyHeading = (
   nextLine?: string,
 ): boolean => {
   const trimmedLine = line.trim();
-  const normalizedText = normalizeSectionText(line);
+  const normalizedText = normalizeHeadingCandidate(line);
 
   if (!normalizedText || normalizedText.length > 120) {
     return false;
@@ -55,6 +60,13 @@ export const detectSectionFromHeading = (
   text: string,
   previousLine?: string,
   nextLine?: string,
-): DocumentSection | null => {
-  return isLikelyHeading(text, previousLine, nextLine) ? "CONTENT" : null;
+): SectionLabel | null => {
+  if (!isLikelyHeading(text, previousLine, nextLine)) {
+    return null;
+  }
+
+  // Dynamic section labels preserve arbitrary document structure instead of
+  // forcing uploaded files into predefined section enums. Retrieval remains
+  // embedding-first, so section text is only contextual metadata.
+  return normalizeHeadingCandidate(text);
 };

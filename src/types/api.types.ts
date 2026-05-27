@@ -1,5 +1,4 @@
 import { Types } from "mongoose";
-import { DocumentSection } from "../utils/documentSection";
 import { RagEvaluation, RagMode } from "./rag.types";
 
 export interface ApiResponse<T> {
@@ -108,7 +107,9 @@ export interface ChatSource {
   documentId: string;
   title: string;
   chunkIndex: number;
-  section?: DocumentSection;
+  section?: string;
+  inferredSection?: string;
+  semanticSectionLabel?: string;
   contentPreview: string;
   relevanceScore?: number;
 }

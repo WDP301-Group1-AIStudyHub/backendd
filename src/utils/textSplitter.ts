@@ -1,31 +1,33 @@
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { DocumentSection, detectSectionFromHeading } from "./documentSection";
+import { SectionLabel, detectSectionFromHeading } from "./documentSection";
 
 export interface DocumentChunk {
   chunkIndex: number;
   content: string;
   metadata: {
     textLength: number;
-    section: DocumentSection;
+    section?: SectionLabel;
+    inferredSection?: string;
+    semanticSectionLabel?: string;
   };
 }
 
 type SectionBlock = {
-  section: DocumentSection;
+  inferredSection?: SectionLabel;
   content: string;
 };
 
 const splitTextIntoSectionBlocks = (text: string): SectionBlock[] => {
   const blocks: SectionBlock[] = [];
   const currentLines: string[] = [];
-  let currentSection: DocumentSection = "UNKNOWN";
+  let currentSection: SectionLabel | undefined;
 
   const flushCurrentBlock = (): void => {
     const content = currentLines.join("\n").trim();
 
     if (content) {
       blocks.push({
-        section: currentSection,
+        inferredSection: currentSection,
         content,
       });
     }
@@ -66,7 +68,6 @@ const splitTextIntoSectionBlocks = (text: string): SectionBlock[] => {
     ? blocks
     : [
         {
-          section: "UNKNOWN",
           content: text,
         },
       ];
@@ -97,12 +98,14 @@ export const splitTextIntoChunks = async (
         content: trimmedContent,
         metadata: {
           textLength: trimmedContent.length,
-          section: block.section,
+          section: block.inferredSection,
+          inferredSection: block.inferredSection,
+          semanticSectionLabel: block.inferredSection,
         },
       });
       console.log("[RAG chunk section]", {
         chunkIndex: chunks.length - 1,
-        section: block.section,
+        inferredSection: block.inferredSection,
         textLength: trimmedContent.length,
       });
     });

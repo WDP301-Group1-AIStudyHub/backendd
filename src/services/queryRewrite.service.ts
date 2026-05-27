@@ -1,15 +1,15 @@
 import { generateGroqTextFromPrompt } from "./groq.service";
 import { detectQuestionLanguage, getLanguageName } from "../utils/languageDetector";
-import { detectQuestionIntent } from "../utils/ragIntent";
+import { classifyQuestionIntent } from "./intentClassifier.service";
 
 export const rewriteAcademicQuery = async (
   question: string,
   attempt = 1,
 ): Promise<string> => {
-  const intent = detectQuestionIntent(question);
+  const { intent } = await classifyQuestionIntent(question);
   const language = detectQuestionLanguage(question);
 
-  if (intent === "entity_extraction") {
+  if (intent === "extraction") {
     return question.trim();
   }
 

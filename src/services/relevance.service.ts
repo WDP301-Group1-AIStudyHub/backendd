@@ -1,7 +1,6 @@
 import { EvaluatedChunk } from "../types/rag.types";
 import { RetrievedChunk } from "./vector.service";
-
-const PINECONE_RELEVANCE_THRESHOLD = 0.3;
+import { RAG_CONFIG } from "../config/rag.config";
 
 const normalizeTerms = (text: string): string[] => {
   return text
@@ -14,16 +13,17 @@ const normalizeTerms = (text: string): string[] => {
 export const evaluateChunkRelevance = (
   question: string,
   chunk: RetrievedChunk,
-  threshold = 0.35,
+  threshold = RAG_CONFIG.relevanceThreshold,
 ): EvaluatedChunk => {
-  // Semantic retrieval must remain the primary signal. Lexical overlap is only
-  // a lightweight fallback/debug signal, not a document-specific rule system.
+  // Semantic retrieval remains the primary signal for Vietnamese study docs.
+  // Vietnamese accents, spacing, and paraphrases can reduce lexical overlap,
+  // so lexical scoring stays secondary and does not use fixed keyword lists.
   const questionTerms = new Set(normalizeTerms(question));
   const chunkTerms = new Set(normalizeTerms(chunk.content));
   const pineconeScore = chunk.pineconeScore ?? 0;
 
   if (questionTerms.size === 0 || chunkTerms.size === 0) {
-    const isRelevant = pineconeScore >= PINECONE_RELEVANCE_THRESHOLD;
+    const isRelevant = pineconeScore >= RAG_CONFIG.pineconeRelevanceThreshold;
 
     console.log("[RAG relevance]", {
       chunkId: chunk.id,
@@ -56,13 +56,14 @@ export const evaluateChunkRelevance = (
   );
   const hasAnyQuestionSignal = matchedTerms.length > 0;
   const explicitlyIrrelevant =
-    pineconeScore < PINECONE_RELEVANCE_THRESHOLD && !hasAnyQuestionSignal;
+    pineconeScore < RAG_CONFIG.pineconeRelevanceThreshold &&
+    !hasAnyQuestionSignal;
   const isRelevant =
     !explicitlyIrrelevant &&
-    (pineconeScore >= PINECONE_RELEVANCE_THRESHOLD ||
+    (pineconeScore >= RAG_CONFIG.pineconeRelevanceThreshold ||
       lexicalRelevanceScore >= threshold);
   const relevanceDecisionReason = isRelevant
-    ? pineconeScore >= PINECONE_RELEVANCE_THRESHOLD
+    ? pineconeScore >= RAG_CONFIG.pineconeRelevanceThreshold
       ? "pinecone_score_above_threshold"
       : "lexical_score_above_threshold"
     : "pinecone_and_lexical_scores_below_threshold";
@@ -89,7 +90,7 @@ export const evaluateChunkRelevance = (
 export const evaluateRetrievedChunks = (
   question: string,
   chunks: RetrievedChunk[],
-  threshold = 0.35,
+  threshold = RAG_CONFIG.relevanceThreshold,
 ): EvaluatedChunk[] => {
   return chunks.map((chunk) => evaluateChunkRelevance(question, chunk, threshold));
 };

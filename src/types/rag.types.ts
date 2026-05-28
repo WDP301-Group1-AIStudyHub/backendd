@@ -13,6 +13,10 @@ export interface EvaluatedChunk {
     subject: string;
     title: string;
     chunkIndex: number;
+    heading?: string;
+    sectionTitle?: string;
+    sectionIndex?: number;
+    contentLength?: number;
     section?: string;
     inferredSection?: string;
     semanticSectionLabel?: string;

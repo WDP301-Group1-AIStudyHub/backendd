@@ -2,6 +2,7 @@ import { StudyDocument, IDocument } from "../models/document.model";
 import {
   DocumentListResponse,
   DocumentResponse,
+  DebugDocumentChunkResponse,
   ReindexDocumentResponse,
   SearchDocumentQuery,
   UpdateDocumentRequest,
@@ -20,6 +21,7 @@ import {
   removeDocumentFromRag,
 } from "./rag.service";
 import { getFileExtension } from "../utils/fileName";
+import { splitTextForRag } from "../utils/textSplitter";
 
 export const toDocumentResponse = (document: IDocument): DocumentResponse => ({
   id: document._id.toString(),
@@ -144,6 +146,38 @@ export const reindexUserDocument = async (
   console.log("[RAG reindex] Reindex endpoint completed", result);
 
   return result;
+};
+
+export const getDebugDocumentChunks = async (
+  documentId: string,
+  userId: string,
+): Promise<DebugDocumentChunkResponse> => {
+  const document = await StudyDocument.findOne({
+    _id: documentId,
+    uploadedBy: userId,
+  });
+
+  if (!document) {
+    throw new AppError("Document not found", 404);
+  }
+
+  const chunkingResult = await splitTextForRag(document.extractedText || "");
+
+  return {
+    chunksCount: chunkingResult.chunks.length,
+    chunkingStrategy: chunkingResult.chunkingStrategy,
+    chunks: chunkingResult.chunks.map((chunk) => ({
+      chunkIndex: chunk.chunkIndex,
+      sectionIndex: chunk.metadata.sectionIndex,
+      heading: chunk.metadata.heading,
+      sectionTitle: chunk.metadata.sectionTitle,
+      contentLength: chunk.metadata.contentLength,
+      contentPreview:
+        chunk.content.length > 220
+          ? `${chunk.content.slice(0, 220)}...`
+          : chunk.content,
+    })),
+  };
 };
 
 export const updateDocument = async (

@@ -1,6 +1,6 @@
 # Generalized RAG Flow
 
-This document describes the current RAG pipeline in AI Study Hub.
+This document describes the current RAG pipeline in AI Study Hub. The project now prioritizes Vietnamese educational document Q&A while keeping retrieval and chunking generic.
 
 ## Upload and Indexing Flow
 
@@ -13,9 +13,9 @@ Cloudinary stores raw document
 ↓
 Format-specific parser extracts plain text
 ↓
-Generic chunking
+Detect headings and split into sections
 ↓
-Format-based heading detection
+Split oversized sections with overlap
 ↓
 Jina embeddings
 ↓
@@ -33,6 +33,8 @@ Instead, the chunking pipeline detects likely headings by format:
 - line has no ending punctuation
 - line appears isolated
 - line is followed by content
+
+Heading-based chunking keeps section context attached to each chunk, reduces broken meaning across chunk boundaries, and improves retrieval for study materials with chapters, sections, or slide titles. If no headings are detected, the backend uses fixed-size fallback chunks labeled as `General Content`.
 - numbered heading patterns are allowed as generic structure markers
 
 Examples of generic numbered headings:
@@ -120,7 +122,7 @@ MongoDB document
 ↓
 Delete old Pinecone vectors
 ↓
-Re-run chunking
+Re-run heading-based chunking
 ↓
 Re-generate embeddings
 ↓
@@ -128,6 +130,10 @@ Upsert new vectors
 ```
 
 ## Design Decisions
+
+### Vietnamese educational QA focus
+
+Prompts preserve Vietnamese accents and subject-specific terms, answer Vietnamese questions in Vietnamese, and use only retrieved uploaded-document context. Corrective RAG defaults to `RELEVANCE_THRESHOLD=0.55`, which improves precision but can reduce recall. Tune `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and `MIN_RELEVANT_CHUNKS` through environment variables.
 
 ### No document-type-specific assumptions
 

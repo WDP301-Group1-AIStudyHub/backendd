@@ -6,7 +6,7 @@ import {
   ReindexDocumentResponse,
 } from "../types/api.types";
 import { RagAnswerResult } from "../types/rag.types";
-import { splitTextIntoChunks } from "../utils/textSplitter";
+import { splitTextForRag } from "../utils/textSplitter";
 import { AppError } from "../middlewares/error.middleware";
 import {
   generateAnswerFromContext,
@@ -48,7 +48,8 @@ export const indexDocumentForRag = async (
   // RAG indexing only sees normalized plain text. Embedding models do not read
   // PDF/Office binaries directly, so format-specific parsing happens before
   // this unchanged chunking and vector storage step.
-  const chunks = await splitTextIntoChunks(document.extractedText);
+  const chunkingResult = await splitTextForRag(document.extractedText);
+  const chunks = chunkingResult.chunks;
 
   const vectorChunks = chunks.map((chunk) => ({
     documentId: document._id.toString(),
@@ -56,11 +57,20 @@ export const indexDocumentForRag = async (
     subject: document.subject,
     title: document.title,
     chunkIndex: chunk.chunkIndex,
+    heading: chunk.metadata.heading,
+    sectionTitle: chunk.metadata.sectionTitle,
+    sectionIndex: chunk.metadata.sectionIndex,
+    contentLength: chunk.metadata.contentLength,
     section: chunk.metadata.section,
     inferredSection: chunk.metadata.inferredSection,
     semanticSectionLabel: chunk.metadata.semanticSectionLabel,
     content: chunk.content,
     metadata: {
+      heading: chunk.metadata.heading || "",
+      sectionTitle: chunk.metadata.sectionTitle,
+      sectionIndex: chunk.metadata.sectionIndex,
+      contentLength: chunk.metadata.contentLength,
+      chunkingStrategy: chunk.metadata.chunkingStrategy,
       textLength: chunk.metadata.textLength,
       section: chunk.metadata.section || "",
       inferredSection: chunk.metadata.inferredSection || "",
@@ -71,13 +81,14 @@ export const indexDocumentForRag = async (
   const detectedSections = [
     ...new Set(
       chunks
-        .map((chunk) => chunk.metadata.inferredSection)
+        .map((chunk) => chunk.metadata.sectionTitle)
         .filter((section): section is string => Boolean(section)),
     ),
   ];
 
   console.log("[RAG reindex] Indexed document chunks", {
     documentId,
+    chunkingStrategy: chunkingResult.chunkingStrategy,
     chunksCreated: chunks.length,
     detectedSections,
     upsertedVectorCount,
@@ -85,6 +96,7 @@ export const indexDocumentForRag = async (
 
   return {
     documentId,
+    chunkingStrategy: chunkingResult.chunkingStrategy,
     chunksCreated: chunks.length,
     detectedSections,
     upsertedVectorCount,
@@ -185,8 +197,8 @@ export const askQuestionWithRag = async (
     .map(
       (chunk, index) =>
         `[${index + 1}] Document: ${chunk.metadata.title}${
-          chunk.metadata.inferredSection
-            ? `, inferred section ${chunk.metadata.inferredSection}`
+          chunk.metadata.sectionTitle
+            ? `, section ${chunk.metadata.sectionTitle}`
             : ""
         }\n${chunk.content}`,
     )
@@ -217,6 +229,9 @@ export const askQuestionWithRag = async (
     section: chunk.metadata.section,
     inferredSection: chunk.metadata.inferredSection,
     semanticSectionLabel: chunk.metadata.semanticSectionLabel,
+    heading: chunk.metadata.heading,
+    sectionTitle: chunk.metadata.sectionTitle,
+    sectionIndex: chunk.metadata.sectionIndex,
     contentPreview:
       chunk.content.length > 220
         ? `${chunk.content.slice(0, 220)}...`
@@ -243,7 +258,10 @@ export const askQuestionWithRag = async (
           chunks
             .map(
               (chunk) =>
-                chunk.metadata.inferredSection || chunk.metadata.section || "",
+                chunk.metadata.sectionTitle ||
+                chunk.metadata.inferredSection ||
+                chunk.metadata.section ||
+                "",
             )
             .filter(Boolean),
         ),

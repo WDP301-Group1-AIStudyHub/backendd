@@ -19,12 +19,11 @@ import {
   classifyQuestionIntent,
   SemanticQuestionIntent,
 } from "./intentClassifier.service";
+import { RAG_CONFIG } from "../config/rag.config";
 
 const FALLBACK_WARNING =
   "Used fallback top retrieved chunks because relevance evaluator rejected all chunks.";
 
-const MIN_RELEVANT_CHUNKS = 3;
-const RELEVANCE_THRESHOLD = 0.35;
 const DEFAULT_CONTEXT_CHUNK_LIMIT = 5;
 const FOCUSED_CONTEXT_CHUNK_LIMIT = 3;
 
@@ -33,8 +32,8 @@ const buildContext = (chunks: EvaluatedChunk[]): string => {
     .map(
       (chunk, index) =>
         `[${index + 1}] Document: ${chunk.metadata.title}${
-          chunk.metadata.inferredSection
-            ? `, inferred section ${chunk.metadata.inferredSection}`
+          chunk.metadata.sectionTitle
+            ? `, section ${chunk.metadata.sectionTitle}`
             : ""
         }, chunk ${chunk.metadata.chunkIndex}\n${chunk.content}`,
     )
@@ -63,6 +62,9 @@ const toSources = (chunks: EvaluatedChunk[]): ChatSource[] => {
     section: chunk.metadata.section,
     inferredSection: chunk.metadata.inferredSection,
     semanticSectionLabel: chunk.metadata.semanticSectionLabel,
+    heading: chunk.metadata.heading,
+    sectionTitle: chunk.metadata.sectionTitle,
+    sectionIndex: chunk.metadata.sectionIndex,
     contentPreview:
       chunk.content.length > 220
         ? `${chunk.content.slice(0, 220)}...`
@@ -95,7 +97,7 @@ const selectAnswerChunks = (
   // Document-type independent context selection: rank by retrieval/evaluation
   // relevance only, without assuming any document category or domain.
   return [...chunks]
-    .filter((chunk) => chunk.relevanceScore >= RELEVANCE_THRESHOLD)
+    .filter((chunk) => chunk.relevanceScore >= RAG_CONFIG.relevanceThreshold)
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
     .slice(0, maxChunks);
 };
@@ -103,7 +105,13 @@ const selectAnswerChunks = (
 const getRetrievedSections = (chunks: EvaluatedChunk[]): string[] => [
   ...new Set(
     chunks
-      .map((chunk) => chunk.metadata.inferredSection || chunk.metadata.section || "")
+      .map(
+        (chunk) =>
+          chunk.metadata.sectionTitle ||
+          chunk.metadata.inferredSection ||
+          chunk.metadata.section ||
+          "",
+      )
       .filter(Boolean),
   ),
 ];
@@ -135,7 +143,7 @@ export const askQuestionWithCorrectiveRag = async (
   let evaluatedChunks = evaluateRetrievedChunks(
     `${payload.question} ${rewrittenQuery}`,
     firstPassChunks,
-    RELEVANCE_THRESHOLD,
+    RAG_CONFIG.relevanceThreshold,
   );
 
   let correctiveAttempted = false;
@@ -145,7 +153,7 @@ export const askQuestionWithCorrectiveRag = async (
 
   if (
     intent !== "extraction" &&
-    relevantChunks.length < MIN_RELEVANT_CHUNKS
+    relevantChunks.length < RAG_CONFIG.minRelevantChunks
   ) {
     correctiveAttempted = true;
     const stricterQuery = await rewriteAcademicQuery(
@@ -164,7 +172,7 @@ export const askQuestionWithCorrectiveRag = async (
     const secondEvaluatedChunks = evaluateRetrievedChunks(
       `${payload.question} ${rewrittenQuery} ${stricterQuery}`,
       secondPassChunks,
-      RELEVANCE_THRESHOLD,
+      RAG_CONFIG.relevanceThreshold,
     );
 
     evaluatedChunks = dedupeChunks([...evaluatedChunks, ...secondEvaluatedChunks]);
@@ -215,7 +223,7 @@ export const askQuestionWithCorrectiveRag = async (
         confidenceScore: 0,
         responseTimeMs: Date.now() - startedAt,
         usedFallbackChunks,
-        relevanceThreshold: RELEVANCE_THRESHOLD,
+        relevanceThreshold: RAG_CONFIG.relevanceThreshold,
         warning,
         detectedIntent: intent,
         retrievedSections: getRetrievedSections(evaluatedChunks),
@@ -257,7 +265,7 @@ export const askQuestionWithCorrectiveRag = async (
       confidenceScore: grounding.confidenceScore,
       responseTimeMs: Date.now() - startedAt,
       usedFallbackChunks,
-      relevanceThreshold: RELEVANCE_THRESHOLD,
+      relevanceThreshold: RAG_CONFIG.relevanceThreshold,
       warning: warning || grounding.warning,
       detectedIntent: intent,
       retrievedSections: getRetrievedSections(evaluatedChunks),

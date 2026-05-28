@@ -33,11 +33,5 @@ export const detectAnswerStyle = (question: string): AnswerStyle => {
 };
 
 export const getInsufficientContextAnswer = (
-  language: AnswerLanguage,
-): string => {
-  if (language === "Vietnamese") {
-    return "Tôi không tìm thấy thông tin này trong tài liệu đã upload.";
-  }
-
-  return "I could not find this information in the uploaded document.";
-};
+  _language: AnswerLanguage,
+): string => "Tôi không tìm thấy thông tin này trong tài liệu đã upload.";

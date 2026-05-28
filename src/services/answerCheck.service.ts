@@ -20,7 +20,7 @@ export const checkAnswerGrounding = async (
   context: string,
 ): Promise<AnswerGroundingCheck> => {
   const prompt = `
-You are evaluating whether an answer is grounded only in the provided context.
+You are evaluating whether an answer for Vietnamese educational document QA is grounded only in the provided context.
 Return valid JSON only. Do not wrap it in markdown.
 Expected JSON:
 {
@@ -32,6 +32,9 @@ Expected JSON:
 Rules:
 - isGrounded must be false if the answer contains claims not supported by context.
 - confidenceScore must be from 0 to 1.
+- Vietnamese answers must preserve the meaning and terms found in the context.
+- Do not require translation of Vietnamese educational terms.
+- If the context is insufficient, the answer should be exactly: "Tôi không tìm thấy thông tin này trong tài liệu đã upload."
 
 Context:
 ${context}

@@ -130,7 +130,7 @@ const options: swaggerJsdoc.Options = {
             confidenceScore: { type: "number", example: 0.88 },
             responseTimeMs: { type: "number", example: 2450 },
             usedFallbackChunks: { type: "boolean", example: false },
-            relevanceThreshold: { type: "number", example: 0.35 },
+            relevanceThreshold: { type: "number", example: 0.55 },
             warning: {
               type: "string",
               example:
@@ -662,6 +662,48 @@ const options: swaggerJsdoc.Options = {
           responses: {
             "200": { description: "Documents searched successfully" },
             "401": { description: "Unauthorized" },
+          },
+        },
+      },
+      "/api/documents/{documentId}/reindex": {
+        post: {
+          tags: ["Documents"],
+          summary: "Reindex document chunks",
+          description:
+            "Deletes old Pinecone vectors, regenerates heading-based chunks, regenerates embeddings, and upserts fresh vectors.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "documentId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Document reindexed successfully" },
+            "404": { description: "Document not found" },
+          },
+        },
+      },
+      "/api/debug/documents/{documentId}/chunks": {
+        get: {
+          tags: ["Debug"],
+          summary: "Preview generated document chunks",
+          description:
+            "Returns heading-based chunk previews for a document without writing vectors to Pinecone. If no headings are detected, chunkingStrategy is fixed-size-fallback.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "documentId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Document chunks generated successfully" },
+            "404": { description: "Document not found" },
           },
         },
       },

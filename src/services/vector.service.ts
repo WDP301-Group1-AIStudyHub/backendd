@@ -13,6 +13,10 @@ export interface VectorChunkInput {
   subject?: string;
   title: string;
   chunkIndex: number;
+  heading?: string | null;
+  sectionTitle: string;
+  sectionIndex: number;
+  contentLength: number;
   section?: SectionLabel;
   inferredSection?: string;
   semanticSectionLabel?: string;
@@ -36,6 +40,10 @@ export interface RetrievedChunk {
     subject: string;
     title: string;
     chunkIndex: number;
+    heading?: string;
+    sectionTitle?: string;
+    sectionIndex?: number;
+    contentLength?: number;
     section?: SectionLabel;
     inferredSection?: string;
     semanticSectionLabel?: string;
@@ -52,6 +60,10 @@ interface PineconeChunkMetadata extends RecordMetadata {
   subject: string;
   title: string;
   chunkIndex: number;
+  heading: string;
+  sectionTitle: string;
+  sectionIndex: number;
+  contentLength: number;
   section: SectionLabel;
   inferredSection: string;
   semanticSectionLabel: string;
@@ -167,6 +179,10 @@ export const upsertDocumentChunks = async (
         subject: chunk.subject || "",
         title: chunk.title,
         chunkIndex: chunk.chunkIndex,
+        heading: chunk.heading || "",
+        sectionTitle: chunk.sectionTitle,
+        sectionIndex: chunk.sectionIndex,
+        contentLength: chunk.contentLength,
         section: chunk.section || "",
         inferredSection: chunk.inferredSection || chunk.section || "",
         semanticSectionLabel: chunk.semanticSectionLabel || chunk.section || "",
@@ -233,6 +249,17 @@ export const searchRelevantChunks = async (
         subject: metadata?.subject || "",
         title: metadata?.title || "",
         chunkIndex: Number(metadata?.chunkIndex || 0),
+        heading: (metadata?.heading as string | undefined) || undefined,
+        sectionTitle:
+          (metadata?.sectionTitle as string | undefined) || undefined,
+        sectionIndex:
+          metadata?.sectionIndex === undefined
+            ? undefined
+            : Number(metadata.sectionIndex),
+        contentLength:
+          metadata?.contentLength === undefined
+            ? undefined
+            : Number(metadata.contentLength),
         section: (metadata?.section as SectionLabel | undefined) || undefined,
         inferredSection:
           (metadata?.inferredSection as string | undefined) || undefined,

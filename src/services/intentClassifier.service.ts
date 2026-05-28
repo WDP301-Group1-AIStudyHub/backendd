@@ -59,8 +59,10 @@ export const classifyQuestionIntent = async (
   // document formats. This model-driven classifier keeps RAG understanding
   // semantic while still returning a small typed contract for the pipeline.
   const prompt = `
-Classify the user's question for a generalized study-document RAG system.
+Classify the user's question for a Vietnamese-focused educational document RAG system.
+Vietnamese questions must keep their original meaning, accents, and subject-specific terms.
 Do not use document-type assumptions.
+Do not translate the question.
 Return valid JSON only. Do not wrap the response in markdown.
 
 Allowed intents:

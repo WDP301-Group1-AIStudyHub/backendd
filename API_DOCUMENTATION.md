@@ -327,7 +327,7 @@ Flow:
 
 1. Load the document from MongoDB.
 2. Delete old Pinecone vectors for the document.
-3. Re-run text chunking and generic heading detection.
+3. Re-run heading-based chunking and generic heading detection.
 4. Re-generate Jina embeddings.
 5. Re-upsert vectors into Pinecone.
 
@@ -340,12 +340,42 @@ Response:
   "data": {
     "documentId": "665f2a...",
     "deletedVectorCount": 8,
+    "chunkingStrategy": "heading-based",
     "chunksCreated": 8,
-    "detectedSections": ["CONTENT", "UNKNOWN"],
+    "detectedSections": ["1. Introduction", "2. Practice"],
     "upsertedVectorCount": 8
   }
 }
 ```
+
+### GET `/debug/documents/:documentId/chunks`
+
+Protected. Generates chunks for one document without writing to Pinecone. Use this to inspect whether heading-based chunking or fixed-size fallback is being used.
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Document chunks generated successfully",
+  "data": {
+    "chunksCount": 2,
+    "chunkingStrategy": "heading-based",
+    "chunks": [
+      {
+        "chunkIndex": 0,
+        "sectionIndex": 0,
+        "heading": "1. Introduction",
+        "sectionTitle": "1. Introduction",
+        "contentLength": 840,
+        "contentPreview": "1. Introduction\nThis lesson explains..."
+      }
+    ]
+  }
+}
+```
+
+Heading-based chunking keeps chapter or section context with each chunk, reduces broken meaning across chunk boundaries, improves retrieval quality, and is better suited to study materials organized by chapters, sections, and slides. If no headings are detected, the backend falls back to fixed-size chunks with `heading = null` and `sectionTitle = "General Content"`.
 
 ## Chat RAG
 
@@ -361,6 +391,9 @@ PINECONE_INDEX_NAME=ai-study-hub-jina-1024
 PINECONE_NAMESPACE=ai-study-hub
 GROQ_API_KEY=your-groq-api-key
 GROQ_MODEL=llama-3.1-8b-instant
+RELEVANCE_THRESHOLD=0.55
+PINECONE_RELEVANCE_THRESHOLD=0.3
+MIN_RELEVANT_CHUNKS=3
 ```
 
 The Pinecone index dimension must match the Jina embedding model output.
@@ -428,7 +461,7 @@ Response:
       "confidenceScore": 0.88,
       "responseTimeMs": 2450,
       "usedFallbackChunks": false,
-      "relevanceThreshold": 0.35,
+      "relevanceThreshold": 0.55,
       "detectedIntent": "qa",
       "retrievedSections": ["CONTENT", "UNKNOWN"]
     }
@@ -441,6 +474,8 @@ If the retrieved context is insufficient, the answer is:
 ```text
 Tôi không tìm thấy thông tin này trong tài liệu đã upload.
 ```
+
+The RAG prompts prioritize Vietnamese educational document QA. Vietnamese questions should be answered in Vietnamese, preserve accents and subject-specific terms, and use only retrieved context from uploaded documents.
 
 ### GET `/chat/history`
 

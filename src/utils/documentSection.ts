@@ -4,7 +4,7 @@ const NUMBERED_HEADING_REGEX =
   /^((\d+(\.\d+)*\.?)|((CHAPTER|SECTION)\s+\d+(\.\d+)*))(\s+.+)?$/i;
 const ENDING_PUNCTUATION_REGEX = /[.!?。！？]$/;
 
-const normalizeHeadingCandidate = (text: string): string =>
+export const normalizeHeadingCandidate = (text: string): string =>
   text
     .replace(/[\t\r\n]+/g, " ")
     .replace(/\s+/g, " ")
@@ -31,6 +31,7 @@ export const isLikelyHeading = (
   line: string,
   previousLine?: string,
   nextLine?: string,
+  nextContentLine?: string,
 ): boolean => {
   const trimmedLine = line.trim();
   const normalizedText = normalizeHeadingCandidate(line);
@@ -39,15 +40,17 @@ export const isLikelyHeading = (
     return false;
   }
 
-  if (ENDING_PUNCTUATION_REGEX.test(trimmedLine)) {
-    return false;
-  }
-
   const wordCount = normalizedText.split(/\s+/).filter(Boolean).length;
   const uppercaseRatio = getUppercaseRatio(line);
   const isNumberedHeading = NUMBERED_HEADING_REGEX.test(normalizedText);
   const appearsIsolated = isBlank(previousLine) || isBlank(nextLine);
-  const followedByContent = Boolean(nextLine?.trim());
+  const followedByContent = Boolean((nextContentLine ?? nextLine)?.trim());
+  const hasEndingPunctuation = ENDING_PUNCTUATION_REGEX.test(trimmedLine);
+
+  if (hasEndingPunctuation && !isNumberedHeading) {
+    return false;
+  }
+
   const formatLooksLikeHeading =
     isNumberedHeading ||
     uppercaseRatio >= 0.65 ||
@@ -60,8 +63,9 @@ export const detectSectionFromHeading = (
   text: string,
   previousLine?: string,
   nextLine?: string,
+  nextContentLine?: string,
 ): SectionLabel | null => {
-  if (!isLikelyHeading(text, previousLine, nextLine)) {
+  if (!isLikelyHeading(text, previousLine, nextLine, nextContentLine)) {
     return null;
   }
 

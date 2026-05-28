@@ -1,115 +1,232 @@
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { SectionLabel, detectSectionFromHeading } from "./documentSection";
+import {
+  detectSectionFromHeading,
+  normalizeHeadingCandidate,
+} from "./documentSection";
+
+const CHUNK_SIZE = 1000;
+const CHUNK_OVERLAP = 200;
+const GENERAL_SECTION_TITLE = "General Content";
+
+export type ChunkingStrategy = "heading-based" | "fixed-size-fallback";
 
 export interface DocumentChunk {
   chunkIndex: number;
   content: string;
   metadata: {
+    heading: string | null;
+    sectionTitle: string;
+    sectionIndex: number;
+    contentLength: number;
     textLength: number;
-    section?: SectionLabel;
+    chunkingStrategy: ChunkingStrategy;
+    section?: string;
     inferredSection?: string;
     semanticSectionLabel?: string;
   };
 }
 
-type SectionBlock = {
-  inferredSection?: SectionLabel;
-  content: string;
+export interface ChunkingResult {
+  chunkingStrategy: ChunkingStrategy;
+  chunks: DocumentChunk[];
+}
+
+type HeadingSection = {
+  heading: string | null;
+  sectionTitle: string;
+  sectionIndex: number;
+  body: string;
 };
 
-const splitTextIntoSectionBlocks = (text: string): SectionBlock[] => {
-  const blocks: SectionBlock[] = [];
-  const currentLines: string[] = [];
-  let currentSection: SectionLabel | undefined;
+const createBodySplitter = (headingLength = 0): RecursiveCharacterTextSplitter =>
+  new RecursiveCharacterTextSplitter({
+    chunkSize: Math.max(300, CHUNK_SIZE - headingLength - 1),
+    chunkOverlap: CHUNK_OVERLAP,
+  });
 
-  const flushCurrentBlock = (): void => {
-    const content = currentLines.join("\n").trim();
+const splitTextIntoHeadingSections = (text: string): HeadingSection[] => {
+  const lines = text.split(/\r?\n/);
+  const sections: HeadingSection[] = [];
+  let currentHeading: string | null = null;
+  let currentBodyLines: string[] = [];
+  let headingsDetected = false;
 
-    if (content) {
-      blocks.push({
-        inferredSection: currentSection,
-        content,
+  const flushSection = (): void => {
+    const body = currentBodyLines.join("\n").trim();
+
+    if (body || currentHeading) {
+      sections.push({
+        heading: currentHeading,
+        sectionTitle: currentHeading || GENERAL_SECTION_TITLE,
+        sectionIndex: sections.length,
+        body,
       });
     }
 
-    currentLines.length = 0;
+    currentBodyLines = [];
   };
 
-  const lines = text.split(/\r?\n/);
+  const findNextContentLine = (startIndex: number): string | undefined => {
+    for (let index = startIndex; index < lines.length; index += 1) {
+      if (lines[index].trim()) {
+        return lines[index];
+      }
+    }
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const previousLine = lines[index - 1] ?? "";
-    const nextLine = lines[index + 1] ?? "";
-    const detectedSection = detectSectionFromHeading(
+    return undefined;
+  };
+
+  lines.forEach((line, index) => {
+    const detectedHeading = detectSectionFromHeading(
       line,
-      previousLine,
-      nextLine,
+      lines[index - 1],
+      lines[index + 1],
+      findNextContentLine(index + 1),
     );
 
-    if (detectedSection) {
-      flushCurrentBlock();
-      console.log("[RAG section transition]", {
-        from: currentSection,
-        to: detectedSection,
-        heading: line.trim(),
+    if (detectedHeading) {
+      flushSection();
+      headingsDetected = true;
+      currentHeading = normalizeHeadingCandidate(detectedHeading);
+      return;
+    }
+
+    currentBodyLines.push(line);
+  });
+
+  flushSection();
+
+  return headingsDetected
+    ? sections.filter((section) => section.body || section.heading)
+    : [];
+};
+
+const buildChunkContent = (heading: string | null, body: string): string => {
+  const trimmedBody = body.trim();
+
+  if (!heading) {
+    return trimmedBody;
+  }
+
+  return trimmedBody ? `${heading}\n${trimmedBody}` : heading;
+};
+
+const chunkHeadingSections = async (
+  sections: HeadingSection[],
+): Promise<DocumentChunk[]> => {
+  const chunks: DocumentChunk[] = [];
+
+  for (const section of sections) {
+    const sectionContent = buildChunkContent(section.heading, section.body);
+    const sectionContentLength = sectionContent.length;
+
+    if (sectionContentLength <= CHUNK_SIZE) {
+      chunks.push({
+        chunkIndex: chunks.length,
+        content: sectionContent,
+        metadata: {
+          heading: section.heading,
+          sectionTitle: section.sectionTitle,
+          sectionIndex: section.sectionIndex,
+          contentLength: sectionContentLength,
+          textLength: sectionContentLength,
+          chunkingStrategy: "heading-based",
+          section: section.sectionTitle,
+          inferredSection: section.sectionTitle,
+          semanticSectionLabel: section.sectionTitle,
+        },
       });
-      currentSection = detectedSection;
-      currentLines.push(line);
       continue;
     }
 
-    currentLines.push(line);
-  }
+    const splitter = createBodySplitter(section.heading?.length ?? 0);
+    const bodyChunks = await splitter.splitText(section.body);
 
-  flushCurrentBlock();
+    bodyChunks.forEach((bodyChunk) => {
+      const content = buildChunkContent(section.heading, bodyChunk);
 
-  return blocks.length > 0
-    ? blocks
-    : [
-        {
-          content: text,
-        },
-      ];
-};
-
-export const splitTextIntoChunks = async (
-  text: string,
-): Promise<DocumentChunk[]> => {
-  const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 1000,
-    chunkOverlap: 200,
-  });
-  const chunks: DocumentChunk[] = [];
-  const sectionBlocks = splitTextIntoSectionBlocks(text);
-
-  for (const block of sectionBlocks) {
-    const blockChunks = await splitter.splitText(block.content);
-
-    blockChunks.forEach((content) => {
-      const trimmedContent = content.trim();
-
-      if (!trimmedContent) {
+      if (!content.trim()) {
         return;
       }
 
       chunks.push({
         chunkIndex: chunks.length,
-        content: trimmedContent,
+        content,
         metadata: {
-          textLength: trimmedContent.length,
-          section: block.inferredSection,
-          inferredSection: block.inferredSection,
-          semanticSectionLabel: block.inferredSection,
+          heading: section.heading,
+          sectionTitle: section.sectionTitle,
+          sectionIndex: section.sectionIndex,
+          contentLength: content.length,
+          textLength: content.length,
+          chunkingStrategy: "heading-based",
+          section: section.sectionTitle,
+          inferredSection: section.sectionTitle,
+          semanticSectionLabel: section.sectionTitle,
         },
-      });
-      console.log("[RAG chunk section]", {
-        chunkIndex: chunks.length - 1,
-        inferredSection: block.inferredSection,
-        textLength: trimmedContent.length,
       });
     });
   }
 
   return chunks;
+};
+
+const chunkByFixedSizeFallback = async (text: string): Promise<DocumentChunk[]> => {
+  const splitter = createBodySplitter();
+  const textChunks = await splitter.splitText(text);
+
+  return textChunks
+    .map((content) => content.trim())
+    .filter(Boolean)
+    .map((content, chunkIndex) => ({
+      chunkIndex,
+      content,
+      metadata: {
+        heading: null,
+        sectionTitle: GENERAL_SECTION_TITLE,
+        sectionIndex: 0,
+        contentLength: content.length,
+        textLength: content.length,
+        chunkingStrategy: "fixed-size-fallback" as const,
+        section: GENERAL_SECTION_TITLE,
+        inferredSection: GENERAL_SECTION_TITLE,
+        semanticSectionLabel: GENERAL_SECTION_TITLE,
+      },
+    }));
+};
+
+export const splitTextForRag = async (text: string): Promise<ChunkingResult> => {
+  const sections = splitTextIntoHeadingSections(text);
+
+  if (sections.length === 0) {
+    const chunks = await chunkByFixedSizeFallback(text);
+
+    console.log("[RAG chunking] Used fixed-size fallback", {
+      chunksCount: chunks.length,
+    });
+
+    return {
+      chunkingStrategy: "fixed-size-fallback",
+      chunks,
+    };
+  }
+
+  const chunks = await chunkHeadingSections(sections);
+
+  console.log("[RAG chunking] Used heading-based chunks", {
+    sectionsCount: sections.length,
+    chunksCount: chunks.length,
+  });
+
+  return {
+    chunkingStrategy: "heading-based",
+    chunks,
+  };
+};
+
+export const splitTextIntoChunks = async (
+  text: string,
+): Promise<DocumentChunk[]> => {
+  const result = await splitTextForRag(text);
+
+  return result.chunks;
 };

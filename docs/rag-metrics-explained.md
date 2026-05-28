@@ -352,7 +352,7 @@ Ngưỡng relevance tối thiểu để chunk được chọn vào context cuố
 Constant:
 
 ```ts
-const RELEVANCE_THRESHOLD = 0.35;
+RAG_CONFIG.relevanceThreshold // default 0.55
 ```
 
 ### Cách hoạt động
@@ -361,12 +361,12 @@ Trong `selectAnswerChunks`:
 
 ```ts
 chunks
-  .filter((chunk) => chunk.relevanceScore >= RELEVANCE_THRESHOLD)
+  .filter((chunk) => chunk.relevanceScore >= RAG_CONFIG.relevanceThreshold)
   .sort((a, b) => b.relevanceScore - a.relevanceScore)
   .slice(0, maxChunks)
 ```
 
-Nghĩa là chunk phải có `relevanceScore >= 0.35` mới được chọn vào answer context, trừ khi fallback được kích hoạt.
+Nghĩa là chunk phải có `relevanceScore >= 0.55` mới được chọn vào answer context theo cấu hình mặc định, trừ khi fallback được kích hoạt. Ngưỡng cao hơn giúp tăng precision nhưng có thể giảm recall.
 
 ### Liên quan tới `isRelevant`
 
@@ -382,11 +382,13 @@ và không bị xem là explicitly irrelevant.
 Có 2 ngưỡng cần phân biệt:
 
 - `PINECONE_RELEVANCE_THRESHOLD = 0.3`: ngưỡng Pinecone score tối thiểu để xem semantic match là đủ tốt.
-- `RELEVANCE_THRESHOLD = 0.35`: ngưỡng relevanceScore để chọn vào final context trong corrective RAG.
+- `RELEVANCE_THRESHOLD = 0.55`: ngưỡng relevanceScore để chọn vào final context trong corrective RAG.
+
+Các ngưỡng được cấu hình tại `src/config/rag.config.ts` và có thể tune qua biến môi trường.
 
 ### Nguồn metric
 
-Backend constant/heuristic.
+Backend config/heuristic.
 
 ## 8. `evaluation.correctiveAttempted`
 
@@ -913,7 +915,7 @@ Mục tiêu là phát hiện answer có claim nào không được context suppo
 | `confidenceScore` | Groq grounding JSON + backend clamp | `answerCheck.service.ts` |
 | `responseTimeMs` | Backend timing | `rag.service.ts`, `correctiveRag.service.ts` |
 | `usedFallbackChunks` | Backend fallback control flow | `correctiveRag.service.ts` |
-| `relevanceThreshold` | Backend constant | `correctiveRag.service.ts` |
+| `relevanceThreshold` | Backend config | `rag.config.ts`, `correctiveRag.service.ts` |
 | `detectedIntent` | Groq semantic classifier | `intentClassifier.service.ts` |
 | `retrievedSections` | Chunk metadata | `textSplitter.ts`, `documentSection.ts`, RAG services |
 | `chunkIndex` | Chunk metadata | `textSplitter.ts` |

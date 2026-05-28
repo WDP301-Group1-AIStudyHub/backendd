@@ -1,6 +1,6 @@
 # Backend Architecture
 
-This document explains the current generalized backend architecture for AI Study Hub.
+This document explains the current generalized backend architecture for AI Study Hub, with a focus on Vietnamese educational document question answering.
 
 ## High-Level System
 
@@ -39,6 +39,7 @@ MongoDB Chat History
 - Run Basic RAG and Corrective RAG.
 - Generate grounded answers with Groq.
 - Store chat history, benchmarks, and evaluation logs in MongoDB.
+- Tune Vietnamese RAG precision with `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and `MIN_RELEVANT_CHUNKS`.
 
 ## Data Storage Strategy
 

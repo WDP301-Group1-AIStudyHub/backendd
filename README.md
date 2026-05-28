@@ -2,7 +2,7 @@
 
 AI Study Hub Backend is an Express + TypeScript API for uploading study documents and asking AI questions about uploaded documents.
 
-The backend implements a generalized RAG pipeline for study materials such as:
+The backend focuses on Vietnamese educational document Q&A while keeping the RAG pipeline generic enough for study materials such as:
 
 - lecture slides
 - notes
@@ -66,9 +66,9 @@ Grounding Check
 - Zod for request validation.
 - Swagger for API documentation.
 
-## Generic Heading Detection
+## Heading-Based Chunking
 
-The chunking pipeline avoids hard-coded document assumptions. Instead of fixed heading keyword sets, heading detection uses format signals:
+The chunking pipeline splits documents by headings and sections before using fixed-size splitting. It avoids hard-coded document assumptions and detects headings with generic format signals:
 
 - short line length
 - uppercase ratio
@@ -77,7 +77,19 @@ The chunking pipeline avoids hard-coded document assumptions. Instead of fixed h
 - followed by content
 - generic numbered heading patterns such as `1.`, `1.1`, `Chapter 1`, `Section 2`
 
-If a heading cannot be detected confidently, the section metadata falls back to `UNKNOWN` or `CONTENT`.
+Each chunk keeps the section heading at the top of its content, which helps the LLM retain chapter or lesson context during retrieval and answer generation. This reduces broken meaning across chunk boundaries, improves retrieval quality, and works better for study materials with chapters, slides, and titled sections.
+
+If no headings are detected, the pipeline falls back to fixed-size chunks and marks the section as `General Content`.
+
+## Vietnamese RAG Tuning
+
+Prompts prioritize Vietnamese study documents: Vietnamese questions are answered in Vietnamese, accents and subject terms are preserved, and answers use only retrieved context from uploaded files. If the context is insufficient, the API returns:
+
+```text
+Tôi không tìm thấy thông tin này trong tài liệu đã upload.
+```
+
+Corrective RAG uses `RELEVANCE_THRESHOLD=0.55` by default. This higher threshold improves precision by filtering weaker chunks, but it can reduce recall. Tune `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and `MIN_RELEVANT_CHUNKS` through environment variables.
 
 ## Main APIs
 

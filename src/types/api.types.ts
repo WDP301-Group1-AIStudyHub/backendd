@@ -93,9 +93,23 @@ export interface DocumentListResponse {
 export interface ReindexDocumentResponse {
   documentId: string;
   deletedVectorCount: number;
+  chunkingStrategy?: "heading-based" | "fixed-size-fallback";
   chunksCreated: number;
   detectedSections: string[];
   upsertedVectorCount: number;
+}
+
+export interface DebugDocumentChunkResponse {
+  chunksCount: number;
+  chunkingStrategy: "heading-based" | "fixed-size-fallback";
+  chunks: Array<{
+    chunkIndex: number;
+    sectionIndex: number;
+    heading: string | null;
+    sectionTitle: string;
+    contentLength: number;
+    contentPreview: string;
+  }>;
 }
 
 export interface AskQuestionRequest {
@@ -112,6 +126,9 @@ export interface ChatSource {
   section?: string;
   inferredSection?: string;
   semanticSectionLabel?: string;
+  heading?: string;
+  sectionTitle?: string;
+  sectionIndex?: number;
   contentPreview: string;
   relevanceScore?: number;
 }

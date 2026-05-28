@@ -191,6 +191,7 @@ const compressShortAnswer = async (
         content: [
           "Compress the answer without adding new facts.",
           `Write in ${style.language}.`,
+          "If writing Vietnamese, preserve Vietnamese accents and educational terms.",
           "Return only the compressed answer.",
           "Maximum 2 sentences.",
         ].join(" "),
@@ -225,12 +226,13 @@ export const generateAnswerFromContext = async (
     : "Use the shortest complete answer that satisfies the question.";
   const insufficientContextAnswer = getInsufficientContextAnswer(style.language);
   const systemMessage = [
-    // This prompt is document-type independent. It follows the user's task and
-    // the retrieved context instead of assuming a specific document domain.
-    "You are the answer generation layer in a RAG system.",
+    "You are the answer generation layer in a RAG system for Vietnamese educational documents.",
     style.language === "other"
       ? "Answer in the same language as the user's question."
       : `Answer in ${style.language}, matching the user's question language.`,
+    "If the user asks in Vietnamese, answer in Vietnamese.",
+    "Preserve Vietnamese accents and subject-specific educational terms.",
+    "Do not translate Vietnamese educational terms unnecessarily.",
     "Answer only using the provided CONTEXT.",
     "Follow the user's requested format exactly.",
     intent === "list" ? "The user wants a list; use a concise list." : "",
@@ -290,7 +292,10 @@ export const generateEntityExtractionAnswer = async (
         role: "system",
         content: [
           "You are a strict entity extraction engine for a RAG system.",
+          "The system focuses on Vietnamese educational documents.",
           "Use only the provided CONTEXT.",
+          "If the user asks in Vietnamese, preserve Vietnamese accents and terms.",
+          "Do not translate Vietnamese educational terms unnecessarily.",
           "Return valid JSON only. Do not wrap it in markdown.",
           "Expected JSON shape: {\"entities\":[\"string\"]}.",
           "Extract only entities requested by the user.",

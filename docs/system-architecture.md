@@ -4,7 +4,7 @@ This document describes the current backend architecture based on the source cod
 
 ## System Overview
 
-AI Study Hub is an Express + TypeScript backend for uploading study documents and asking AI questions over uploaded content.
+AI Study Hub is an Express + TypeScript backend for uploading study documents and asking AI questions over uploaded content. The RAG behavior now focuses on Vietnamese educational document QA.
 
 The backend is responsible for:
 
@@ -14,6 +14,7 @@ The backend is responsible for:
 - document text extraction
 - text chunking with LangChain JS text splitters
 - Jina embedding generation
+- configurable relevance thresholds for Vietnamese RAG precision
 - Pinecone semantic vector indexing and retrieval
 - Basic RAG and Corrective RAG question answering
 - Groq answer generation, query rewriting, and grounding checks
@@ -203,6 +204,10 @@ Heading detection does not use document-type-specific keywords. It uses generic 
 - `title`
 - `chunkIndex`
 - `section`
+
+### Vietnamese Relevance Tuning
+
+Corrective RAG defaults to `RELEVANCE_THRESHOLD=0.55`, configured in `src/config/rag.config.ts`. A higher threshold improves precision by filtering weaker context, but may reduce recall. Tune `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and `MIN_RELEVANT_CHUNKS` through environment variables.
 - `content`
 
 Retrieval filters by `userId` and optionally by `documentId` or `subject`.

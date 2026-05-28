@@ -45,8 +45,9 @@ export const indexDocumentForRag = async (
     };
   }
 
-  // RAG indexing: split extracted PDF text into overlapping chunks, then store
-  // chunk vectors in Pinecone with metadata for later filtered retrieval.
+  // RAG indexing only sees normalized plain text. Embedding models do not read
+  // PDF/Office binaries directly, so format-specific parsing happens before
+  // this unchanged chunking and vector storage step.
   const chunks = await splitTextIntoChunks(document.extractedText);
 
   const vectorChunks = chunks.map((chunk) => ({

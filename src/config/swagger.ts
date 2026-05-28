@@ -75,7 +75,19 @@ const options: swaggerJsdoc.Options = {
             fileExtension: { type: "string", example: ".pdf" },
             mimeType: { type: "string", example: "application/pdf" },
             fileSize: { type: "number", example: 123456 },
-            extractedText: { type: "string", example: "Extracted PDF text..." },
+            extractedText: {
+              type: "string",
+              example: "Extracted document text...",
+            },
+            extractionStatus: {
+              type: "string",
+              enum: ["COMPLETED", "FAILED"],
+              example: "COMPLETED",
+            },
+            extractionError: {
+              type: "string",
+              example: "",
+            },
             uploadedBy: { type: "string", example: "665f1c9d2a5b6f0012a12345" },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
@@ -567,7 +579,9 @@ const options: swaggerJsdoc.Options = {
       "/api/documents/upload": {
         post: {
           tags: ["Documents"],
-          summary: "Upload a PDF document",
+          summary: "Upload a study document",
+          description:
+            "Supported file types: PDF, DOCX, PPTX, XLSX, TXT, and MD. Uploaded files are normalized to plain text before chunking, embeddings, and Pinecone indexing.",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -580,7 +594,8 @@ const options: swaggerJsdoc.Options = {
                     file: {
                       type: "string",
                       format: "binary",
-                      description: "PDF file, max 10MB",
+                      description:
+                        "PDF, DOCX, PPTX, XLSX, TXT, or MD file, max 10MB",
                     },
                     title: { type: "string", example: "Lesson 1" },
                     description: { type: "string", example: "Algebra notes" },

@@ -43,7 +43,7 @@ The backend uses a generalized RAG architecture for study documents. It does not
 
 Current RAG stack:
 
-- Gemini Embedding creates vectors for chunks and questions.
+- Jina Embeddings create vectors for chunks and questions.
 - Pinecone performs semantic vector search.
 - Groq generates final answers from retrieved context.
 - A grounding check validates whether the answer is supported by retrieved chunks.
@@ -53,7 +53,7 @@ Question-answering flow:
 ```text
 User Question
 ↓
-Gemini Embedding
+Jina Embeddings
 ↓
 Pinecone Semantic Search
 ↓
@@ -202,10 +202,19 @@ Protected. Send `multipart/form-data`.
 
 Fields:
 
-- `file`: PDF file, max 10MB
+- `file`: PDF, DOCX, PPTX, XLSX, TXT, or MD file, max 10MB
 - `title`: required string
 - `description`: optional string
 - `subject`: optional string
+
+Supported MIME types:
+
+- `application/pdf`
+- `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+- `application/vnd.openxmlformats-officedocument.presentationml.presentation`
+- `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- `text/plain`
+- `text/markdown`
 
 Example:
 
@@ -238,7 +247,9 @@ Response:
     "fileExtension": ".pdf",
     "mimeType": "application/pdf",
     "fileSize": 123456,
-    "extractedText": "Extracted PDF text...",
+    "extractedText": "Extracted document text...",
+    "extractionStatus": "COMPLETED",
+    "extractionError": "",
     "uploadedBy": "665f1c...",
     "createdAt": "2026-05-23T00:00:00.000Z",
     "updatedAt": "2026-05-23T00:00:00.000Z"
@@ -317,7 +328,7 @@ Flow:
 1. Load the document from MongoDB.
 2. Delete old Pinecone vectors for the document.
 3. Re-run text chunking and generic heading detection.
-4. Re-generate Gemini embeddings.
+4. Re-generate Jina embeddings.
 5. Re-upsert vectors into Pinecone.
 
 Response:
@@ -343,17 +354,17 @@ All chat routes are protected and require a bearer token.
 Before testing RAG, create a Pinecone index and configure:
 
 ```env
-GEMINI_API_KEY=your-gemini-api-key
-GEMINI_EMBEDDING_MODEL=gemini-embedding-001
+JINA_API_KEY=your-jina-api-key
+JINA_EMBEDDING_MODEL=jina-embeddings-v3
 PINECONE_API_KEY=your-pinecone-api-key
-PINECONE_INDEX_NAME=ai-study-hub
+PINECONE_INDEX_NAME=ai-study-hub-jina-1024
 PINECONE_NAMESPACE=ai-study-hub
 GROQ_API_KEY=your-groq-api-key
 GROQ_MODEL=llama-3.1-8b-instant
 ```
 
-The Pinecone index dimension must match the Gemini embedding model output.
-For `text-embedding-004`, create a dense index with dimension `768` and cosine metric.
+The Pinecone index dimension must match the Jina embedding model output.
+For `jina-embeddings-v3`, create a dense index with dimension `1024` and cosine metric. Existing `768`-dimension indexes cannot be resized, so create a new `1024`-dimension index and update `PINECONE_INDEX_NAME`.
 
 ### POST `/chat/ask`
 
@@ -487,7 +498,7 @@ Response:
 
 1. Start MongoDB and the backend, and make sure your Pinecone index exists.
 2. Register or login to get `accessToken`.
-3. Upload a PDF with `POST /api/documents/upload`.
+3. Upload a supported document file with `POST /api/documents/upload`.
 4. Confirm Pinecone has chunks by checking the upload request succeeds; the upload flow now indexes chunks after saving the document.
 5. If the document was uploaded before a chunking/metadata change, reindex it with `POST /api/documents/:documentId/reindex`.
 6. Ask a basic question with `POST /api/chat/ask` and `"mode": "basic"`.

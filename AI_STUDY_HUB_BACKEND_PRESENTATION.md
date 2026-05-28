@@ -13,7 +13,7 @@ Backend đảm nhận các vai trò chính:
 - Lưu file gốc vào Cloudinary.
 - Lưu metadata, extracted text, chat history và evaluation log vào MongoDB.
 - Chia tài liệu thành chunks.
-- Tạo embedding bằng Gemini Embedding.
+- Tạo embedding bằng Jina Embeddings.
 - Lưu và tìm kiếm vector bằng Pinecone.
 - Sinh câu trả lời bằng Groq dựa trên context retrieve được.
 - Kiểm tra grounding để giảm hallucination.
@@ -30,7 +30,7 @@ Backend đảm nhận các vai trò chính:
 | Cloudinary | Lưu file PDF gốc dạng raw file |
 | Multer | Nhận file upload từ frontend |
 | pdf-parse | Trích xuất text từ PDF |
-| Gemini Embedding | Tạo vector embedding cho chunks và câu hỏi |
+| Jina Embeddings | Tạo vector embedding cho chunks và câu hỏi |
 | Pinecone | Vector database cho semantic search |
 | Groq | LLM sinh câu trả lời cuối cùng |
 | JWT | Xác thực protected APIs |
@@ -52,7 +52,7 @@ PDF Text Extraction
 ↓
 Chunking + Generic Heading Detection
 ↓
-Gemini Embedding
+Jina Embeddings
 ↓
 Pinecone Semantic Search
 ↓
@@ -74,7 +74,7 @@ Chat History
 5. Metadata tài liệu và extracted text được lưu vào MongoDB.
 6. Text được chia thành chunks bằng `RecursiveCharacterTextSplitter`.
 7. Chunking có generic heading detection để nhận biết các vùng nội dung nếu heading đủ rõ về mặt format.
-8. Mỗi chunk được tạo Gemini embedding.
+8. Mỗi chunk được tạo Jina embedding.
 9. Vector và metadata chunk được upsert vào Pinecone.
 
 Metadata Pinecone gồm:
@@ -134,7 +134,7 @@ Body gồm:
 Backend xử lý:
 
 1. Detect intent và answer style từ câu hỏi.
-2. Tạo embedding cho câu hỏi bằng Gemini.
+2. Tạo embedding cho câu hỏi bằng Jina.
 3. Query Pinecone để lấy chunks gần nghĩa nhất.
 4. Chọn chunks làm context.
 5. Gửi context + question sang Groq.
@@ -264,7 +264,7 @@ Thưa thầy, AI Study Hub là hệ thống hỗ trợ học tập bằng AI. Ng
 
 Ở backend, tụi em dùng Node.js, Express và TypeScript để xây dựng REST API. Backend nhận file bằng Multer, upload file gốc lên Cloudinary, extract text bằng pdf-parse, rồi lưu metadata và extracted text vào MongoDB.
 
-Phần quan trọng nhất là RAG. Sau khi có text, backend chia tài liệu thành chunks. Mỗi chunk được tạo embedding bằng Gemini Embedding và lưu vào Pinecone. Khi user hỏi, câu hỏi cũng được embedding, rồi Pinecone tìm các chunks gần nghĩa nhất. Backend đưa các chunks đó vào context và gửi sang Groq để sinh câu trả lời.
+Phần quan trọng nhất là RAG. Sau khi có text, backend chia tài liệu thành chunks. Mỗi chunk được tạo embedding bằng Jina Embeddings và lưu vào Pinecone. Khi user hỏi, câu hỏi cũng được embedding, rồi Pinecone tìm các chunks gần nghĩa nhất. Backend đưa các chunks đó vào context và gửi sang Groq để sinh câu trả lời.
 
 Hệ thống có Basic RAG và Corrective RAG. Basic RAG retrieve rồi trả lời. Corrective RAG có thêm query rewriting, relevance evaluation, retrieval lần hai nếu cần, grounding check và evaluation logging.
 
@@ -289,7 +289,7 @@ PDF Text Extraction
 ↓
 Chunking + Generic Heading Detection
 ↓
-Gemini Embedding
+Jina Embeddings
 ↓
 Pinecone Vector DB
 ```
@@ -321,7 +321,7 @@ Express Backend
 ↓
 MongoDB / Cloudinary
 ↓
-Gemini Embedding
+Jina Embeddings
 ↓
 Pinecone
 ↓

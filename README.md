@@ -1,6 +1,6 @@
 # AI Study Hub Backend
 
-AI Study Hub Backend is an Express + TypeScript API for uploading study PDFs and asking AI questions about uploaded documents.
+AI Study Hub Backend is an Express + TypeScript API for uploading study documents and asking AI questions about uploaded documents.
 
 The backend implements a generalized RAG pipeline for study materials such as:
 
@@ -9,7 +9,7 @@ The backend implements a generalized RAG pipeline for study materials such as:
 - exam documents
 - technical documents
 - research papers
-- general PDFs
+- general PDFs, DOCX, PPTX, XLSX, TXT, and MD files
 
 It does not rely on document-type-specific retrieval rules or fixed heading keyword lists.
 
@@ -22,11 +22,11 @@ Express Backend
 ↓
 MongoDB / Cloudinary
 ↓
-PDF Text Extraction
+Document Text Extraction
 ↓
 Chunking + Generic Heading Detection
 ↓
-Gemini Embedding
+Jina Embeddings
 ↓
 Pinecone Semantic Search
 ↓
@@ -56,10 +56,10 @@ Grounding Check
 - Node.js + Express for REST APIs.
 - TypeScript for type-safe backend code.
 - MongoDB + Mongoose for users, documents, chat history, benchmarks, and logs.
-- Cloudinary for storing uploaded PDF files.
+- Cloudinary for storing uploaded document files.
 - Multer for file upload handling.
-- pdf-parse for extracting PDF text.
-- Gemini Embedding for text/query vectors.
+- pdf-parse, mammoth, pptx2json, and xlsx for extracting document text.
+- Jina Embeddings for text/query vectors.
 - Pinecone for semantic vector search.
 - Groq for answer generation.
 - JWT for authentication.

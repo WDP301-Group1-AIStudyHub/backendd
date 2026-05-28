@@ -25,7 +25,7 @@ User question
 ↓
 Intent classification bằng Groq
 ↓
-Gemini embedding cho query
+Jina embedding cho query
 ↓
 Pinecone semantic search
 ↓
@@ -544,11 +544,11 @@ confidenceScore = 0
 warning = "Grounding check parse failed"
 ```
 
-### Có phải Gemini/Groq evaluation không?
+### Có phải Jina/Groq evaluation không?
 
 Hiện tại grounding/self-check dùng Groq qua `generateGroqTextFromPrompt`.
 
-Gemini hiện được dùng cho embedding, không phải answer grounding.
+Jina hiện được dùng cho embedding, không phải answer grounding.
 
 ### Nguồn metric
 

@@ -10,7 +10,7 @@ export type CloudinaryDocumentUpload = {
   mimeType: string;
 };
 
-export const uploadPdfToCloudinary = async (
+export const uploadDocumentToCloudinary = async (
   file: Express.Multer.File,
 ): Promise<CloudinaryDocumentUpload> => {
   const storedFileName = generateSafeFileName(file.originalname);

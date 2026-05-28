@@ -1,5 +1,7 @@
 import mongoose, { Document, Schema, Types } from "mongoose";
 
+export type ExtractionStatus = "COMPLETED" | "FAILED";
+
 export interface IDocument extends Document {
   title: string;
   description?: string;
@@ -14,6 +16,8 @@ export interface IDocument extends Document {
   mimeType: string;
   fileSize: number;
   extractedText: string;
+  extractionStatus: ExtractionStatus;
+  extractionError?: string;
   uploadedBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -77,6 +81,16 @@ const documentSchema = new Schema<IDocument>(
     },
     extractedText: {
       type: String,
+      default: "",
+    },
+    extractionStatus: {
+      type: String,
+      enum: ["COMPLETED", "FAILED"],
+      default: "COMPLETED",
+    },
+    extractionError: {
+      type: String,
+      trim: true,
       default: "",
     },
     uploadedBy: {

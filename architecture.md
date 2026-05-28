@@ -13,11 +13,11 @@ Express Backend
 ↓
 MongoDB / Cloudinary
 ↓
-PDF Extraction
+Document Text Extraction
 ↓
 Chunking
 ↓
-Gemini Embedding
+Jina Embeddings
 ↓
 Pinecone Vector DB
 ↓
@@ -30,11 +30,11 @@ MongoDB Chat History
 
 - Authenticate users with JWT.
 - Validate request payloads with Zod.
-- Accept PDF uploads with Multer.
+- Accept PDF, DOCX, PPTX, XLSX, TXT, and MD uploads with Multer.
 - Store raw files in Cloudinary.
-- Extract text from PDFs.
+- Extract plain text from uploaded documents.
 - Chunk extracted text.
-- Generate embeddings with Gemini.
+- Generate embeddings with Jina.
 - Store and query vectors in Pinecone.
 - Run Basic RAG and Corrective RAG.
 - Generate grounded answers with Groq.
@@ -55,7 +55,7 @@ MongoDB stores application data:
 
 ### Cloudinary
 
-Cloudinary stores uploaded PDF files as raw assets. MongoDB stores only the file URL and metadata.
+Cloudinary stores uploaded document files as raw assets. MongoDB stores only the file URL and metadata.
 
 ### Pinecone
 
@@ -97,7 +97,7 @@ In practice, retrieval does not depend on hard-coded section names. Section meta
 ```text
 User Question
 ↓
-Gemini Query Embedding
+Jina Query Embedding
 ↓
 Pinecone Semantic Search
 ↓

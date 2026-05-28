@@ -78,6 +78,8 @@ export interface DocumentResponse {
   mimeType: string;
   fileSize: number;
   extractedText: string;
+  extractionStatus: "COMPLETED" | "FAILED";
+  extractionError?: string;
   uploadedBy: string | Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;

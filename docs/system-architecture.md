@@ -4,16 +4,16 @@ This document describes the current backend architecture based on the source cod
 
 ## System Overview
 
-AI Study Hub is an Express + TypeScript backend for uploading PDF study documents and asking AI questions over uploaded content.
+AI Study Hub is an Express + TypeScript backend for uploading study documents and asking AI questions over uploaded content.
 
 The backend is responsible for:
 
 - authentication and protected APIs
 - document upload and metadata management
-- raw PDF storage in Cloudinary
-- PDF text extraction
+- raw document storage in Cloudinary
+- document text extraction
 - text chunking with LangChain JS text splitters
-- Gemini embedding generation
+- Jina embedding generation
 - Pinecone semantic vector indexing and retrieval
 - Basic RAG and Corrective RAG question answering
 - Groq answer generation, query rewriting, and grounding checks
@@ -28,11 +28,11 @@ The backend is responsible for:
 | TypeScript | Static typing for controllers, services, models, and API contracts |
 | MongoDB | Stores users, documents, chat history, evaluation logs, benchmark questions, and benchmark results |
 | Mongoose | Schema and model layer for MongoDB |
-| Multer | Receives uploaded PDF files in memory |
-| Cloudinary | Stores original uploaded PDF files as raw assets |
-| pdf-parse | Extracts text from uploaded PDF buffers |
+| Multer | Receives uploaded document files in memory |
+| Cloudinary | Stores original uploaded document files as raw assets |
+| pdf-parse, mammoth, pptx2json, xlsx | Extract text from uploaded document buffers |
 | LangChain JS | Provides `RecursiveCharacterTextSplitter` for chunking extracted text |
-| Gemini Embedding | Converts document chunks and user questions into vectors |
+| Jina Embeddings | Converts document chunks and user questions into vectors |
 | Pinecone | Stores vectors and performs semantic similarity search |
 | Groq SDK | Generates final answers, query rewrites, and grounding/evaluation responses |
 | JWT | Protects user-specific APIs |
@@ -63,11 +63,11 @@ EXPRESS BACKEND
  │    ├── document.controller.ts
  │    ├── document.service.ts
  │    ├── Multer upload middleware
- │    ├── Cloudinary raw PDF storage
- │    ├── pdf-parse text extraction
+ │    ├── Cloudinary raw document storage
+ │    ├── Format-specific text extraction
  │    ├── LangChain JS text chunking
  │    ├── Generic heading metadata
- │    ├── Gemini Embedding
+ │    ├── Jina Embeddings
  │    ├── Pinecone Vector DB
  │    ├── Reindex / re-embed flow
  │    └── Document model → MongoDB
@@ -77,7 +77,7 @@ EXPRESS BACKEND
  │    ├── chat.controller.ts
  │    ├── chat.service.ts
  │    ├── Basic RAG
- │    │    ├── Gemini question embedding
+ │    │    ├── Jina question embedding
  │    │    ├── Pinecone retrieval
  │    │    ├── Groq answer generation
  │    │    └── Groq grounding check
@@ -117,12 +117,12 @@ User
  → Auth Middleware
  → Document Route: POST /api/documents/upload
  → Multer Memory Upload
- → pdf-parse Extraction
- → Cloudinary Raw PDF Storage
+ → Document Text Extraction
+ → Cloudinary Raw Document Storage
  → MongoDB Document Metadata
  → LangChain RecursiveCharacterTextSplitter
  → Generic Heading Metadata
- → Gemini Embedding
+ → Jina Embeddings
  → Pinecone Vector Upsert
  → Upload Response
 ```
@@ -134,8 +134,8 @@ document.routes.ts
  → uploadMiddleware.single("file")
  → document.controller.uploadDocument
  → document.service.createDocument
- → pdf.service.extractPdfText
- → cloudinary.service.uploadPdfToCloudinary
+ → documentExtraction.extractDocumentText
+ → cloudinary.service.uploadDocumentToCloudinary
  → StudyDocument.create
  → rag.service.indexDocumentForRag
  → textSplitter.splitTextIntoChunks
@@ -156,7 +156,7 @@ User Question
  → Chat Route: POST /api/chat/ask
  → chat.service.askQuestion
  → Basic RAG or Corrective RAG
- → Gemini Question Embedding
+ → Jina Question Embedding
  → Pinecone Semantic Search
  → Relevant Chunks
  → Groq Answer Generation
@@ -189,9 +189,9 @@ The backend uses LangChain JS `RecursiveCharacterTextSplitter` with overlapping 
 
 Heading detection does not use document-type-specific keywords. It uses generic format signals such as short line length, uppercase ratio, no ending punctuation, isolated lines, and numbered heading patterns. If no heading is detected confidently, chunks remain `UNKNOWN` or generic `CONTENT`.
 
-### Gemini Embedding
+### Jina Embeddings
 
-`embedding.service.ts` uses `@google/generative-ai` to call the configured Gemini embedding model. It embeds both document chunks during indexing and user questions during retrieval.
+`embedding.service.ts` calls the Jina embeddings API with the configured `JINA_EMBEDDING_MODEL`. It embeds both document chunks during indexing and user questions during retrieval.
 
 ### Pinecone Vector DB
 
@@ -253,7 +253,7 @@ POST /api/documents/:documentId/reindex
  → Load document from MongoDB
  → Delete old Pinecone vectors for documentId
  → Re-run chunking
- → Re-generate Gemini embeddings
+ → Re-generate Jina embeddings
  → Re-upsert vectors into Pinecone
  → Return deletedVectorCount, chunksCreated, detectedSections, upsertedVectorCount
 ```
@@ -266,7 +266,7 @@ Reindexing is needed when chunking or metadata logic changes because Pinecone ve
 Express Backend
  ├── MongoDB Atlas / MongoDB instance
  ├── Cloudinary API
- ├── Gemini Embedding API
+ ├── Jina Embeddings API
  ├── Pinecone API
  └── Groq API
 ```

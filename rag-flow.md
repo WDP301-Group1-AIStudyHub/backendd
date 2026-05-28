@@ -5,19 +5,19 @@ This document describes the current RAG pipeline in AI Study Hub.
 ## Upload and Indexing Flow
 
 ```text
-PDF Upload
+Document Upload (PDF, DOCX, PPTX, XLSX, TXT, MD)
 ↓
 Multer receives file
 ↓
-Cloudinary stores raw PDF
+Cloudinary stores raw document
 ↓
-pdf-parse extracts text
+Format-specific parser extracts plain text
 ↓
 Generic chunking
 ↓
 Format-based heading detection
 ↓
-Gemini embeddings
+Jina embeddings
 ↓
 Pinecone upsert
 ```
@@ -97,7 +97,7 @@ Corrective RAG:
 
 The backend relies mainly on:
 
-- Gemini embeddings
+- Jina embeddings
 - Pinecone vector similarity
 - Pinecone score
 - relevance score

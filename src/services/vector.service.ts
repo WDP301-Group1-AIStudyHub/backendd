@@ -1,7 +1,11 @@
 import { Pinecone, RecordMetadata } from "@pinecone-database/pinecone";
 import { AppError } from "../middlewares/error.middleware";
-import { DocumentSection } from "../utils/documentSection";
-import { generateEmbedding, generateEmbeddings } from "./embedding.service";
+import { SectionLabel } from "../utils/documentSection";
+import {
+  generateEmbedding,
+  generateEmbeddings,
+  JINA_EMBEDDING_DIMENSION,
+} from "./embedding.service";
 
 export interface VectorChunkInput {
   documentId: string;
@@ -9,7 +13,13 @@ export interface VectorChunkInput {
   subject?: string;
   title: string;
   chunkIndex: number;
-  section?: DocumentSection;
+  heading?: string | null;
+  sectionTitle: string;
+  sectionIndex: number;
+  contentLength: number;
+  section?: SectionLabel;
+  inferredSection?: string;
+  semanticSectionLabel?: string;
   content: string;
   metadata: Record<string, string | number | boolean>;
 }
@@ -30,7 +40,13 @@ export interface RetrievedChunk {
     subject: string;
     title: string;
     chunkIndex: number;
-    section: DocumentSection;
+    heading?: string;
+    sectionTitle?: string;
+    sectionIndex?: number;
+    contentLength?: number;
+    section?: SectionLabel;
+    inferredSection?: string;
+    semanticSectionLabel?: string;
   };
 }
 
@@ -44,7 +60,13 @@ interface PineconeChunkMetadata extends RecordMetadata {
   subject: string;
   title: string;
   chunkIndex: number;
-  section: DocumentSection;
+  heading: string;
+  sectionTitle: string;
+  sectionIndex: number;
+  contentLength: number;
+  section: SectionLabel;
+  inferredSection: string;
+  semanticSectionLabel: string;
   content: string;
 }
 
@@ -60,15 +82,57 @@ const getPineconeClient = (): Pinecone => {
   });
 };
 
-const getPineconeIndex = () => {
+const getPineconeIndexName = (): string => {
   const indexName = process.env.PINECONE_INDEX_NAME;
 
   if (!indexName) {
     throw new AppError("PINECONE_INDEX_NAME is required for RAG features", 500);
   }
 
+  return indexName;
+};
+
+let pineconeDimensionCheck:
+  | {
+      indexName: string;
+      promise: Promise<void>;
+    }
+  | undefined;
+
+const ensurePineconeIndexDimension = async (): Promise<void> => {
+  const indexName = getPineconeIndexName();
+
+  if (pineconeDimensionCheck?.indexName === indexName) {
+    return pineconeDimensionCheck.promise;
+  }
+
+  pineconeDimensionCheck = {
+    indexName,
+    promise: getPineconeClient()
+      .describeIndex(indexName)
+      .then((indexDescription) => {
+        const actualDimension = indexDescription.dimension;
+
+        if (
+          typeof actualDimension === "number" &&
+          actualDimension !== JINA_EMBEDDING_DIMENSION
+        ) {
+          throw new AppError(
+            `Pinecone index "${indexName}" dimension is ${actualDimension}, but Jina ${process.env.JINA_EMBEDDING_MODEL || "jina-embeddings-v3"} requires ${JINA_EMBEDDING_DIMENSION}. Create a new Pinecone index with dimension ${JINA_EMBEDDING_DIMENSION} and update PINECONE_INDEX_NAME.`,
+            500,
+          );
+        }
+      }),
+  };
+
+  return pineconeDimensionCheck.promise;
+};
+
+const getPineconeIndex = async () => {
+  await ensurePineconeIndexDimension();
+
   return getPineconeClient().index<PineconeChunkMetadata>({
-    name: indexName,
+    name: getPineconeIndexName(),
   });
 };
 
@@ -101,7 +165,7 @@ export const upsertDocumentChunks = async (
     return 0;
   }
 
-  const index = getPineconeIndex();
+  const index = await getPineconeIndex();
   const embeddings = await generateEmbeddings(chunks.map((chunk) => chunk.content));
 
   await index.upsert({
@@ -115,7 +179,13 @@ export const upsertDocumentChunks = async (
         subject: chunk.subject || "",
         title: chunk.title,
         chunkIndex: chunk.chunkIndex,
-        section: chunk.section || "UNKNOWN",
+        heading: chunk.heading || "",
+        sectionTitle: chunk.sectionTitle,
+        sectionIndex: chunk.sectionIndex,
+        contentLength: chunk.contentLength,
+        section: chunk.section || "",
+        inferredSection: chunk.inferredSection || chunk.section || "",
+        semanticSectionLabel: chunk.semanticSectionLabel || chunk.section || "",
         content: chunk.content,
         ...chunk.metadata,
       },
@@ -126,7 +196,7 @@ export const upsertDocumentChunks = async (
 };
 
 const listDocumentVectorIds = async (documentId: string): Promise<string[]> => {
-  const index = getPineconeIndex();
+  const index = await getPineconeIndex();
   const vectorIds: string[] = [];
   let paginationToken: string | undefined;
 
@@ -154,7 +224,7 @@ export const searchRelevantChunks = async (
   filters: VectorSearchFilters,
   topK = 5,
 ): Promise<RetrievedChunk[]> => {
-  const index = getPineconeIndex();
+  const index = await getPineconeIndex();
   const queryEmbedding = await generateEmbedding(question);
 
   const result = await index.query({
@@ -179,7 +249,22 @@ export const searchRelevantChunks = async (
         subject: metadata?.subject || "",
         title: metadata?.title || "",
         chunkIndex: Number(metadata?.chunkIndex || 0),
-        section: (metadata?.section as DocumentSection | undefined) || "UNKNOWN",
+        heading: (metadata?.heading as string | undefined) || undefined,
+        sectionTitle:
+          (metadata?.sectionTitle as string | undefined) || undefined,
+        sectionIndex:
+          metadata?.sectionIndex === undefined
+            ? undefined
+            : Number(metadata.sectionIndex),
+        contentLength:
+          metadata?.contentLength === undefined
+            ? undefined
+            : Number(metadata.contentLength),
+        section: (metadata?.section as SectionLabel | undefined) || undefined,
+        inferredSection:
+          (metadata?.inferredSection as string | undefined) || undefined,
+        semanticSectionLabel:
+          (metadata?.semanticSectionLabel as string | undefined) || undefined,
       },
     };
   });
@@ -189,7 +274,7 @@ export const deleteDocumentChunks = async (
   documentId: string,
   userId: string,
 ): Promise<DeleteDocumentChunksResult> => {
-  const index = getPineconeIndex();
+  const index = await getPineconeIndex();
   let vectorIds: string[] = [];
 
   try {

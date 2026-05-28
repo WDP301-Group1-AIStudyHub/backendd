@@ -1,40 +1,30 @@
-export type DetectedLanguage = "vi" | "en";
+export type DetectedLanguage = "vi" | "en" | "other";
 
 const VIETNAMESE_DIACRITICS_REGEX =
   /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
-
-const VIETNAMESE_WORDS = new Set([
-  "bạn",
-  "của",
-  "trong",
-  "này",
-  "những",
-  "nơi",
-  "làm",
-  "việc",
-  "kinh",
-  "nghiệm",
-  "chỉ",
-  "trả",
-  "lời",
-  "ngắn",
-  "gọn",
-  "công",
-  "ty",
-]);
+const LATIN_LETTER_REGEX = /[a-z]/i;
+const NON_ASCII_REGEX = /[^\x00-\x7F]/;
 
 export const detectQuestionLanguage = (question: string): DetectedLanguage => {
   if (VIETNAMESE_DIACRITICS_REGEX.test(question)) {
     return "vi";
   }
 
-  const terms = question.toLowerCase().split(/\s+/);
-  const vietnameseMatches = terms.filter((term) =>
-    VIETNAMESE_WORDS.has(term),
-  ).length;
+  if (!NON_ASCII_REGEX.test(question) && LATIN_LETTER_REGEX.test(question)) {
+    return "en";
+  }
 
-  return vietnameseMatches >= 2 ? "vi" : "en";
+  return "other";
 };
 
-export const getLanguageName = (language: DetectedLanguage): string =>
-  language === "vi" ? "Vietnamese" : "English";
+export const getLanguageName = (language: DetectedLanguage): string => {
+  if (language === "vi") {
+    return "Vietnamese";
+  }
+
+  if (language === "en") {
+    return "English";
+  }
+
+  return "the same language as the question";
+};

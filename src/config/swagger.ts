@@ -75,7 +75,19 @@ const options: swaggerJsdoc.Options = {
             fileExtension: { type: "string", example: ".pdf" },
             mimeType: { type: "string", example: "application/pdf" },
             fileSize: { type: "number", example: 123456 },
-            extractedText: { type: "string", example: "Extracted PDF text..." },
+            extractedText: {
+              type: "string",
+              example: "Extracted document text...",
+            },
+            extractionStatus: {
+              type: "string",
+              enum: ["COMPLETED", "FAILED"],
+              example: "COMPLETED",
+            },
+            extractionError: {
+              type: "string",
+              example: "",
+            },
             uploadedBy: { type: "string", example: "665f1c9d2a5b6f0012a12345" },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
@@ -97,7 +109,9 @@ const options: swaggerJsdoc.Options = {
             documentId: { type: "string", example: "665f2a9d2a5b6f0012a67890" },
             title: { type: "string", example: "Lesson 1" },
             chunkIndex: { type: "number", example: 0 },
-            section: { type: "string", example: "INSTRUCTIONS" },
+            section: { type: "string", example: "Course Overview" },
+            inferredSection: { type: "string", example: "Course Overview" },
+            semanticSectionLabel: { type: "string", example: "Course Overview" },
             contentPreview: {
               type: "string",
               example: "This chunk contains the relevant lesson content...",
@@ -116,17 +130,17 @@ const options: swaggerJsdoc.Options = {
             confidenceScore: { type: "number", example: 0.88 },
             responseTimeMs: { type: "number", example: 2450 },
             usedFallbackChunks: { type: "boolean", example: false },
-            relevanceThreshold: { type: "number", example: 0.35 },
+            relevanceThreshold: { type: "number", example: 0.55 },
             warning: {
               type: "string",
               example:
                 "Used fallback top retrieved chunks because relevance evaluator rejected all chunks.",
             },
-            detectedIntent: { type: "string", example: "entity_extraction" },
+            detectedIntent: { type: "string", example: "extraction" },
             retrievedSections: {
               type: "array",
               items: { type: "string" },
-              example: ["INSTRUCTIONS", "CONTENT"],
+              example: ["Course Overview", "Practice Questions"],
             },
           },
         },
@@ -565,7 +579,9 @@ const options: swaggerJsdoc.Options = {
       "/api/documents/upload": {
         post: {
           tags: ["Documents"],
-          summary: "Upload a PDF document",
+          summary: "Upload a study document",
+          description:
+            "Supported file types: PDF, DOCX, PPTX, XLSX, TXT, and MD. Uploaded files are normalized to plain text before chunking, embeddings, and Pinecone indexing.",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -578,7 +594,8 @@ const options: swaggerJsdoc.Options = {
                     file: {
                       type: "string",
                       format: "binary",
-                      description: "PDF file, max 10MB",
+                      description:
+                        "PDF, DOCX, PPTX, XLSX, TXT, or MD file, max 10MB",
                     },
                     title: { type: "string", example: "Lesson 1" },
                     description: { type: "string", example: "Algebra notes" },
@@ -645,6 +662,48 @@ const options: swaggerJsdoc.Options = {
           responses: {
             "200": { description: "Documents searched successfully" },
             "401": { description: "Unauthorized" },
+          },
+        },
+      },
+      "/api/documents/{documentId}/reindex": {
+        post: {
+          tags: ["Documents"],
+          summary: "Reindex document chunks",
+          description:
+            "Deletes old Pinecone vectors, regenerates heading-based chunks, regenerates embeddings, and upserts fresh vectors.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "documentId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Document reindexed successfully" },
+            "404": { description: "Document not found" },
+          },
+        },
+      },
+      "/api/debug/documents/{documentId}/chunks": {
+        get: {
+          tags: ["Debug"],
+          summary: "Preview generated document chunks",
+          description:
+            "Returns heading-based chunk previews for a document without writing vectors to Pinecone. If no headings are detected, chunkingStrategy is fixed-size-fallback.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "documentId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Document chunks generated successfully" },
+            "404": { description: "Document not found" },
           },
         },
       },

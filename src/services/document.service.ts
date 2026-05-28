@@ -2,6 +2,7 @@ import { StudyDocument, IDocument } from "../models/document.model";
 import {
   DocumentListResponse,
   DocumentResponse,
+  DebugDocumentChunkResponse,
   ReindexDocumentResponse,
   SearchDocumentQuery,
   UpdateDocumentRequest,
@@ -10,9 +11,9 @@ import {
 import { AppError } from "../middlewares/error.middleware";
 import {
   deleteCloudinaryFile,
-  uploadPdfToCloudinary,
+  uploadDocumentToCloudinary,
 } from "./cloudinary.service";
-import { extractPdfText } from "./pdf.service";
+import { extractDocumentText } from "./documentExtraction/extractDocumentText";
 import {
   indexDocumentForRag,
   reembedDocumentForRag,
@@ -20,6 +21,7 @@ import {
   removeDocumentFromRag,
 } from "./rag.service";
 import { getFileExtension } from "../utils/fileName";
+import { splitTextForRag } from "../utils/textSplitter";
 
 export const toDocumentResponse = (document: IDocument): DocumentResponse => ({
   id: document._id.toString(),
@@ -37,6 +39,8 @@ export const toDocumentResponse = (document: IDocument): DocumentResponse => ({
   mimeType: document.mimeType || document.fileType,
   fileSize: document.fileSize,
   extractedText: document.extractedText,
+  extractionStatus: document.extractionStatus || "COMPLETED",
+  extractionError: document.extractionError || "",
   uploadedBy: document.uploadedBy,
   createdAt: document.createdAt,
   updatedAt: document.updatedAt,
@@ -48,11 +52,26 @@ export const createDocument = async (
   userId: string,
 ): Promise<DocumentResponse> => {
   if (!file) {
-    throw new AppError("PDF file is required", 400);
+    throw new AppError("Document file is required", 400);
   }
 
-  const extractedText = await extractPdfText(file.buffer);
-  const cloudinaryUpload = await uploadPdfToCloudinary(file);
+  let extractedText = "";
+  let extractionStatus: "COMPLETED" | "FAILED" = "COMPLETED";
+  let extractionError = "";
+
+  try {
+    const extractionResult = await extractDocumentText(
+      file.buffer,
+      file.originalname,
+      file.mimetype,
+    );
+    extractedText = extractionResult.extractedText;
+  } catch (error) {
+    extractionStatus = "FAILED";
+    extractionError = error instanceof Error ? error.message : String(error);
+  }
+
+  const cloudinaryUpload = await uploadDocumentToCloudinary(file);
 
   const document = await StudyDocument.create({
     title: payload.title,
@@ -68,10 +87,14 @@ export const createDocument = async (
     mimeType: cloudinaryUpload.mimeType,
     fileSize: file.size,
     extractedText,
+    extractionStatus,
+    extractionError,
     uploadedBy: userId,
   });
 
-  await indexDocumentForRag(document._id.toString(), userId);
+  if (extractionStatus === "COMPLETED") {
+    await indexDocumentForRag(document._id.toString(), userId);
+  }
 
   return toDocumentResponse(document);
 };
@@ -123,6 +146,38 @@ export const reindexUserDocument = async (
   console.log("[RAG reindex] Reindex endpoint completed", result);
 
   return result;
+};
+
+export const getDebugDocumentChunks = async (
+  documentId: string,
+  userId: string,
+): Promise<DebugDocumentChunkResponse> => {
+  const document = await StudyDocument.findOne({
+    _id: documentId,
+    uploadedBy: userId,
+  });
+
+  if (!document) {
+    throw new AppError("Document not found", 404);
+  }
+
+  const chunkingResult = await splitTextForRag(document.extractedText || "");
+
+  return {
+    chunksCount: chunkingResult.chunks.length,
+    chunkingStrategy: chunkingResult.chunkingStrategy,
+    chunks: chunkingResult.chunks.map((chunk) => ({
+      chunkIndex: chunk.chunkIndex,
+      sectionIndex: chunk.metadata.sectionIndex,
+      heading: chunk.metadata.heading,
+      sectionTitle: chunk.metadata.sectionTitle,
+      contentLength: chunk.metadata.contentLength,
+      contentPreview:
+        chunk.content.length > 220
+          ? `${chunk.content.slice(0, 220)}...`
+          : chunk.content,
+    })),
+  };
 };
 
 export const updateDocument = async (

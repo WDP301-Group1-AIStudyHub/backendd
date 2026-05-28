@@ -6,6 +6,7 @@ import swaggerSpec from "./config/swagger";
 import authRoutes from "./routes/auth.routes";
 import benchmarkRoutes from "./routes/benchmark.routes";
 import chatRoutes from "./routes/chat.routes";
+import debugRoutes from "./routes/debug.routes";
 import documentRoutes from "./routes/document.routes";
 import evaluationRoutes from "./routes/evaluation.routes";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
@@ -41,6 +42,7 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/auth", authRoutes);
 app.use("/api/benchmark", benchmarkRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/debug", debugRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/evaluation", evaluationRoutes);
 

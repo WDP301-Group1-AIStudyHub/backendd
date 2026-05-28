@@ -38,6 +38,12 @@ const chatSourceSchema = new Schema<ChatSource>(
     section: {
       type: String,
     },
+    inferredSection: {
+      type: String,
+    },
+    semanticSectionLabel: {
+      type: String,
+    },
     relevanceScore: {
       type: Number,
     },

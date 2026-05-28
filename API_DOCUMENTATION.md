@@ -1,4 +1,4 @@
-# AI Study Hub Phase 1 API
+# AI Study Hub API
 
 Base URL: `https://backendd-vn1j.onrender.com//api`
 
@@ -36,6 +36,42 @@ npm run dev
 ```
 
 Required environment variables are listed in `.env.example`.
+
+## Architecture Notes
+
+The backend uses a generalized RAG architecture for study documents. It does not rely on document-type-specific sections or fixed heading keyword lists.
+
+Current RAG stack:
+
+- Jina Embeddings create vectors for chunks and questions.
+- Pinecone performs semantic vector search.
+- Groq generates final answers from retrieved context.
+- A grounding check validates whether the answer is supported by retrieved chunks.
+
+Question-answering flow:
+
+```text
+User Question
+↓
+Jina Embeddings
+↓
+Pinecone Semantic Search
+↓
+Relevant Chunks
+↓
+Groq Answer Generation
+↓
+Grounding Check
+```
+
+Generic heading detection uses format signals only:
+
+- short line length
+- uppercase ratio
+- no ending punctuation
+- isolated line detection
+- numbered heading patterns such as `1.1`, `Chapter 1`, `Section 2`
+- fallback to `UNKNOWN` or `CONTENT`
 
 ## Auth
 
@@ -166,10 +202,19 @@ Protected. Send `multipart/form-data`.
 
 Fields:
 
-- `file`: PDF file, max 10MB
+- `file`: PDF, DOCX, PPTX, XLSX, TXT, or MD file, max 10MB
 - `title`: required string
 - `description`: optional string
 - `subject`: optional string
+
+Supported MIME types:
+
+- `application/pdf`
+- `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+- `application/vnd.openxmlformats-officedocument.presentationml.presentation`
+- `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- `text/plain`
+- `text/markdown`
 
 Example:
 
@@ -197,8 +242,14 @@ Response:
     "filePublicId": "ai-study-hub/documents/...",
     "fileName": "lesson.pdf",
     "fileType": "application/pdf",
+    "originalFileName": "lesson.pdf",
+    "storedFileName": "1710000000000-lesson.pdf",
+    "fileExtension": ".pdf",
+    "mimeType": "application/pdf",
     "fileSize": 123456,
-    "extractedText": "Extracted PDF text...",
+    "extractedText": "Extracted document text...",
+    "extractionStatus": "COMPLETED",
+    "extractionError": "",
     "uploadedBy": "665f1c...",
     "createdAt": "2026-05-23T00:00:00.000Z",
     "updatedAt": "2026-05-23T00:00:00.000Z"
@@ -268,6 +319,64 @@ GET /api/documents/search?keyword=algebra&subject=Math
 
 Response data shape is `DocumentListResponse`.
 
+### POST `/documents/:documentId/reindex`
+
+Protected. Rebuilds Pinecone vectors for an existing document. Use this endpoint after changing chunking or metadata logic so old vectors are removed and new vectors are inserted.
+
+Flow:
+
+1. Load the document from MongoDB.
+2. Delete old Pinecone vectors for the document.
+3. Re-run heading-based chunking and generic heading detection.
+4. Re-generate Jina embeddings.
+5. Re-upsert vectors into Pinecone.
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Document reindexed successfully",
+  "data": {
+    "documentId": "665f2a...",
+    "deletedVectorCount": 8,
+    "chunkingStrategy": "heading-based",
+    "chunksCreated": 8,
+    "detectedSections": ["1. Introduction", "2. Practice"],
+    "upsertedVectorCount": 8
+  }
+}
+```
+
+### GET `/debug/documents/:documentId/chunks`
+
+Protected. Generates chunks for one document without writing to Pinecone. Use this to inspect whether heading-based chunking or fixed-size fallback is being used.
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Document chunks generated successfully",
+  "data": {
+    "chunksCount": 2,
+    "chunkingStrategy": "heading-based",
+    "chunks": [
+      {
+        "chunkIndex": 0,
+        "sectionIndex": 0,
+        "heading": "1. Introduction",
+        "sectionTitle": "1. Introduction",
+        "contentLength": 840,
+        "contentPreview": "1. Introduction\nThis lesson explains..."
+      }
+    ]
+  }
+}
+```
+
+Heading-based chunking keeps chapter or section context with each chunk, reduces broken meaning across chunk boundaries, improves retrieval quality, and is better suited to study materials organized by chapters, sections, and slides. If no headings are detected, the backend falls back to fixed-size chunks with `heading = null` and `sectionTitle = "General Content"`.
+
 ## Chat RAG
 
 All chat routes are protected and require a bearer token.
@@ -275,14 +384,20 @@ All chat routes are protected and require a bearer token.
 Before testing RAG, create a Pinecone index and configure:
 
 ```env
-GEMINI_API_KEY=your-gemini-api-key
+JINA_API_KEY=your-jina-api-key
+JINA_EMBEDDING_MODEL=jina-embeddings-v3
 PINECONE_API_KEY=your-pinecone-api-key
-PINECONE_INDEX_NAME=ai-study-hub
+PINECONE_INDEX_NAME=ai-study-hub-jina-1024
 PINECONE_NAMESPACE=ai-study-hub
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=llama-3.1-8b-instant
+RELEVANCE_THRESHOLD=0.55
+PINECONE_RELEVANCE_THRESHOLD=0.3
+MIN_RELEVANT_CHUNKS=3
 ```
 
-The Pinecone index dimension must match the Gemini embedding model output.
-For `text-embedding-004`, create a dense index with dimension `768` and cosine metric.
+The Pinecone index dimension must match the Jina embedding model output.
+For `jina-embeddings-v3`, create a dense index with dimension `1024` and cosine metric. Existing `768`-dimension indexes cannot be resized, so create a new `1024`-dimension index and update `PINECONE_INDEX_NAME`.
 
 ### POST `/chat/ask`
 
@@ -292,6 +407,8 @@ Modes:
 
 - `basic`: Phase 2 naive RAG. Uses the original question for retrieval.
 - `corrective`: Phase 3 improved RAG. Rewrites the query, scores chunk relevance, retries retrieval if needed, self-checks grounding, and logs evaluation metrics.
+
+Corrective RAG is generalized. It does not boost document-specific sections. Retrieval relies mainly on embeddings, Pinecone similarity scores, relevance evaluation, and user query intent.
 
 Request:
 
@@ -330,6 +447,7 @@ Response:
         "documentId": "665f2a...",
         "title": "Lesson 1",
         "chunkIndex": 0,
+        "section": "CONTENT",
         "contentPreview": "Đoạn nội dung liên quan...",
         "relevanceScore": 0.82
       }
@@ -341,7 +459,11 @@ Response:
       "correctiveAttempted": true,
       "isGrounded": true,
       "confidenceScore": 0.88,
-      "responseTimeMs": 2450
+      "responseTimeMs": 2450,
+      "usedFallbackChunks": false,
+      "relevanceThreshold": 0.55,
+      "detectedIntent": "qa",
+      "retrievedSections": ["CONTENT", "UNKNOWN"]
     }
   }
 }
@@ -352,6 +474,8 @@ If the retrieved context is insufficient, the answer is:
 ```text
 Tôi không tìm thấy thông tin này trong tài liệu đã upload.
 ```
+
+The RAG prompts prioritize Vietnamese educational document QA. Vietnamese questions should be answered in Vietnamese, preserve accents and subject-specific terms, and use only retrieved context from uploaded documents.
 
 ### GET `/chat/history`
 
@@ -409,14 +533,15 @@ Response:
 
 1. Start MongoDB and the backend, and make sure your Pinecone index exists.
 2. Register or login to get `accessToken`.
-3. Upload a PDF with `POST /api/documents/upload`.
+3. Upload a supported document file with `POST /api/documents/upload`.
 4. Confirm Pinecone has chunks by checking the upload request succeeds; the upload flow now indexes chunks after saving the document.
-5. Ask a basic question with `POST /api/chat/ask` and `"mode": "basic"`.
-6. Ask the same question with `"mode": "corrective"`.
-7. Compare `data.evaluation` in both responses.
-8. Check saved history with `GET /api/chat/history`.
-9. Check research logs with `GET /api/evaluation/logs`.
-10. Check aggregate metrics with `GET /api/evaluation/summary`.
+5. If the document was uploaded before a chunking/metadata change, reindex it with `POST /api/documents/:documentId/reindex`.
+6. Ask a basic question with `POST /api/chat/ask` and `"mode": "basic"`.
+7. Ask the same question with `"mode": "corrective"`.
+8. Compare `data.evaluation` in both responses.
+9. Check saved history with `GET /api/chat/history`.
+10. Check research logs with `GET /api/evaluation/logs`.
+11. Check aggregate metrics with `GET /api/evaluation/summary`.
 
 Example basic request:
 
@@ -487,7 +612,7 @@ Runs the same question through:
 1. `mode = basic`
 2. `mode = corrective`
 
-Then Gemini evaluates both answers using:
+Then the answer evaluation service evaluates both answers using:
 
 - `answerCorrectness`
 - `faithfulness`

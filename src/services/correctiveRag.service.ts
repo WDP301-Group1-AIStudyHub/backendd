@@ -11,17 +11,19 @@ import {
 } from "./relevance.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
 import { searchRelevantChunks } from "./vector.service";
-import { detectQuestionIntent, QuestionIntent } from "../utils/ragIntent";
 import {
   detectAnswerStyle,
   getInsufficientContextAnswer,
 } from "../utils/answerStyle";
+import {
+  classifyQuestionIntent,
+  SemanticQuestionIntent,
+} from "./intentClassifier.service";
+import { RAG_CONFIG } from "../config/rag.config";
 
 const FALLBACK_WARNING =
   "Used fallback top retrieved chunks because relevance evaluator rejected all chunks.";
 
-const MIN_RELEVANT_CHUNKS = 3;
-const RELEVANCE_THRESHOLD = 0.35;
 const DEFAULT_CONTEXT_CHUNK_LIMIT = 5;
 const FOCUSED_CONTEXT_CHUNK_LIMIT = 3;
 
@@ -29,7 +31,11 @@ const buildContext = (chunks: EvaluatedChunk[]): string => {
   return chunks
     .map(
       (chunk, index) =>
-        `[${index + 1}] Document: ${chunk.metadata.title}, section ${chunk.metadata.section}, chunk ${chunk.metadata.chunkIndex}\n${chunk.content}`,
+        `[${index + 1}] Document: ${chunk.metadata.title}${
+          chunk.metadata.sectionTitle
+            ? `, section ${chunk.metadata.sectionTitle}`
+            : ""
+        }, chunk ${chunk.metadata.chunkIndex}\n${chunk.content}`,
     )
     .join("\n\n");
 };
@@ -54,6 +60,11 @@ const toSources = (chunks: EvaluatedChunk[]): ChatSource[] => {
     title: chunk.metadata.title,
     chunkIndex: chunk.metadata.chunkIndex,
     section: chunk.metadata.section,
+    inferredSection: chunk.metadata.inferredSection,
+    semanticSectionLabel: chunk.metadata.semanticSectionLabel,
+    heading: chunk.metadata.heading,
+    sectionTitle: chunk.metadata.sectionTitle,
+    sectionIndex: chunk.metadata.sectionIndex,
     contentPreview:
       chunk.content.length > 220
         ? `${chunk.content.slice(0, 220)}...`
@@ -75,24 +86,34 @@ const getFallbackChunks = (chunks: EvaluatedChunk[]): EvaluatedChunk[] => {
 
 const selectAnswerChunks = (
   chunks: EvaluatedChunk[],
-  intent: QuestionIntent,
+  intent: SemanticQuestionIntent,
   wantsShortAnswer: boolean,
 ): EvaluatedChunk[] => {
   const maxChunks =
-    intent === "entity_extraction" || wantsShortAnswer
+    intent === "extraction" || wantsShortAnswer
       ? FOCUSED_CONTEXT_CHUNK_LIMIT
       : DEFAULT_CONTEXT_CHUNK_LIMIT;
 
   // Document-type independent context selection: rank by retrieval/evaluation
   // relevance only, without assuming any document category or domain.
   return [...chunks]
-    .filter((chunk) => chunk.relevanceScore >= RELEVANCE_THRESHOLD)
+    .filter((chunk) => chunk.relevanceScore >= RAG_CONFIG.relevanceThreshold)
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
     .slice(0, maxChunks);
 };
 
 const getRetrievedSections = (chunks: EvaluatedChunk[]): string[] => [
-  ...new Set(chunks.map((chunk) => chunk.metadata.section)),
+  ...new Set(
+    chunks
+      .map(
+        (chunk) =>
+          chunk.metadata.sectionTitle ||
+          chunk.metadata.inferredSection ||
+          chunk.metadata.section ||
+          "",
+      )
+      .filter(Boolean),
+  ),
 ];
 
 export const askQuestionWithCorrectiveRag = async (
@@ -100,7 +121,8 @@ export const askQuestionWithCorrectiveRag = async (
   payload: AskQuestionRequest,
 ): Promise<RagAnswerResult> => {
   const startedAt = Date.now();
-  const intent = detectQuestionIntent(payload.question);
+  const intentClassification = await classifyQuestionIntent(payload.question);
+  const intent = intentClassification.intent;
   const answerStyle = detectAnswerStyle(payload.question);
   const insufficientContextAnswer = getInsufficientContextAnswer(
     answerStyle.language,
@@ -121,7 +143,7 @@ export const askQuestionWithCorrectiveRag = async (
   let evaluatedChunks = evaluateRetrievedChunks(
     `${payload.question} ${rewrittenQuery}`,
     firstPassChunks,
-    RELEVANCE_THRESHOLD,
+    RAG_CONFIG.relevanceThreshold,
   );
 
   let correctiveAttempted = false;
@@ -130,8 +152,8 @@ export const askQuestionWithCorrectiveRag = async (
   let warning: string | undefined;
 
   if (
-    intent !== "entity_extraction" &&
-    relevantChunks.length < MIN_RELEVANT_CHUNKS
+    intent !== "extraction" &&
+    relevantChunks.length < RAG_CONFIG.minRelevantChunks
   ) {
     correctiveAttempted = true;
     const stricterQuery = await rewriteAcademicQuery(
@@ -150,7 +172,7 @@ export const askQuestionWithCorrectiveRag = async (
     const secondEvaluatedChunks = evaluateRetrievedChunks(
       `${payload.question} ${rewrittenQuery} ${stricterQuery}`,
       secondPassChunks,
-      RELEVANCE_THRESHOLD,
+      RAG_CONFIG.relevanceThreshold,
     );
 
     evaluatedChunks = dedupeChunks([...evaluatedChunks, ...secondEvaluatedChunks]);
@@ -201,7 +223,7 @@ export const askQuestionWithCorrectiveRag = async (
         confidenceScore: 0,
         responseTimeMs: Date.now() - startedAt,
         usedFallbackChunks,
-        relevanceThreshold: RELEVANCE_THRESHOLD,
+        relevanceThreshold: RAG_CONFIG.relevanceThreshold,
         warning,
         detectedIntent: intent,
         retrievedSections: getRetrievedSections(evaluatedChunks),
@@ -211,7 +233,7 @@ export const askQuestionWithCorrectiveRag = async (
 
   const context = buildContext(answerChunks);
   let answer =
-    intent === "entity_extraction"
+    intent === "extraction"
       ? await generateEntityExtractionAnswer(payload.question, context)
       : await generateAnswerFromContext(payload.question, context, false, {
           intent,
@@ -220,7 +242,7 @@ export const askQuestionWithCorrectiveRag = async (
 
   if (!grounding.isGrounded) {
     answer =
-      intent === "entity_extraction"
+      intent === "extraction"
         ? await generateEntityExtractionAnswer(payload.question, context)
         : await generateAnswerFromContext(payload.question, context, true, {
             intent,
@@ -243,7 +265,7 @@ export const askQuestionWithCorrectiveRag = async (
       confidenceScore: grounding.confidenceScore,
       responseTimeMs: Date.now() - startedAt,
       usedFallbackChunks,
-      relevanceThreshold: RELEVANCE_THRESHOLD,
+      relevanceThreshold: RAG_CONFIG.relevanceThreshold,
       warning: warning || grounding.warning,
       detectedIntent: intent,
       retrievedSections: getRetrievedSections(evaluatedChunks),

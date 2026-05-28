@@ -1,6 +1,5 @@
 import { Types } from "mongoose";
 import { ChatSource } from "./api.types";
-import { DocumentSection } from "../utils/documentSection";
 
 export type RagMode = "basic" | "corrective";
 
@@ -14,7 +13,13 @@ export interface EvaluatedChunk {
     subject: string;
     title: string;
     chunkIndex: number;
-    section: DocumentSection;
+    heading?: string;
+    sectionTitle?: string;
+    sectionIndex?: number;
+    contentLength?: number;
+    section?: string;
+    inferredSection?: string;
+    semanticSectionLabel?: string;
   };
   relevanceScore: number;
   isRelevant: boolean;

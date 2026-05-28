@@ -1,0 +1,133 @@
+# AI Study Hub Backend
+
+AI Study Hub Backend is an Express + TypeScript API for uploading study documents and asking AI questions about uploaded documents.
+
+The backend focuses on Vietnamese educational document Q&A while keeping the RAG pipeline generic enough for study materials such as:
+
+- lecture slides
+- notes
+- exam documents
+- technical documents
+- research papers
+- general PDFs, DOCX, PPTX, XLSX, TXT, and MD files
+
+It does not rely on document-type-specific retrieval rules or fixed heading keyword lists.
+
+## Core Architecture
+
+```text
+React Frontend
+↓
+Express Backend
+↓
+MongoDB / Cloudinary
+↓
+Document Text Extraction
+↓
+Chunking + Generic Heading Detection
+↓
+Jina Embeddings
+↓
+Pinecone Semantic Search
+↓
+Groq Answer Generation
+↓
+Chat History / Evaluation Logs
+```
+
+## RAG Flow
+
+```text
+User Question
+↓
+Embedding
+↓
+Pinecone Semantic Search
+↓
+Relevant Chunks
+↓
+Groq Answer Generation
+↓
+Grounding Check
+```
+
+## Tech Stack
+
+- Node.js + Express for REST APIs.
+- TypeScript for type-safe backend code.
+- MongoDB + Mongoose for users, documents, chat history, benchmarks, and logs.
+- Cloudinary for storing uploaded document files.
+- Multer for file upload handling.
+- pdf-parse, mammoth, pptx2json, and xlsx for extracting document text.
+- Jina Embeddings for text/query vectors.
+- Pinecone for semantic vector search.
+- Groq for answer generation.
+- JWT for authentication.
+- Zod for request validation.
+- Swagger for API documentation.
+
+## Heading-Based Chunking
+
+The chunking pipeline splits documents by headings and sections before using fixed-size splitting. It avoids hard-coded document assumptions and detects headings with generic format signals:
+
+- short line length
+- uppercase ratio
+- no ending punctuation
+- isolated line detection
+- followed by content
+- generic numbered heading patterns such as `1.`, `1.1`, `Chapter 1`, `Section 2`
+
+Each chunk keeps the section heading at the top of its content, which helps the LLM retain chapter or lesson context during retrieval and answer generation. This reduces broken meaning across chunk boundaries, improves retrieval quality, and works better for study materials with chapters, slides, and titled sections.
+
+If no headings are detected, the pipeline falls back to fixed-size chunks and marks the section as `General Content`.
+
+## Vietnamese RAG Tuning
+
+Prompts prioritize Vietnamese study documents: Vietnamese questions are answered in Vietnamese, accents and subject terms are preserved, and answers use only retrieved context from uploaded files. If the context is insufficient, the API returns:
+
+```text
+Tôi không tìm thấy thông tin này trong tài liệu đã upload.
+```
+
+Corrective RAG uses `RELEVANCE_THRESHOLD=0.55` by default. This higher threshold improves precision by filtering weaker chunks, but it can reduce recall. Tune `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and `MIN_RELEVANT_CHUNKS` through environment variables.
+
+## Main APIs
+
+```text
+POST /api/auth/register
+POST /api/auth/login
+
+POST /api/documents/upload
+GET  /api/documents
+POST /api/documents/:documentId/reindex
+
+POST /api/chat/ask
+GET  /api/chat/history
+
+GET  /api/evaluation/logs
+GET  /api/evaluation/summary
+```
+
+## Reindexing
+
+If chunking or metadata logic changes, existing Pinecone vectors must be rebuilt:
+
+```http
+POST /api/documents/:documentId/reindex
+```
+
+This flow deletes old vectors, chunks the document again, regenerates embeddings, and upserts fresh vectors into Pinecone.
+
+## Design Decisions
+
+### Why remove hard-coded document logic?
+
+AI Study Hub is a general study assistant. Hard-coded rules for one document type do not scale to slides, exams, notes, papers, or technical PDFs.
+
+### Why semantic retrieval?
+
+Semantic retrieval uses embeddings and Pinecone similarity scores, so it can find relevant chunks even when the user's wording differs from the source document.
+
+### Why keep heading detection generic?
+
+Heading metadata can help organize chunks, but retrieval should remain driven by semantic similarity rather than fixed document-type assumptions.

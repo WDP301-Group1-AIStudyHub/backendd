@@ -1,25 +1,28 @@
 import { generateGroqTextFromPrompt } from "./groq.service";
 import { detectQuestionLanguage, getLanguageName } from "../utils/languageDetector";
-import { detectQuestionIntent } from "../utils/ragIntent";
+import { classifyQuestionIntent } from "./intentClassifier.service";
 
 export const rewriteAcademicQuery = async (
   question: string,
   attempt = 1,
 ): Promise<string> => {
-  const intent = detectQuestionIntent(question);
+  const { intent } = await classifyQuestionIntent(question);
   const language = detectQuestionLanguage(question);
 
-  if (intent === "entity_extraction") {
+  if (intent === "extraction") {
     return question.trim();
   }
 
   const prompt = `
-Rewrite the user's question into a clear academic search query for retrieving study document chunks.
-Keep the meaning, add specific keywords when useful, and return only the rewritten query.
-Do not broaden specific questions into unrelated topics.
-Preserve requested entities, constraints, names, dates, emails, categories, and exact terms from the question.
+Rewrite the user's question into a clear academic search query for retrieving chunks from Vietnamese-domain study documents.
+Keep the original meaning, especially when the question is Vietnamese.
+Preserve Vietnamese accents, subject-specific terms, formulas, names, dates, entities, constraints, and exact terms.
+Do not translate Vietnamese educational terms unnecessarily.
+Do not over-generalize a specific question into a broad topic.
+Expand abbreviations only when the meaning is clear from the question.
 For definitions, instructions, lists, summaries, and comparisons, preserve the user's requested task.
 Use the same language as the original question: ${getLanguageName(language)}.
+Return only the rewritten query.
 
 Attempt: ${attempt}
 Original question: ${question}

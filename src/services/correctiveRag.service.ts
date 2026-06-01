@@ -1,5 +1,7 @@
 import { AskQuestionRequest, ChatSource } from "../types/api.types";
 import { EvaluatedChunk, RagAnswerResult } from "../types/rag.types";
+import { StudyDocument } from "../models/document.model";
+import { AppError } from "../middlewares/error.middleware";
 import {
   generateAnswerFromContext,
   generateEntityExtractionAnswer,
@@ -11,18 +13,13 @@ import {
 } from "./relevance.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
 import { searchRelevantChunks } from "./vector.service";
-import {
-  detectAnswerStyle,
-  getInsufficientContextAnswer,
-} from "../utils/answerStyle";
+import { detectAnswerStyle } from "../utils/answerStyle";
 import {
   classifyQuestionIntent,
   SemanticQuestionIntent,
 } from "./intentClassifier.service";
 import { RAG_CONFIG } from "../config/rag.config";
-
-const FALLBACK_WARNING =
-  "Used fallback top retrieved chunks because relevance evaluator rejected all chunks.";
+import { generateFallbackAnswer } from "./fallbackAnswer.service";
 
 const DEFAULT_CONTEXT_CHUNK_LIMIT = 5;
 const FOCUSED_CONTEXT_CHUNK_LIMIT = 3;
@@ -73,17 +70,6 @@ const toSources = (chunks: EvaluatedChunk[]): ChatSource[] => {
   }));
 };
 
-const getFallbackChunks = (chunks: EvaluatedChunk[]): EvaluatedChunk[] => {
-  return [...chunks]
-    .sort((a, b) => (b.pineconeScore ?? 0) - (a.pineconeScore ?? 0))
-    .slice(0, 3)
-    .map((chunk) => ({
-      ...chunk,
-      isRelevant: true,
-      relevanceDecisionReason: "fallback_top_retrieved_chunk",
-    }));
-};
-
 const selectAnswerChunks = (
   chunks: EvaluatedChunk[],
   intent: SemanticQuestionIntent,
@@ -124,9 +110,23 @@ export const askQuestionWithCorrectiveRag = async (
   const intentClassification = await classifyQuestionIntent(payload.question);
   const intent = intentClassification.intent;
   const answerStyle = detectAnswerStyle(payload.question);
-  const insufficientContextAnswer = getInsufficientContextAnswer(
-    answerStyle.language,
-  );
+  let documentTitle: string | undefined;
+  let documentSubject = payload.subject;
+
+  if (payload.documentId) {
+    const document = await StudyDocument.findOne({
+      _id: payload.documentId,
+      uploadedBy: userId,
+    });
+
+    if (!document) {
+      throw new AppError("Document not found", 404);
+    }
+
+    documentTitle = document.title;
+    documentSubject = document.subject || documentSubject;
+  }
+
   const rewrittenQuery = await rewriteAcademicQuery(payload.question);
 
   // Phase 3 retrieval: search with a rewritten academic query, then grade each
@@ -148,7 +148,6 @@ export const askQuestionWithCorrectiveRag = async (
 
   let correctiveAttempted = false;
   let relevantChunks = evaluatedChunks.filter((chunk) => chunk.isRelevant);
-  let usedFallbackChunks = false;
   let warning: string | undefined;
 
   if (
@@ -179,37 +178,31 @@ export const askQuestionWithCorrectiveRag = async (
     relevantChunks = evaluatedChunks.filter((chunk) => chunk.isRelevant);
   }
 
-  if (evaluatedChunks.length > 0 && relevantChunks.length === 0) {
-    usedFallbackChunks = true;
-    warning = FALLBACK_WARNING;
-    relevantChunks = getFallbackChunks(evaluatedChunks);
-
-    console.log("[RAG relevance fallback]", {
-      warning,
-      selectedChunkIds: relevantChunks.map((chunk) => chunk.id),
-      selectedPineconeScores: relevantChunks.map(
-        (chunk) => chunk.pineconeScore ?? 0,
-      ),
-    });
-  }
-
-  const candidateAnswerChunks =
-    relevantChunks.length > 0 ? relevantChunks : getFallbackChunks(evaluatedChunks);
   let answerChunks = selectAnswerChunks(
-    candidateAnswerChunks,
+    relevantChunks,
     intent,
     answerStyle.wantsShortAnswer,
   );
-  if (answerChunks.length === 0 && candidateAnswerChunks.length > 0) {
-    usedFallbackChunks = true;
-    warning = warning || FALLBACK_WARNING;
-    answerChunks = getFallbackChunks(candidateAnswerChunks);
-  }
   const averageRelevanceScore = calculateAverageRelevance(evaluatedChunks);
 
   if (answerChunks.length === 0) {
+    const fallbackReason =
+      evaluatedChunks.length === 0
+        ? "no_relevant_chunks_found"
+        : "retrieved_chunks_not_relevant_enough";
+    const fallbackAnswer = await generateFallbackAnswer({
+      question: payload.question,
+      language: answerStyle.language,
+      retrievedChunksCount: evaluatedChunks.length,
+      relevantChunksCount: relevantChunks.length,
+      averageRelevanceScore,
+      documentTitle: documentTitle || evaluatedChunks[0]?.metadata.title,
+      subject: documentSubject,
+      reason: fallbackReason,
+    });
+
     return {
-      answer: insufficientContextAnswer,
+      answer: fallbackAnswer,
       mode: "corrective",
       originalQuestion: payload.question,
       rewrittenQuery,
@@ -222,9 +215,11 @@ export const askQuestionWithCorrectiveRag = async (
         isGrounded: false,
         confidenceScore: 0,
         responseTimeMs: Date.now() - startedAt,
-        usedFallbackChunks,
+        usedFallbackChunks: false,
         relevanceThreshold: RAG_CONFIG.relevanceThreshold,
         warning,
+        fallbackGenerated: true,
+        fallbackReason,
         detectedIntent: intent,
         retrievedSections: getRetrievedSections(evaluatedChunks),
       },
@@ -250,8 +245,46 @@ export const askQuestionWithCorrectiveRag = async (
     grounding = await checkAnswerGrounding(answer, context);
   }
 
+  if (!answer || !grounding.isGrounded) {
+    const fallbackReason = !answer ? "empty_answer" : "grounding_failed";
+    const fallbackAnswer = await generateFallbackAnswer({
+      question: payload.question,
+      language: answerStyle.language,
+      retrievedChunksCount: evaluatedChunks.length,
+      relevantChunksCount: relevantChunks.length,
+      averageRelevanceScore,
+      documentTitle: documentTitle || answerChunks[0]?.metadata.title,
+      subject: documentSubject,
+      reason: fallbackReason,
+    });
+
+    return {
+      answer: fallbackAnswer,
+      mode: "corrective",
+      originalQuestion: payload.question,
+      rewrittenQuery,
+      sources: toSources(answerChunks),
+      evaluation: {
+        retrievedChunksCount: evaluatedChunks.length,
+        relevantChunksCount: relevantChunks.length,
+        averageRelevanceScore,
+        correctiveAttempted,
+        isGrounded: false,
+        confidenceScore: grounding.confidenceScore,
+        responseTimeMs: Date.now() - startedAt,
+        usedFallbackChunks: false,
+        relevanceThreshold: RAG_CONFIG.relevanceThreshold,
+        warning: warning || grounding.warning,
+        fallbackGenerated: true,
+        fallbackReason,
+        detectedIntent: intent,
+        retrievedSections: getRetrievedSections(evaluatedChunks),
+      },
+    };
+  }
+
   return {
-    answer: answer || insufficientContextAnswer,
+    answer,
     mode: "corrective",
     originalQuestion: payload.question,
     rewrittenQuery,
@@ -264,9 +297,10 @@ export const askQuestionWithCorrectiveRag = async (
       isGrounded: grounding.isGrounded,
       confidenceScore: grounding.confidenceScore,
       responseTimeMs: Date.now() - startedAt,
-      usedFallbackChunks,
+      usedFallbackChunks: false,
       relevanceThreshold: RAG_CONFIG.relevanceThreshold,
       warning: warning || grounding.warning,
+      fallbackGenerated: false,
       detectedIntent: intent,
       retrievedSections: getRetrievedSections(evaluatedChunks),
     },

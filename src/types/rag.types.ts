@@ -44,6 +44,8 @@ export interface RagEvaluation {
   usedFallbackChunks?: boolean;
   relevanceThreshold?: number;
   warning?: string;
+  fallbackGenerated?: boolean;
+  fallbackReason?: string;
   detectedIntent?: string;
   retrievedSections?: string[];
 }
@@ -72,6 +74,8 @@ export interface CreateRagEvaluationLogInput {
   usedFallbackChunks?: boolean;
   relevanceThreshold?: number;
   warning?: string;
+  fallbackGenerated?: boolean;
+  fallbackReason?: string;
   detectedIntent?: string;
   retrievedSections?: string[];
 }

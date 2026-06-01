@@ -63,6 +63,8 @@ const ragEvaluationSchema = new Schema<RagEvaluation>(
     usedFallbackChunks: { type: Boolean },
     relevanceThreshold: { type: Number },
     warning: { type: String },
+    fallbackGenerated: { type: Boolean },
+    fallbackReason: { type: String },
     detectedIntent: { type: String },
     retrievedSections: { type: [String] },
   },

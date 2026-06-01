@@ -86,7 +86,7 @@ EXPRESS BACKEND
  │    │    ├── Groq query rewriting
  │    │    ├── Pinecone semantic retrieval
  │    │    ├── relevance evaluation
- │    │    ├── fallback top chunks
+ │    │    ├── AI-generated fallback when context is insufficient
  │    │    ├── Groq answer generation
  │    │    └── Groq grounding/self-check
  │    └── ChatHistory model → MongoDB
@@ -175,7 +175,7 @@ User Question
 | Query | Uses the original question | Rewrites the question while preserving intent |
 | Retrieval | Pinecone semantic search | Pinecone semantic search, optionally with a second pass |
 | Relevance scoring | Treats retrieved chunks as selected context | Evaluates chunks using Pinecone score and lexical relevance signals |
-| Fallback | Returns insufficient context when no chunks exist | Falls back to top retrieved chunks if all chunks are rejected |
+| Fallback | Generates a safe fallback when no chunks exist or grounding fails | Generates a safe fallback when chunks are missing, weak, or grounding fails |
 | Answer generation | Groq answer from selected context | Groq answer from top relevant context |
 | Grounding | Groq grounding check and strict retry | Groq grounding check and strict retry |
 | Logging | Chat history and evaluation log | Chat history and richer corrective evaluation metadata |

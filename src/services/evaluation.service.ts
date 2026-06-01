@@ -23,6 +23,8 @@ const toEvaluationLogResponse = (
   usedFallbackChunks: log.usedFallbackChunks,
   relevanceThreshold: log.relevanceThreshold,
   warning: log.warning,
+  fallbackGenerated: log.fallbackGenerated,
+  fallbackReason: log.fallbackReason,
   detectedIntent: log.detectedIntent,
   retrievedSections: log.retrievedSections,
   createdAt: log.createdAt,

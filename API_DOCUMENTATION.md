@@ -469,13 +469,9 @@ Response:
 }
 ```
 
-If the retrieved context is insufficient, the answer is:
+If the retrieved context is insufficient, the backend generates a short fallback answer with Groq. The fallback does not answer from outside knowledge; it explains why the uploaded document context was not enough and suggests asking more specifically, selecting the correct document/subject, checking extraction quality, or re-indexing.
 
-```text
-Tôi không tìm thấy thông tin này trong tài liệu đã upload.
-```
-
-The RAG prompts prioritize Vietnamese educational document QA. Vietnamese questions should be answered in Vietnamese, preserve accents and subject-specific terms, and use only retrieved context from uploaded documents.
+The RAG prompts prioritize Vietnamese educational document QA. Vietnamese questions should be answered in Vietnamese, preserve accents and subject-specific terms, and use only retrieved context from uploaded documents. Fallback responses set `evaluation.fallbackGenerated = true` and include `evaluation.fallbackReason`.
 
 ### GET `/chat/history`
 

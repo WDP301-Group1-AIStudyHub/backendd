@@ -66,6 +66,8 @@ export const askQuestion = async (
     usedFallbackChunks: result.evaluation?.usedFallbackChunks,
     relevanceThreshold: result.evaluation?.relevanceThreshold,
     warning: result.evaluation?.warning,
+    fallbackGenerated: result.evaluation?.fallbackGenerated,
+    fallbackReason: result.evaluation?.fallbackReason,
     detectedIntent: result.evaluation?.detectedIntent,
     retrievedSections: result.evaluation?.retrievedSections,
   });

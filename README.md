@@ -83,11 +83,9 @@ If no headings are detected, the pipeline falls back to fixed-size chunks and ma
 
 ## Vietnamese RAG Tuning
 
-Prompts prioritize Vietnamese study documents: Vietnamese questions are answered in Vietnamese, accents and subject terms are preserved, and answers use only retrieved context from uploaded files. If the context is insufficient, the API returns:
+Prompts prioritize Vietnamese study documents: Vietnamese questions are answered in Vietnamese, accents and subject terms are preserved, and answers use only retrieved context from uploaded files. If the context is insufficient, the API generates a short fallback answer with Groq instead of answering from outside knowledge.
 
-```text
-Tôi không tìm thấy thông tin này trong tài liệu đã upload.
-```
+The fallback explains why the system cannot answer, such as no relevant chunks found, retrieved chunks not being relevant enough, grounding failure, the file needing re-indexing, or text extraction quality. It does not answer the actual question and is capped to a short response so users know what to try next.
 
 Corrective RAG uses `RELEVANCE_THRESHOLD=0.55` by default. This higher threshold improves precision by filtering weaker chunks, but it can reduce recall. Tune `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and `MIN_RELEVANT_CHUNKS` through environment variables.
 

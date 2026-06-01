@@ -79,8 +79,8 @@ askQuestionWithCorrectiveRag
       searchRelevantChunks(stricterQuery, topK = 8)
       evaluateRetrievedChunks(...)
       dedupe chunks
- → nếu retrieved có chunks nhưng relevant = 0:
-      fallback top Pinecone chunks
+ → nếu không có chunks đủ liên quan:
+      generateFallbackAnswer(...)
  → selectAnswerChunks by relevanceThreshold
  → generate answer bằng Groq
  → checkAnswerGrounding bằng Groq
@@ -437,13 +437,13 @@ Vì extraction thường cần trả lời ngắn, tập trung vào một vài f
 
 Backend control flow.
 
-## 9. `evaluation.usedFallbackChunks`
+## 9. `evaluation.fallbackGenerated` / `evaluation.fallbackReason`
 
 ### Ý nghĩa
 
-Cho biết hệ thống có dùng fallback chunks hay không.
+Cho biết hệ thống có tạo fallback answer bằng AI hay không, và lý do fallback.
 
-Fallback chunks là top chunks theo Pinecone score được dùng khi relevance evaluator quá nghiêm hoặc không chọn được chunk nào.
+Fallback answer được tạo bằng Groq nhưng không được phép trả lời câu hỏi bằng kiến thức ngoài. Nó chỉ giải thích vì sao context tài liệu chưa đủ và gợi ý người dùng thử hỏi cụ thể hơn, chọn đúng tài liệu/môn học, kiểm tra extraction hoặc re-index.
 
 ### Sinh ở đâu?
 
@@ -451,7 +451,8 @@ Fallback chunks là top chunks theo Pinecone score được dùng khi relevance 
 
 Functions:
 
-- `getFallbackChunks`
+- `fallbackAnswer.service.generateFallbackAnswer`
+- `askQuestionWithRag`
 - `askQuestionWithCorrectiveRag`
 
 ### Khi nào bật `true`?
@@ -459,42 +460,22 @@ Functions:
 Trường hợp 1:
 
 ```ts
-if (evaluatedChunks.length > 0 && relevantChunks.length === 0) {
-  usedFallbackChunks = true
-  relevantChunks = getFallbackChunks(evaluatedChunks)
-}
-```
-
-Trường hợp 2:
-
-```ts
-if (answerChunks.length === 0 && candidateAnswerChunks.length > 0) {
-  usedFallbackChunks = true
-  answerChunks = getFallbackChunks(candidateAnswerChunks)
-}
-```
-
-### Fallback chọn chunk như thế nào?
-
-```ts
-getFallbackChunks(chunks):
-  sort by pineconeScore descending
-  take top 3
-  mark isRelevant = true
+if (retrievedChunksCount === 0) fallbackReason = "no_relevant_chunks_found"
+if (retrievedChunksCount > 0 && relevantChunksCount === 0) fallbackReason = "retrieved_chunks_not_relevant_enough"
+if (!grounding.isGrounded) fallbackReason = "grounding_failed"
 ```
 
 ### Vì sao cần fallback?
 
-Vì semantic retrieval có thể đã lấy đúng chunk, nhưng evaluator heuristic có thể reject hết do lexical overlap thấp. Fallback giúp tránh tình trạng:
+Vì semantic retrieval có thể không tìm được context đủ rõ, hoặc answer sinh ra không vượt qua grounding check. Fallback cải thiện UX nhưng không hallucinate.
 
 ```text
-Pinecone đã tìm thấy context gần nghĩa
-nhưng backend trả "không tìm thấy thông tin"
+Backend giải thích ngắn gọn lý do không thể trả lời dựa trên tài liệu đã upload.
 ```
 
 ### Nguồn metric
 
-Backend control flow + Pinecone score sorting.
+Backend control flow + Groq fallback generation.
 
 ## 10. `evaluation.isGrounded`
 
@@ -914,7 +895,9 @@ Mục tiêu là phát hiện answer có claim nào không được context suppo
 | `isGrounded` | Groq grounding check + backend threshold | `answerCheck.service.ts` |
 | `confidenceScore` | Groq grounding JSON + backend clamp | `answerCheck.service.ts` |
 | `responseTimeMs` | Backend timing | `rag.service.ts`, `correctiveRag.service.ts` |
-| `usedFallbackChunks` | Backend fallback control flow | `correctiveRag.service.ts` |
+| `usedFallbackChunks` | Legacy optional field, now normally false | `correctiveRag.service.ts` |
+| `fallbackGenerated` | AI-generated fallback status | `fallbackAnswer.service.ts`, RAG services |
+| `fallbackReason` | Reason fallback was used | RAG services |
 | `relevanceThreshold` | Backend config | `rag.config.ts`, `correctiveRag.service.ts` |
 | `detectedIntent` | Groq semantic classifier | `intentClassifier.service.ts` |
 | `retrievedSections` | Chunk metadata | `textSplitter.ts`, `documentSection.ts`, RAG services |

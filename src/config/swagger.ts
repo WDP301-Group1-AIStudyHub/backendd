@@ -134,7 +134,12 @@ const options: swaggerJsdoc.Options = {
             warning: {
               type: "string",
               example:
-                "Used fallback top retrieved chunks because relevance evaluator rejected all chunks.",
+                "Generated answer was not well supported by document context.",
+            },
+            fallbackGenerated: { type: "boolean", example: false },
+            fallbackReason: {
+              type: "string",
+              example: "grounding_failed",
             },
             detectedIntent: { type: "string", example: "extraction" },
             retrievedSections: {

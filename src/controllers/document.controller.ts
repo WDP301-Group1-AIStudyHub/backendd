@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import {
+  ListDocumentQuery,
   SearchDocumentQuery,
   UpdateDocumentRequest,
   UploadDocumentRequest,
@@ -8,6 +9,7 @@ import {
   createDocument,
   deleteDocument,
   getDocumentById,
+  getDocumentSubjectsByUser,
   getDocumentsByUser,
   reindexUserDocument,
   searchDocuments,
@@ -31,14 +33,27 @@ export const uploadDocument = asyncHandler(async (
 });
 
 export const listDocuments = asyncHandler(async (
-  req: Request,
+  req: Request<unknown, unknown, unknown, ListDocumentQuery>,
   res: Response,
 ): Promise<void> => {
-  const data = await getDocumentsByUser(req.authUser!.id);
+  const data = await getDocumentsByUser(req.authUser!.id, req.query);
 
   sendResponse(res, 200, {
     success: true,
-    message: "Documents fetched successfully",
+    message: "Get documents successfully",
+    data,
+  });
+});
+
+export const listDocumentSubjects = asyncHandler(async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const data = await getDocumentSubjectsByUser(req.authUser!.id);
+
+  sendResponse(res, 200, {
+    success: true,
+    message: "Get subjects successfully",
     data,
   });
 });

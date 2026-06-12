@@ -10,7 +10,7 @@ export interface IChatHistory extends Document {
   answer: string;
   sources: ChatSource[];
   documentId?: Types.ObjectId;
-  subject?: string;
+  subjectId?: Types.ObjectId;
   mode?: RagMode;
   evaluation?: RagEvaluation;
   createdAt: Date;
@@ -63,6 +63,8 @@ const ragEvaluationSchema = new Schema<RagEvaluation>(
     usedFallbackChunks: { type: Boolean },
     relevanceThreshold: { type: Number },
     warning: { type: String },
+    fallbackGenerated: { type: Boolean },
+    fallbackReason: { type: String },
     detectedIntent: { type: String },
     retrievedSections: { type: [String] },
   },
@@ -102,9 +104,9 @@ const chatHistorySchema = new Schema<IChatHistory>(
       type: Schema.Types.ObjectId,
       ref: "Document",
     },
-    subject: {
-      type: String,
-      trim: true,
+    subjectId: {
+      type: Schema.Types.ObjectId,
+      ref: "Subject",
     },
     mode: {
       type: String,

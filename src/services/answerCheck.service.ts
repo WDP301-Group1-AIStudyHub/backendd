@@ -34,7 +34,7 @@ Rules:
 - confidenceScore must be from 0 to 1.
 - Vietnamese answers must preserve the meaning and terms found in the context.
 - Do not require translation of Vietnamese educational terms.
-- If the context is insufficient, the answer should be exactly: "Tôi không tìm thấy thông tin này trong tài liệu đã upload."
+- If the context is insufficient, isGrounded must be false so the backend can generate a safe fallback response.
 
 Context:
 ${context}

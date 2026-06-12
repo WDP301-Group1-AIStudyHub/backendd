@@ -9,8 +9,12 @@ import {
 
 export interface VectorChunkInput {
   documentId: string;
+  versionId?: string;
+  versionNumber?: number;
+  ownerId?: string;
   userId: string;
   subject?: string;
+  subjectId?: string;
   title: string;
   chunkIndex: number;
   heading?: string | null;
@@ -28,6 +32,7 @@ export interface VectorSearchFilters {
   userId: string;
   documentId?: string;
   subject?: string;
+  subjectId?: string;
 }
 
 export interface RetrievedChunk {
@@ -38,6 +43,7 @@ export interface RetrievedChunk {
     documentId: string;
     userId: string;
     subject: string;
+    subjectId: string;
     title: string;
     chunkIndex: number;
     heading?: string;
@@ -56,8 +62,13 @@ export interface DeleteDocumentChunksResult {
 
 interface PineconeChunkMetadata extends RecordMetadata {
   documentId: string;
+  versionId: string;
+  versionNumber: number;
+  ownerId: string;
+  isActiveVersion: boolean;
   userId: string;
   subject: string;
+  subjectId: string;
   title: string;
   chunkIndex: number;
   heading: string;
@@ -155,6 +166,10 @@ const buildPineconeFilter = (
     filter.subject = { $eq: filters.subject };
   }
 
+  if (filters.subjectId) {
+    filter.subjectId = { $eq: filters.subjectId };
+  }
+
   return filter;
 };
 
@@ -171,12 +186,19 @@ export const upsertDocumentChunks = async (
   await index.upsert({
     namespace: getPineconeNamespace(),
     records: chunks.map((chunk, index) => ({
-      id: `${chunk.documentId}:${chunk.chunkIndex}`,
+      id: chunk.versionId
+        ? `${chunk.documentId}:${chunk.versionId}:${chunk.chunkIndex}`
+        : `${chunk.documentId}:${chunk.chunkIndex}`,
       values: embeddings[index],
       metadata: {
         documentId: chunk.documentId,
+        versionId: chunk.versionId || "",
+        versionNumber: chunk.versionNumber || 0,
+        ownerId: chunk.ownerId || chunk.userId,
+        isActiveVersion: true,
         userId: chunk.userId,
         subject: chunk.subject || "",
+        subjectId: chunk.subjectId || "",
         title: chunk.title,
         chunkIndex: chunk.chunkIndex,
         heading: chunk.heading || "",
@@ -247,6 +269,7 @@ export const searchRelevantChunks = async (
         documentId: metadata?.documentId || "",
         userId: metadata?.userId || "",
         subject: metadata?.subject || "",
+        subjectId: metadata?.subjectId || "",
         title: metadata?.title || "",
         chunkIndex: Number(metadata?.chunkIndex || 0),
         heading: (metadata?.heading as string | undefined) || undefined,

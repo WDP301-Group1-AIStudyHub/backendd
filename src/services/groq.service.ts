@@ -4,7 +4,6 @@ import { AppError } from "../middlewares/error.middleware";
 import {
   detectAnswerStyle,
   AnswerLanguage,
-  getInsufficientContextAnswer,
 } from "../utils/answerStyle";
 import { retryAsync } from "../utils/retry";
 import type { SemanticQuestionIntent } from "./intentClassifier.service";
@@ -224,7 +223,6 @@ export const generateAnswerFromContext = async (
   const maxSentencesRule = style.wantsShortAnswer
     ? "Maximum 2 sentences."
     : "Use the shortest complete answer that satisfies the question.";
-  const insufficientContextAnswer = getInsufficientContextAnswer(style.language);
   const systemMessage = [
     "You are the answer generation layer in a RAG system for Vietnamese educational documents.",
     style.language === "other"
@@ -240,7 +238,7 @@ export const generateAnswerFromContext = async (
     "Do not add unrelated information.",
     "Do not hallucinate. Do not repeat.",
     maxSentencesRule,
-    `If the CONTEXT is insufficient, answer exactly: "${insufficientContextAnswer}"`,
+    "If the CONTEXT is insufficient, return an empty response instead of guessing.",
     intent === "extraction"
       ? "Intent: extraction. Extract only the requested information. No long paragraphs. Prefer a compact comma-separated or natural-language list when appropriate."
       : `Intent: ${intent}.`,
@@ -285,7 +283,6 @@ export const generateEntityExtractionAnswer = async (
   context: string,
 ): Promise<string> => {
   const style = detectAnswerStyle(question);
-  const insufficientContextAnswer = getInsufficientContextAnswer(style.language);
   const extraction = await generateGroqText(
     [
       {
@@ -321,5 +318,5 @@ export const generateEntityExtractionAnswer = async (
       .map((entity) => entity.trim()) ?? [];
   const answer = formatExtractedEntities(entities, style.language);
 
-  return answer || insufficientContextAnswer;
+  return answer;
 };

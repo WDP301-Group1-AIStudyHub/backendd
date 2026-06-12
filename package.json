@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "migrate:document-subjects": "ts-node-dev --transpile-only --exit-child src/scripts/migrateDocumentSubjects.ts",
+    "migrate:document-versions": "ts-node-dev --transpile-only --exit-child src/scripts/migrateExistingDocumentsToVersions.ts",
     "build": "tsc",
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
     "start": "node dist/server.js"
   },
   "repository": {
@@ -41,6 +44,7 @@
     "passport-google-oauth20": "^2.0.0",
     "pdf-parse": "^2.4.5",
     "pptx2json": "^0.0.10",
+    "socket.io": "^4.8.3",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1",
     "xlsx": "^0.18.5",

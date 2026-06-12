@@ -1,50 +1,122 @@
 import { StudyDocument, IDocument } from "../models/document.model";
+import { ISubject, Subject } from "../models/subject.model";
+import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
 import {
   DocumentListResponse,
+  DocumentListItemResponse,
   DocumentResponse,
   DebugDocumentChunkResponse,
+  ListDocumentQuery,
+  PaginatedDocumentListResponse,
   ReindexDocumentResponse,
   SearchDocumentQuery,
   UpdateDocumentRequest,
   UploadDocumentRequest,
 } from "../types/api.types";
 import { AppError } from "../middlewares/error.middleware";
-import {
-  deleteCloudinaryFile,
-  uploadDocumentToCloudinary,
-} from "./cloudinary.service";
+import { uploadDocumentToCloudinary } from "./cloudinary.service";
 import { extractDocumentText } from "./documentExtraction/extractDocumentText";
 import {
   indexDocumentForRag,
   reembedDocumentForRag,
   reindexDocumentForRag,
-  removeDocumentFromRag,
 } from "./rag.service";
 import { getFileExtension } from "../utils/fileName";
 import { splitTextForRag } from "../utils/textSplitter";
 
-export const toDocumentResponse = (document: IDocument): DocumentResponse => ({
-  id: document._id.toString(),
+const MAX_DOCUMENT_LIST_LIMIT = 50;
+const DEFAULT_DOCUMENT_LIST_LIMIT = 10;
+const DEFAULT_DOCUMENT_LIST_PAGE = 1;
+const DOCUMENT_LIST_SORT_FIELDS = new Set([
+  "createdAt",
+  "updatedAt",
+  "title",
+  "subjectId",
+  "fileName",
+  "fileSize",
+]);
+
+const toSubjectSummary = (subject: unknown) => {
+  if (!subject || typeof subject !== "object" || !("_id" in subject)) {
+    return undefined;
+  }
+
+  const populatedSubject = subject as ISubject;
+
+  return {
+    _id: populatedSubject._id.toString(),
+    name: populatedSubject.name,
+    code: populatedSubject.code,
+  };
+};
+
+export const toDocumentResponse = (document: IDocument): DocumentResponse => {
+  const subjectSummary = toSubjectSummary(document.subjectId);
+
+  return {
+    id: document._id.toString(),
+    title: document.title,
+    description: document.description,
+    subject: subjectSummary?.name,
+    subjectId: subjectSummary || document.subjectId,
+    fileUrl: document.fileUrl,
+    filePublicId: document.filePublicId,
+    fileName: document.fileName,
+    fileType: document.fileType,
+    originalFileName: document.originalFileName || document.fileName,
+    storedFileName: document.storedFileName || document.fileName,
+    fileExtension:
+      document.fileExtension || getFileExtension(document.fileName || ""),
+    mimeType: document.mimeType || document.fileType,
+    fileSize: document.fileSize,
+    extractedText: document.extractedText,
+    extractionStatus: document.extractionStatus || "COMPLETED",
+    extractionError: document.extractionError || "",
+    uploadedBy: document.ownerId,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+  };
+};
+
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const parsePositiveInteger = (
+  value: string | undefined,
+  fallback: number,
+): number => {
+  const parsed = Number.parseInt(value || "", 10);
+
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
+};
+
+const toDocumentListItemResponse = (
+  document: IDocument,
+): DocumentListItemResponse => ({
+  _id: document._id.toString(),
   title: document.title,
   description: document.description,
-  subject: document.subject,
+  subject: toSubjectSummary(document.subjectId) || null,
   fileUrl: document.fileUrl,
-  filePublicId: document.filePublicId,
   fileName: document.fileName,
   fileType: document.fileType,
-  originalFileName: document.originalFileName || document.fileName,
-  storedFileName: document.storedFileName || document.fileName,
-  fileExtension:
-    document.fileExtension || getFileExtension(document.fileName || ""),
-  mimeType: document.mimeType || document.fileType,
   fileSize: document.fileSize,
-  extractedText: document.extractedText,
-  extractionStatus: document.extractionStatus || "COMPLETED",
-  extractionError: document.extractionError || "",
-  uploadedBy: document.uploadedBy,
   createdAt: document.createdAt,
   updatedAt: document.updatedAt,
 });
+
+const getSubjectOwnedByUser = async (
+  subjectId: string,
+  userId: string,
+): Promise<ISubject> => {
+  const subject = await Subject.findOne({ _id: subjectId, ownerId: userId });
+
+  if (!subject) {
+    throw new AppError("Subject not found or does not belong to user", 400);
+  }
+
+  return subject;
+};
 
 export const createDocument = async (
   payload: UploadDocumentRequest,
@@ -54,6 +126,8 @@ export const createDocument = async (
   if (!file) {
     throw new AppError("Document file is required", 400);
   }
+
+  const subject = await getSubjectOwnedByUser(payload.subjectId, userId);
 
   let extractedText = "";
   let extractionStatus: "COMPLETED" | "FAILED" = "COMPLETED";
@@ -72,11 +146,12 @@ export const createDocument = async (
   }
 
   const cloudinaryUpload = await uploadDocumentToCloudinary(file);
+  const chunkingResult = await splitTextForRag(extractedText);
 
   const document = await StudyDocument.create({
     title: payload.title,
     description: payload.description,
-    subject: payload.subject,
+    subjectId: subject._id,
     fileUrl: cloudinaryUpload.result.secure_url,
     filePublicId: cloudinaryUpload.result.public_id,
     fileName: file.originalname,
@@ -89,11 +164,46 @@ export const createDocument = async (
     extractedText,
     extractionStatus,
     extractionError,
-    uploadedBy: userId,
+    visibility: payload.visibility || "PRIVATE",
+    status: "ACTIVE",
+    ownerId: userId,
+  });
+  const version = await DocumentVersion.create({
+    documentId: document._id,
+    versionNumber: 1,
+    uploadMode: "OVERRIDE",
+    fileUrl: cloudinaryUpload.result.secure_url,
+    filePublicId: cloudinaryUpload.result.public_id,
+    fileName: file.originalname,
+    originalFileName: cloudinaryUpload.originalFileName,
+    storedFileName: cloudinaryUpload.storedFileName,
+    fileType: file.mimetype,
+    mimeType: cloudinaryUpload.mimeType,
+    fileSize: file.size,
+    fileExtension: cloudinaryUpload.fileExtension,
+    extractedText,
+    extractionStatus,
+    extractionError,
+    totalChunks: chunkingResult.chunks.length,
+    uploadedBy: document.ownerId,
+    isActive: true,
   });
 
+  document.currentVersionId = version._id;
+  document.totalVersions = 1;
+  document.totalChunks = version.totalChunks;
+  await document.save();
+
   if (extractionStatus === "COMPLETED") {
-    await indexDocumentForRag(document._id.toString(), userId);
+    const indexResult = await indexDocumentForRag(document._id.toString(), userId);
+    const indexedAt = new Date();
+
+    version.indexedAt = indexedAt;
+    version.totalChunks = indexResult.chunksCreated;
+    await version.save();
+    document.lastIndexedAt = indexedAt;
+    document.totalChunks = indexResult.chunksCreated;
+    await document.save();
   }
 
   return toDocumentResponse(document);
@@ -101,15 +211,73 @@ export const createDocument = async (
 
 export const getDocumentsByUser = async (
   userId: string,
-): Promise<DocumentListResponse> => {
-  const documents = await StudyDocument.find({ uploadedBy: userId }).sort({
-    createdAt: -1,
-  });
+  query: ListDocumentQuery = {},
+): Promise<PaginatedDocumentListResponse> => {
+  const page = parsePositiveInteger(query.page, DEFAULT_DOCUMENT_LIST_PAGE);
+  const parsedLimit = parsePositiveInteger(
+    query.limit,
+    DEFAULT_DOCUMENT_LIST_LIMIT,
+  );
+  const limit = Math.min(parsedLimit, MAX_DOCUMENT_LIST_LIMIT);
+  const skip = (page - 1) * limit;
+  const sortBy = DOCUMENT_LIST_SORT_FIELDS.has(query.sortBy || "")
+    ? query.sortBy!
+    : "createdAt";
+  const sortOrder = query.sortOrder === "asc" ? 1 : -1;
+  const filters: Record<string, unknown> = {
+    ownerId: userId,
+    status: { $ne: "DELETED" },
+  };
+
+  if (query.subjectId?.trim()) {
+    filters.subjectId = query.subjectId.trim();
+  }
+
+  if (query.search?.trim()) {
+    const searchRegex = new RegExp(escapeRegex(query.search.trim()), "i");
+    filters.$or = [{ title: searchRegex }, { description: searchRegex }];
+  }
+
+  const [documents, totalItems] = await Promise.all([
+    StudyDocument.find(filters)
+      .select("-extractedText")
+      .populate("subjectId", "_id name code")
+      .sort({ [sortBy]: sortOrder })
+      .skip(skip)
+      .limit(limit),
+    StudyDocument.countDocuments(filters),
+  ]);
+  const totalPages = Math.ceil(totalItems / limit);
 
   return {
-    documents: documents.map(toDocumentResponse),
-    total: documents.length,
+    items: documents.map(toDocumentListItemResponse),
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    },
   };
+};
+
+export const getDocumentSubjectsByUser = async (
+  userId: string,
+): Promise<string[]> => {
+  const subjectIds = await StudyDocument.distinct("subjectId", {
+    ownerId: userId,
+    subjectId: { $nin: [null, ""] },
+  });
+  const subjects = await Subject.find({
+    _id: { $in: subjectIds },
+    ownerId: userId,
+  }).select("name");
+
+  return subjects
+    .map((subject) => subject.name.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
 };
 
 export const getDocumentById = async (
@@ -118,8 +286,9 @@ export const getDocumentById = async (
 ): Promise<DocumentResponse> => {
   const document = await StudyDocument.findOne({
     _id: documentId,
-    uploadedBy: userId,
-  });
+    ownerId: userId,
+    status: { $ne: "DELETED" },
+  }).populate("subjectId", "_id name code");
 
   if (!document) {
     throw new AppError("Document not found", 404);
@@ -134,7 +303,8 @@ export const reindexUserDocument = async (
 ): Promise<ReindexDocumentResponse> => {
   const document = await StudyDocument.findOne({
     _id: documentId,
-    uploadedBy: userId,
+    ownerId: userId,
+    status: { $ne: "DELETED" },
   });
 
   if (!document) {
@@ -154,7 +324,8 @@ export const getDebugDocumentChunks = async (
 ): Promise<DebugDocumentChunkResponse> => {
   const document = await StudyDocument.findOne({
     _id: documentId,
-    uploadedBy: userId,
+    ownerId: userId,
+    status: { $ne: "DELETED" },
   });
 
   if (!document) {
@@ -185,20 +356,27 @@ export const updateDocument = async (
   userId: string,
   payload: UpdateDocumentRequest,
 ): Promise<DocumentResponse> => {
+  const updatePayload: UpdateDocumentRequest = { ...payload };
+
+  if (payload.subjectId !== undefined) {
+    const subject = await getSubjectOwnedByUser(payload.subjectId, userId);
+    updatePayload.subjectId = subject._id.toString();
+  }
+
   const document = await StudyDocument.findOneAndUpdate(
-    { _id: documentId, uploadedBy: userId },
-    payload,
+    { _id: documentId, ownerId: userId, status: { $ne: "DELETED" } },
+    updatePayload,
     {
       new: true,
       runValidators: true,
     },
-  );
+  ).populate("subjectId", "_id name code");
 
   if (!document) {
     throw new AppError("Document not found", 404);
   }
 
-  if (payload.subject !== undefined) {
+  if (payload.subjectId !== undefined) {
     await reindexDocumentForRag(document._id.toString(), userId);
   }
 
@@ -209,17 +387,22 @@ export const deleteDocument = async (
   documentId: string,
   userId: string,
 ): Promise<void> => {
-  const document = await StudyDocument.findOneAndDelete({
-    _id: documentId,
-    uploadedBy: userId,
-  });
+  const document = await StudyDocument.findOneAndUpdate(
+    {
+      _id: documentId,
+      ownerId: userId,
+      status: { $ne: "DELETED" },
+    },
+    {
+      status: "DELETED",
+      deletedAt: new Date(),
+    },
+  );
 
   if (!document) {
     throw new AppError("Document not found", 404);
   }
 
-  await removeDocumentFromRag(document._id.toString(), userId);
-  await deleteCloudinaryFile(document.filePublicId);
 };
 
 export const searchDocuments = async (
@@ -227,18 +410,21 @@ export const searchDocuments = async (
   query: SearchDocumentQuery,
 ): Promise<DocumentListResponse> => {
   const filters: Record<string, unknown> = {
-    uploadedBy: userId,
+    ownerId: userId,
+    status: { $ne: "DELETED" },
   };
 
-  if (query.subject) {
-    filters.subject = new RegExp(query.subject, "i");
+  if (query.subjectId) {
+    filters.subjectId = query.subjectId;
   }
 
   if (query.keyword) {
     filters.$text = { $search: query.keyword };
   }
 
-  const documents = await StudyDocument.find(filters).sort({ createdAt: -1 });
+  const documents = await StudyDocument.find(filters)
+    .populate("subjectId", "_id name code")
+    .sort({ createdAt: -1 });
 
   return {
     documents: documents.map(toDocumentResponse),

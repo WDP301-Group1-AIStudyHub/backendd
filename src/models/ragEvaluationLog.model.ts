@@ -16,6 +16,8 @@ export interface IRagEvaluationLog extends Document {
   usedFallbackChunks?: boolean;
   relevanceThreshold?: number;
   warning?: string;
+  fallbackGenerated?: boolean;
+  fallbackReason?: string;
   detectedIntent?: string;
   retrievedSections?: string[];
   createdAt: Date;
@@ -79,6 +81,12 @@ const ragEvaluationLogSchema = new Schema<IRagEvaluationLog>(
       type: Number,
     },
     warning: {
+      type: String,
+    },
+    fallbackGenerated: {
+      type: Boolean,
+    },
+    fallbackReason: {
       type: String,
     },
     detectedIntent: {

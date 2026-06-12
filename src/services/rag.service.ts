@@ -1,4 +1,6 @@
 import { StudyDocument } from "../models/document.model";
+import { Subject } from "../models/subject.model";
+import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
 import {
   AskQuestionRequest,
   AskQuestionResponse,
@@ -15,7 +17,6 @@ import {
 import { checkAnswerGrounding } from "./answerCheck.service";
 import {
   detectAnswerStyle,
-  getInsufficientContextAnswer,
 } from "../utils/answerStyle";
 import { classifyQuestionIntent } from "./intentClassifier.service";
 import {
@@ -23,9 +24,29 @@ import {
   searchRelevantChunks,
   upsertDocumentChunks,
 } from "./vector.service";
+import { generateFallbackAnswer } from "./fallbackAnswer.service";
 
 const DEFAULT_CONTEXT_CHUNK_LIMIT = 5;
 const FOCUSED_CONTEXT_CHUNK_LIMIT = 3;
+const DOCUMENT_PROCESSING_MESSAGE =
+  "Tài liệu đang được xử lý, vui lòng thử lại sau.";
+
+const getSubjectNameForUser = async (
+  subjectId: string | undefined,
+  userId: string,
+): Promise<string | undefined> => {
+  if (!subjectId) {
+    return undefined;
+  }
+
+  const subject = await Subject.findOne({ _id: subjectId, ownerId: userId });
+
+  if (!subject) {
+    throw new AppError("Subject not found or does not belong to user", 400);
+  }
+
+  return subject.name;
+};
 
 export const indexDocumentForRag = async (
   documentId: string,
@@ -33,7 +54,8 @@ export const indexDocumentForRag = async (
 ): Promise<Omit<ReindexDocumentResponse, "deletedVectorCount">> => {
   const document = await StudyDocument.findOne({
     _id: documentId,
-    uploadedBy: userId,
+    ownerId: userId,
+    status: { $ne: "DELETED" },
   });
 
   if (!document || !document.extractedText.trim()) {
@@ -44,6 +66,18 @@ export const indexDocumentForRag = async (
       upsertedVectorCount: 0,
     };
   }
+  const subjectName = await getSubjectNameForUser(
+    document.subjectId?.toString(),
+    userId,
+  );
+  const activeVersion = document.currentVersionId
+    ? await DocumentVersion.findOne({
+        _id: document.currentVersionId,
+        documentId: document._id,
+        isActive: true,
+        deletedAt: null,
+      }).select("_id versionNumber")
+    : undefined;
 
   // RAG indexing only sees normalized plain text. Embedding models do not read
   // PDF/Office binaries directly, so format-specific parsing happens before
@@ -53,8 +87,12 @@ export const indexDocumentForRag = async (
 
   const vectorChunks = chunks.map((chunk) => ({
     documentId: document._id.toString(),
+    versionId: activeVersion?._id.toString(),
+    versionNumber: activeVersion?.versionNumber,
+    ownerId: document.ownerId.toString(),
     userId,
-    subject: document.subject,
+    subject: subjectName,
+    subjectId: document.subjectId?.toString(),
     title: document.title,
     chunkIndex: chunk.chunkIndex,
     heading: chunk.metadata.heading,
@@ -140,16 +178,57 @@ export const askQuestionWithRag = async (
   payload: AskQuestionRequest,
 ): Promise<RagAnswerResult> => {
   const startedAt = Date.now();
+  let documentTitle: string | undefined;
+  let documentSubject = payload.subject;
+  let subjectIdFilter = payload.subjectId;
+  const processingResponse = (): RagAnswerResult => ({
+    answer: DOCUMENT_PROCESSING_MESSAGE,
+    mode: "basic",
+    originalQuestion: payload.question,
+    sources: [],
+    evaluation: {
+      retrievedChunksCount: 0,
+      relevantChunksCount: 0,
+      averageRelevanceScore: 0,
+      correctiveAttempted: false,
+      isGrounded: false,
+      confidenceScore: 0,
+      responseTimeMs: Date.now() - startedAt,
+      fallbackGenerated: true,
+      fallbackReason: "document_processing",
+      retrievedSections: [],
+    },
+  });
 
   if (payload.documentId) {
     const document = await StudyDocument.findOne({
       _id: payload.documentId,
-      uploadedBy: userId,
+      ownerId: userId,
+      status: { $ne: "DELETED" },
     });
 
     if (!document) {
       throw new AppError("Document not found", 404);
     }
+
+    documentTitle = document.title;
+    subjectIdFilter = document.subjectId?.toString();
+    documentSubject =
+      (await getSubjectNameForUser(subjectIdFilter, userId)) || documentSubject;
+    if (document.currentVersionId) {
+      const activeVersion = await DocumentVersion.findOne({
+        _id: document.currentVersionId,
+        documentId: document._id,
+        isActive: true,
+        deletedAt: null,
+      }).select("processingStatus");
+
+      if (activeVersion?.processingStatus !== "INDEXED") {
+        return processingResponse();
+      }
+    }
+  } else if (payload.subjectId) {
+    documentSubject = await getSubjectNameForUser(payload.subjectId, userId);
   }
 
   // RAG retrieval: Pinecone filters by user and optionally document/subject,
@@ -158,17 +237,27 @@ export const askQuestionWithRag = async (
     userId,
     documentId: payload.documentId,
     subject: payload.documentId ? undefined : payload.subject,
+    subjectId: payload.documentId ? undefined : subjectIdFilter,
   });
   const intentClassification = await classifyQuestionIntent(payload.question);
   const intent = intentClassification.intent;
   const answerStyle = detectAnswerStyle(payload.question);
-  const insufficientContextAnswer = getInsufficientContextAnswer(
-    answerStyle.language,
-  );
 
   if (chunks.length === 0) {
+    const fallbackReason = "no_relevant_chunks_found";
+    const fallbackAnswer = await generateFallbackAnswer({
+      question: payload.question,
+      language: answerStyle.language,
+      retrievedChunksCount: 0,
+      relevantChunksCount: 0,
+      averageRelevanceScore: 0,
+      documentTitle,
+      subject: documentSubject,
+      reason: fallbackReason,
+    });
+
     return {
-      answer: insufficientContextAnswer,
+      answer: fallbackAnswer,
       mode: "basic",
       originalQuestion: payload.question,
       sources: [],
@@ -180,6 +269,8 @@ export const askQuestionWithRag = async (
         isGrounded: false,
         confidenceScore: 0,
         responseTimeMs: Date.now() - startedAt,
+        fallbackGenerated: true,
+        fallbackReason,
         detectedIntent: intent,
         retrievedSections: [],
       },
@@ -238,8 +329,55 @@ export const askQuestionWithRag = async (
         : chunk.content,
   }));
 
+  if (!answer || !grounding.isGrounded) {
+    const fallbackReason = !answer ? "empty_answer" : "grounding_failed";
+    const fallbackAnswer = await generateFallbackAnswer({
+      question: payload.question,
+      language: answerStyle.language,
+      retrievedChunksCount: chunks.length,
+      relevantChunksCount: chunks.length,
+      averageRelevanceScore: chunks.length > 0 ? 1 : 0,
+      documentTitle: documentTitle || answerChunks[0]?.metadata.title,
+      subject: documentSubject,
+      reason: fallbackReason,
+    });
+
+    return {
+      answer: fallbackAnswer,
+      mode: "basic",
+      originalQuestion: payload.question,
+      sources,
+      evaluation: {
+        retrievedChunksCount: chunks.length,
+        relevantChunksCount: chunks.length,
+        averageRelevanceScore: chunks.length > 0 ? 1 : 0,
+        correctiveAttempted: false,
+        isGrounded: false,
+        confidenceScore: grounding.confidenceScore,
+        responseTimeMs: Date.now() - startedAt,
+        warning: grounding.warning,
+        fallbackGenerated: true,
+        fallbackReason,
+        detectedIntent: intent,
+        retrievedSections: [
+          ...new Set(
+            chunks
+              .map(
+                (chunk) =>
+                  chunk.metadata.sectionTitle ||
+                  chunk.metadata.inferredSection ||
+                  chunk.metadata.section ||
+                  "",
+              )
+              .filter(Boolean),
+          ),
+        ],
+      },
+    };
+  }
+
   return {
-    answer: answer || insufficientContextAnswer,
+    answer,
     mode: "basic",
     originalQuestion: payload.question,
     sources,
@@ -252,6 +390,7 @@ export const askQuestionWithRag = async (
       confidenceScore: grounding.confidenceScore,
       responseTimeMs: Date.now() - startedAt,
       warning: grounding.warning,
+      fallbackGenerated: false,
       detectedIntent: intent,
       retrievedSections: [
         ...new Set(

@@ -31,7 +31,3 @@ export const detectAnswerStyle = (question: string): AnswerStyle => {
     wantsList: false,
   };
 };
-
-export const getInsufficientContextAnswer = (
-  _language: AnswerLanguage,
-): string => "Tôi không tìm thấy thông tin này trong tài liệu đã upload.";

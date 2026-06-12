@@ -9,6 +9,8 @@ import chatRoutes from "./routes/chat.routes";
 import debugRoutes from "./routes/debug.routes";
 import documentRoutes from "./routes/document.routes";
 import evaluationRoutes from "./routes/evaluation.routes";
+import subjectRoutes from "./routes/subject.routes";
+import { uploadSessionRouter } from "./modules/uploadSessions/uploadSession.routes";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
 
 const app = express();
@@ -45,6 +47,8 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/debug", debugRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/evaluation", evaluationRoutes);
+app.use("/api/subjects", subjectRoutes);
+app.use("/api/upload-sessions", uploadSessionRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

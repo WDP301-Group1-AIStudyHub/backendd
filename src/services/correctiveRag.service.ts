@@ -1,6 +1,8 @@
 import { AskQuestionRequest, ChatSource } from "../types/api.types";
 import { EvaluatedChunk, RagAnswerResult } from "../types/rag.types";
 import { StudyDocument } from "../models/document.model";
+import { Subject } from "../models/subject.model";
+import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
 import { AppError } from "../middlewares/error.middleware";
 import {
   generateAnswerFromContext,
@@ -23,6 +25,25 @@ import { generateFallbackAnswer } from "./fallbackAnswer.service";
 
 const DEFAULT_CONTEXT_CHUNK_LIMIT = 5;
 const FOCUSED_CONTEXT_CHUNK_LIMIT = 3;
+const DOCUMENT_PROCESSING_MESSAGE =
+  "Tài liệu đang được xử lý, vui lòng thử lại sau.";
+
+const getSubjectNameForUser = async (
+  subjectId: string | undefined,
+  userId: string,
+): Promise<string | undefined> => {
+  if (!subjectId) {
+    return undefined;
+  }
+
+  const subject = await Subject.findOne({ _id: subjectId, ownerId: userId });
+
+  if (!subject) {
+    throw new AppError("Subject not found or does not belong to user", 400);
+  }
+
+  return subject.name;
+};
 
 const buildContext = (chunks: EvaluatedChunk[]): string => {
   return chunks
@@ -112,11 +133,35 @@ export const askQuestionWithCorrectiveRag = async (
   const answerStyle = detectAnswerStyle(payload.question);
   let documentTitle: string | undefined;
   let documentSubject = payload.subject;
+  let subjectIdFilter = payload.subjectId;
+  const processingResponse = (): RagAnswerResult => ({
+    answer: DOCUMENT_PROCESSING_MESSAGE,
+    mode: "corrective",
+    originalQuestion: payload.question,
+    rewrittenQuery: payload.question,
+    sources: [],
+    evaluation: {
+      retrievedChunksCount: 0,
+      relevantChunksCount: 0,
+      averageRelevanceScore: 0,
+      correctiveAttempted: false,
+      isGrounded: false,
+      confidenceScore: 0,
+      responseTimeMs: Date.now() - startedAt,
+      usedFallbackChunks: false,
+      relevanceThreshold: RAG_CONFIG.relevanceThreshold,
+      fallbackGenerated: true,
+      fallbackReason: "document_processing",
+      detectedIntent: intent,
+      retrievedSections: [],
+    },
+  });
 
   if (payload.documentId) {
     const document = await StudyDocument.findOne({
       _id: payload.documentId,
-      uploadedBy: userId,
+      ownerId: userId,
+      status: { $ne: "DELETED" },
     });
 
     if (!document) {
@@ -124,7 +169,23 @@ export const askQuestionWithCorrectiveRag = async (
     }
 
     documentTitle = document.title;
-    documentSubject = document.subject || documentSubject;
+    subjectIdFilter = document.subjectId?.toString();
+    documentSubject =
+      (await getSubjectNameForUser(subjectIdFilter, userId)) || documentSubject;
+    if (document.currentVersionId) {
+      const activeVersion = await DocumentVersion.findOne({
+        _id: document.currentVersionId,
+        documentId: document._id,
+        isActive: true,
+        deletedAt: null,
+      }).select("processingStatus");
+
+      if (activeVersion?.processingStatus !== "INDEXED") {
+        return processingResponse();
+      }
+    }
+  } else if (payload.subjectId) {
+    documentSubject = await getSubjectNameForUser(payload.subjectId, userId);
   }
 
   const rewrittenQuery = await rewriteAcademicQuery(payload.question);
@@ -137,6 +198,7 @@ export const askQuestionWithCorrectiveRag = async (
       userId,
       documentId: payload.documentId,
       subject: payload.documentId ? undefined : payload.subject,
+      subjectId: payload.documentId ? undefined : subjectIdFilter,
     },
     8,
   );
@@ -165,6 +227,7 @@ export const askQuestionWithCorrectiveRag = async (
         userId,
         documentId: payload.documentId,
         subject: payload.documentId ? undefined : payload.subject,
+        subjectId: payload.documentId ? undefined : subjectIdFilter,
       },
       8,
     );

@@ -50,44 +50,145 @@ export interface UploadDocumentRequest {
   title: string;
   description?: string;
   subject?: string;
+  subjectId: string;
+  visibility?: DocumentVisibility;
 }
 
 export interface UpdateDocumentRequest {
   title?: string;
   description?: string;
   subject?: string;
+  subjectId?: string;
+  visibility?: DocumentVisibility;
+  status?: Exclude<DocumentStatus, "DELETED">;
 }
 
 export interface SearchDocumentQuery {
   keyword?: string;
   subject?: string;
+  subjectId?: string;
+  visibility?: DocumentVisibility;
 }
 
+export interface ListDocumentQuery {
+  subject?: string;
+  subjectId?: string;
+  keyword?: string;
+  visibility?: DocumentVisibility;
+  status?: Exclude<DocumentStatus, "DELETED">;
+  page?: string;
+  limit?: string;
+  search?: string;
+  sortBy?: string;
+  sortOrder?: string;
+}
+
+export type DocumentVisibility = "PUBLIC" | "PRIVATE";
+export type DocumentStatus = "ACTIVE" | "ARCHIVED" | "DELETED";
+
 export interface DocumentResponse {
+  _id?: string;
   id: string;
+  ownerId?: string | Types.ObjectId;
   title: string;
   description?: string;
   subject?: string;
-  fileUrl: string;
-  filePublicId: string;
-  fileName: string;
-  fileType: string;
-  originalFileName: string;
-  storedFileName: string;
-  fileExtension: string;
-  mimeType: string;
-  fileSize: number;
-  extractedText: string;
-  extractionStatus: "COMPLETED" | "FAILED";
+  subjectId?: string | Types.ObjectId | SubjectSummaryResponse;
+  visibility?: DocumentVisibility;
+  status?: DocumentStatus;
+  totalViews?: number;
+  totalDownloads?: number;
+  currentVersionId?: string | Types.ObjectId;
+  deletedAt?: Date | null;
+  fileUrl?: string;
+  filePublicId?: string;
+  fileName?: string;
+  fileType?: string;
+  originalFileName?: string;
+  storedFileName?: string;
+  fileExtension?: string;
+  mimeType?: string;
+  fileSize?: number;
+  extractedText?: string;
+  extractionStatus?: "COMPLETED" | "FAILED";
   extractionError?: string;
   uploadedBy: string | Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
 
+export interface CreateSubjectRequest {
+  name: string;
+  code?: string;
+  description?: string;
+  color?: string;
+}
+
+export interface UpdateSubjectRequest {
+  name?: string;
+  code?: string;
+  description?: string;
+  color?: string;
+}
+
+export interface ListSubjectQuery {
+  page?: string;
+  limit?: string;
+  search?: string;
+}
+
+export interface SubjectResponse {
+  _id: string;
+  ownerId?: string | Types.ObjectId;
+  name: string;
+  code?: string;
+  description?: string;
+  color?: string;
+  userId: string | Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SubjectSummaryResponse {
+  _id: string;
+  name: string;
+  code?: string;
+  description?: string;
+  color?: string;
+}
+
+export interface DocumentListItemResponse {
+  _id: string;
+  title: string;
+  description?: string;
+  subject?: SubjectSummaryResponse | null;
+  visibility?: DocumentVisibility;
+  status?: DocumentStatus;
+  fileUrl?: string;
+  fileName?: string;
+  fileType?: string;
+  fileSize?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PaginationResponse {
+  page: number;
+  limit: number;
+  totalItems: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
 export interface DocumentListResponse {
   documents: DocumentResponse[];
   total: number;
+}
+
+export interface PaginatedDocumentListResponse {
+  items: DocumentListItemResponse[];
+  pagination: PaginationResponse;
 }
 
 export interface ReindexDocumentResponse {
@@ -116,6 +217,7 @@ export interface AskQuestionRequest {
   question: string;
   documentId?: string;
   subject?: string;
+  subjectId?: string;
   mode?: RagMode;
 }
 
@@ -152,6 +254,7 @@ export interface ChatHistoryResponse {
   sources: ChatSource[];
   documentId?: string | Types.ObjectId;
   subject?: string;
+  subjectId?: string | Types.ObjectId;
   mode?: RagMode;
   evaluation?: RagEvaluation;
   createdAt: Date;

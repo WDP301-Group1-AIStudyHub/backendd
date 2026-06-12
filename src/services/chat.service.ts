@@ -1,4 +1,5 @@
 import { ChatHistory, IChatHistory } from "../models/chatHistory.model";
+import { StudyDocument } from "../models/document.model";
 import {
   AskQuestionRequest,
   AskQuestionResponse,
@@ -21,7 +22,7 @@ const toChatHistoryResponse = (
   answer: history.answer,
   sources: history.sources,
   documentId: history.documentId,
-  subject: history.subject,
+  subjectId: history.subjectId,
   mode: history.mode,
   evaluation: history.evaluation,
   createdAt: history.createdAt,
@@ -33,6 +34,17 @@ export const askQuestion = async (
   payload: AskQuestionRequest,
 ): Promise<AskQuestionResponse> => {
   const mode = payload.mode || "basic";
+  let subjectId = payload.subjectId;
+
+  if (!subjectId && payload.documentId) {
+    const document = await StudyDocument.findOne({
+      _id: payload.documentId,
+      ownerId: userId,
+    }).select("subjectId");
+
+    subjectId = document?.subjectId?.toString();
+  }
+
   const result =
     mode === "corrective"
       ? await askQuestionWithCorrectiveRag(userId, payload)
@@ -46,7 +58,7 @@ export const askQuestion = async (
     answer: result.answer,
     sources: result.sources,
     documentId: payload.documentId,
-    subject: payload.subject,
+    subjectId,
     mode: result.mode,
     evaluation: result.evaluation,
   });

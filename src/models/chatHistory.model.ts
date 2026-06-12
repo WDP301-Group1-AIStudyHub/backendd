@@ -10,7 +10,7 @@ export interface IChatHistory extends Document {
   answer: string;
   sources: ChatSource[];
   documentId?: Types.ObjectId;
-  subject?: string;
+  subjectId?: Types.ObjectId;
   mode?: RagMode;
   evaluation?: RagEvaluation;
   createdAt: Date;
@@ -104,9 +104,9 @@ const chatHistorySchema = new Schema<IChatHistory>(
       type: Schema.Types.ObjectId,
       ref: "Document",
     },
-    subject: {
-      type: String,
-      trim: true,
+    subjectId: {
+      type: Schema.Types.ObjectId,
+      ref: "Subject",
     },
     mode: {
       type: String,

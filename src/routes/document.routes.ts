@@ -1,10 +1,7 @@
 import { Router } from "express";
 import {
-  editDocument,
-  getDocument,
-  listDocuments,
+  listDocumentSubjects,
   reindexDocument,
-  removeDocument,
   searchUserDocuments,
   uploadDocument,
 } from "../controllers/document.controller";
@@ -12,32 +9,36 @@ import { authMiddleware } from "../middlewares/auth.middleware";
 import { uploadMiddleware } from "../middlewares/upload.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
-  documentIdSchema,
   documentReindexSchema,
   searchDocumentSchema,
-  updateDocumentSchema,
   uploadDocumentSchema,
 } from "../validations/document.validation";
+import coreDocumentRoutes from "../modules/documents/document.routes";
+import documentVersionRoutes from "../modules/documentVersions/documentVersion.routes";
 
 const router = Router();
 
-router.use(authMiddleware);
-
 router.post(
   "/upload",
+  authMiddleware,
   uploadMiddleware.single("file"),
   validateRequest(uploadDocumentSchema),
   uploadDocument,
 );
-router.get("/", listDocuments);
-router.get("/search", validateRequest(searchDocumentSchema), searchUserDocuments);
+router.get("/subjects", authMiddleware, listDocumentSubjects);
+router.get(
+  "/search",
+  authMiddleware,
+  validateRequest(searchDocumentSchema),
+  searchUserDocuments,
+);
 router.post(
   "/:documentId/reindex",
+  authMiddleware,
   validateRequest(documentReindexSchema),
   reindexDocument,
 );
-router.get("/:id", validateRequest(documentIdSchema), getDocument);
-router.put("/:id", validateRequest(updateDocumentSchema), editDocument);
-router.delete("/:id", validateRequest(documentIdSchema), removeDocument);
+router.use("/:documentId/versions", documentVersionRoutes);
+router.use("/", coreDocumentRoutes);
 
 export default router;

@@ -11,6 +11,7 @@ export interface EvaluatedChunk {
     documentId: string;
     userId: string;
     subject: string;
+    subjectId: string;
     title: string;
     chunkIndex: number;
     heading?: string;

@@ -95,9 +95,25 @@ Corrective RAG uses `RELEVANCE_THRESHOLD=0.55` by default. This higher threshold
 POST /api/auth/register
 POST /api/auth/login
 
+POST /api/subjects
+GET  /api/subjects
+PUT  /api/subjects/:id
+DELETE /api/subjects/:id
+
+POST /api/documents
 POST /api/documents/upload
 GET  /api/documents
+GET  /api/documents/:id
+PUT  /api/documents/:id
+DELETE /api/documents/:id
+POST /api/documents/:documentId/versions
+GET  /api/documents/:documentId/versions
+GET  /api/documents/:documentId/versions/:versionId
+PATCH /api/documents/:documentId/versions/:versionId/activate
+POST /api/documents/:documentId/versions/:versionId/reindex
+DELETE /api/documents/:documentId/versions/:versionId
 POST /api/documents/:documentId/reindex
+GET  /api/upload-sessions/:uploadSessionId
 
 POST /api/chat/ask
 GET  /api/chat/history
@@ -105,6 +121,169 @@ GET  /api/chat/history
 GET  /api/evaluation/logs
 GET  /api/evaluation/summary
 ```
+
+## Core Document Domain
+
+Phase 4 makes Document the root content entity. File upload and RAG still exist, but document metadata now lives independently so later phases can add versioning, background processing, progress tracking, analytics, and sharing without redesigning the core model.
+
+```text
+User
+└── Subject
+    └── Document
+        └── DocumentVersion
+```
+
+Subject stores the user's study domain such as `PRM392`, `SWD392`, `DBI202`, `AI Research`, or `Japanese N4`.
+
+Document stores ownership and lifecycle metadata:
+
+- `ownerId`
+- `subjectId`
+- `title`
+- `description`
+- `visibility`: `PUBLIC` or `PRIVATE`
+- `status`: `ACTIVE`, `ARCHIVED`, or `DELETED`
+- `totalViews`
+- `totalDownloads`
+- `currentVersionId`
+- `totalVersions`
+- `totalChunks`
+- `lastIndexedAt`
+- `deletedAt`
+
+`DELETE /api/documents/:id` is a soft delete. It sets `status = DELETED` and `deletedAt = new Date()` instead of removing the MongoDB document.
+
+`GET /api/documents` supports pagination and filters:
+
+```http
+GET /api/documents?page=1&limit=10&subjectId=...&keyword=react&visibility=PUBLIC
+```
+
+Search only matches `title` and `description`; extracted text remains reserved for RAG indexing.
+
+## Document Versioning
+
+Document is the logical study document. DocumentVersion is a concrete uploaded file for that document.
+
+Example:
+
+```text
+Document: Lecture 3 - React Hooks
+├── v1: original file
+├── v2: corrected file
+└── v3: updated file with examples
+
+Active version: v3
+```
+
+Version upload uses:
+
+```http
+POST /api/documents/:documentId/versions
+Content-Type: multipart/form-data
+```
+
+Fields:
+
+- `file`: PDF, DOCX, PPTX, XLSX, TXT, or MD.
+- `uploadMode`: `OVERRIDE` or `APPEND`.
+- `uploadReason`: optional note, max 500 characters.
+- `makeActive`: optional boolean for `APPEND`, default `true`.
+
+Rules:
+
+- Owner can upload, activate, and delete non-active versions.
+- Archived documents can be viewed but cannot receive new uploads.
+- Deleted documents reject version operations.
+- Public viewers can view active version metadata only.
+- Private documents are visible only to the owner.
+- Active version text is synchronized to the Document legacy fields so existing chat/RAG flows continue to use the current active version.
+
+## Socket.IO Upload Progress
+
+Document upload still uses the normal HTTP API. Socket.IO is used only to notify the frontend about upload/indexing progress while the HTTP request is processing.
+
+```text
+Upload file
+↓
+Cloudinary
+↓
+Create DocumentVersion
+↓
+Create UploadSession
+↓
+Emit upload:started
+↓
+Extract text
+↓
+Emit upload:extracting_text
+↓
+Chunk document
+↓
+Emit upload:chunking
+↓
+Generate embeddings
+↓
+Emit upload:embedding
+↓
+Upsert Pinecone vectors
+↓
+Emit upload:completed or upload:failed
+```
+
+The frontend should connect to Socket.IO before starting upload, then join a room by document id or upload session id:
+
+```text
+join:document
+join:upload-session
+```
+
+Progress events:
+
+```text
+upload:started
+upload:processing
+upload:extracting_text
+upload:chunking
+upload:embedding
+upload:indexing
+upload:completed
+upload:failed
+```
+
+Event payload:
+
+```json
+{
+  "documentId": "...",
+  "uploadSessionId": "...",
+  "versionId": "...",
+  "status": "processing",
+  "step": "EMBEDDING",
+  "progress": 60,
+  "message": "Generating embeddings"
+}
+```
+
+Version upload processes synchronously and returns the final version status:
+
+```http
+POST /api/documents/:documentId/versions
+```
+
+The response includes `uploadSessionId`, `processingStatus`, `processingStage`, and `processingProgress`. Poll upload status as a fallback with:
+
+```http
+GET /api/upload-sessions/:uploadSessionId
+```
+
+Local setup:
+
+```bash
+npm run dev
+```
+
+Chat safety: if a document's active version is still processing, chat returns `Tài liệu đang được xử lý, vui lòng thử lại sau.` and does not query Pinecone.
 
 ## Reindexing
 

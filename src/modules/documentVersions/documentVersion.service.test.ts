@@ -277,7 +277,7 @@ const dependencies = {
   }),
   extractText: async () => ({ extractedText: "Introduction\nReact hooks" }),
   chunkText: async (text: string) => ({
-    chunkingStrategy: "heading",
+    chunkingStrategy: "heading-based",
     chunks: [
       {
         chunkIndex: 0,
@@ -287,7 +287,7 @@ const dependencies = {
           sectionTitle: "Introduction",
           sectionIndex: 0,
           contentLength: text.length,
-          chunkingStrategy: "heading",
+          chunkingStrategy: "heading-based",
           textLength: text.length,
           section: "Introduction",
           inferredSection: "",
@@ -349,6 +349,8 @@ describe("document version service", () => {
     assert.equal(result.processingProgress, 100);
     assert.equal(result.extractionStatus, "COMPLETED");
     assert.equal(upsertedChunks, 1);
+    assert.equal(result.totalChunks, 1);
+    assert.equal(documents[0].totalChunks, 1);
   });
 
   it("creates upload session", async () => {
@@ -383,6 +385,8 @@ describe("document version service", () => {
     assert.equal(result.versionNumber, 2);
     assert.equal(result.isActive, false);
     assert.equal(versions[0].isActive, true);
+    assert.equal(result.totalChunks, 1);
+    assert.equal(documents[0].totalChunks, 1);
   });
 
   it("gets version list", async () => {
@@ -448,6 +452,8 @@ describe("document version service", () => {
     assert.equal(result.status, "COMPLETED");
     assert.equal(result.progress, 100);
     assert.equal(deletedChunks, 1);
+    assert.equal(versions[0].totalChunks, 1);
+    assert.equal(documents[0].totalChunks, 1);
   });
 
   it("marks version failed and emits failed when extraction fails", async () => {

@@ -1,14 +1,20 @@
 export type SectionLabel = string;
 
+const MARKDOWN_HEADING_REGEX = /^\s{0,3}#{1,6}\s+(.+)$/;
+const PAGE_MARKER_REGEX = /^-*\s*\d+\s+of\s+\d+\s*-*$/i;
+const NUMERIC_ONLY_HEADING_REGEX = /^\d+$/;
 const NUMBERED_HEADING_REGEX =
-  /^((\d+(\.\d+)*\.?)|((CHAPTER|SECTION)\s+\d+(\.\d+)*))(\s+.+)?$/i;
-const ENDING_PUNCTUATION_REGEX = /[.!?。！？]$/;
+  /^((\d+(\.\d+)+\.?|\d+\.)|((CHAPTER|SECTION|CHUONG|PHAN|BAI|CH\u01af\u01a0NG|PH\u1ea6N|B\u00c0I)\s+\d+(\.\d+)*))(\s+.+)?$/iu;
+const KEYWORD_HEADING_REGEX =
+  /^(CHAPTER|SECTION|CHUONG|PHAN|BAI|CH\u01af\u01a0NG|PH\u1ea6N|B\u00c0I)(\s+\d+(\.\d+)*)?(\s*[:.-]\s*|\s+).+$/iu;
+const ENDING_PUNCTUATION_REGEX = /[.!?\u3002\uff01\uff1f]$/;
 
 export const normalizeHeadingCandidate = (text: string): string =>
   text
+    .replace(MARKDOWN_HEADING_REGEX, "$1")
     .replace(/[\t\r\n]+/g, " ")
     .replace(/\s+/g, " ")
-    .replace(/^[\s:;.,|/\\-]+|[\s:;.,|/\\-]+$/g, "")
+    .replace(/^[\s#:;.,|/\\-]+|[\s#:;.,|/\\-]+$/g, "")
     .trim();
 
 const getUppercaseRatio = (text: string): number => {
@@ -27,6 +33,15 @@ const getUppercaseRatio = (text: string): number => {
 
 const isBlank = (line: string | undefined): boolean => !line?.trim();
 
+export const isDocumentNoiseLine = (line: string): boolean => {
+  const normalizedText = normalizeHeadingCandidate(line);
+
+  return (
+    PAGE_MARKER_REGEX.test(normalizedText) ||
+    NUMERIC_ONLY_HEADING_REGEX.test(normalizedText)
+  );
+};
+
 export const isLikelyHeading = (
   line: string,
   previousLine?: string,
@@ -40,21 +55,34 @@ export const isLikelyHeading = (
     return false;
   }
 
+  if (isDocumentNoiseLine(line)) {
+    return false;
+  }
+
   const wordCount = normalizedText.split(/\s+/).filter(Boolean).length;
   const uppercaseRatio = getUppercaseRatio(line);
+  const isMarkdownHeading = MARKDOWN_HEADING_REGEX.test(line);
   const isNumberedHeading = NUMBERED_HEADING_REGEX.test(normalizedText);
-  const appearsIsolated = isBlank(previousLine) || isBlank(nextLine);
+  const isKeywordHeading = KEYWORD_HEADING_REGEX.test(normalizedText);
+  const startsNewBlock = isBlank(previousLine);
   const followedByContent = Boolean((nextContentLine ?? nextLine)?.trim());
   const hasEndingPunctuation = ENDING_PUNCTUATION_REGEX.test(trimmedLine);
 
-  if (hasEndingPunctuation && !isNumberedHeading) {
+  if (
+    hasEndingPunctuation &&
+    !isMarkdownHeading &&
+    !isNumberedHeading &&
+    !isKeywordHeading
+  ) {
     return false;
   }
 
   const formatLooksLikeHeading =
+    isMarkdownHeading ||
     isNumberedHeading ||
+    isKeywordHeading ||
     uppercaseRatio >= 0.65 ||
-    (wordCount <= 8 && normalizedText.length <= 80 && appearsIsolated);
+    (wordCount <= 8 && normalizedText.length <= 80 && startsNewBlock);
 
   return formatLooksLikeHeading && followedByContent;
 };

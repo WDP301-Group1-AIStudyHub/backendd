@@ -98,6 +98,7 @@ export interface DocumentResponse {
   status?: DocumentStatus;
   totalViews?: number;
   totalDownloads?: number;
+  totalChunks?: number;
   currentVersionId?: string | Types.ObjectId;
   deletedAt?: Date | null;
   fileUrl?: string;
@@ -168,6 +169,7 @@ export interface DocumentListItemResponse {
   fileName?: string;
   fileType?: string;
   fileSize?: number;
+  totalChunks?: number;
   createdAt: Date;
   updatedAt: Date;
 }

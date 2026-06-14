@@ -5,6 +5,7 @@ import { extractPptxDocument } from "./pptxExtractor";
 import { extractTextDocument } from "./textExtractor";
 import { ExtractedDocument } from "./types";
 import { extractXlsxDocument } from "./xlsxExtractor";
+import { repairUtf8Mojibake } from "../../utils/textEncoding";
 
 export const SUPPORTED_DOCUMENT_MIME_TYPES = new Set([
   "application/pdf",
@@ -100,7 +101,8 @@ export const extractDocumentText = async (
         break;
     }
 
-    const normalizedText = extractedDocument.extractedText.trim();
+    const encodingRepair = repairUtf8Mojibake(extractedDocument.extractedText);
+    const normalizedText = encodingRepair.text.trim();
     const durationMs = Date.now() - startedAt;
 
     // Embedding models operate on natural-language text, not raw Office/PDF
@@ -110,6 +112,7 @@ export const extractDocumentText = async (
       fileName,
       parser: extractorName,
       extractedTextLength: normalizedText.length,
+      encodingRepaired: encodingRepair.repaired,
       durationMs,
     });
 
@@ -122,6 +125,9 @@ export const extractDocumentText = async (
         fileName,
         mimeType,
         fileExtension: getFileExtension(fileName),
+        encodingRepaired: encodingRepair.repaired,
+        mojibakeScoreBefore: encodingRepair.mojibakeScoreBefore,
+        mojibakeScoreAfter: encodingRepair.mojibakeScoreAfter,
         durationMs,
       },
     };

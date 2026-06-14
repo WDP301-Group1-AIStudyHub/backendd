@@ -183,7 +183,7 @@ const maybeReindexActiveVersion = async (
   documentId: string,
   ownerId: string,
   options: VersioningOptions,
-): Promise<Date | null> => {
+): Promise<{ indexedAt: Date; chunksCreated: number } | null> => {
   if (options.skipReindex) {
     return null;
   }
@@ -192,9 +192,12 @@ const maybeReindexActiveVersion = async (
   // reindexes the active version by first syncing active version text to
   // Document.extractedText. Phase 6/8 can move Pinecone vectors to strict
   // versionId-based IDs and metadata.
-  await getDependencies(options).reindexDocument(documentId, ownerId);
+  const result = await getDependencies(options).reindexDocument(documentId, ownerId);
 
-  return new Date();
+  return {
+    indexedAt: new Date(),
+    chunksCreated: result.chunksCreated,
+  };
 };
 
 const safeErrorMessage = (error: unknown): string =>
@@ -658,14 +661,20 @@ export const activateDocumentVersion = async (
   version.isActive = true;
   await version.save();
   await updateDocumentFromActiveVersion(documentId, version);
-  const indexedAt = await maybeReindexActiveVersion(documentId, userId, options);
+  const reindexResult = await maybeReindexActiveVersion(documentId, userId, options);
 
-  if (indexedAt) {
-    version.indexedAt = indexedAt;
+  if (reindexResult) {
+    version.indexedAt = reindexResult.indexedAt;
+    version.totalChunks = reindexResult.chunksCreated;
     await version.save();
     await StudyDocument.updateOne(
       { _id: documentId },
-      { $set: { lastIndexedAt: indexedAt } },
+      {
+        $set: {
+          lastIndexedAt: reindexResult.indexedAt,
+          totalChunks: reindexResult.chunksCreated,
+        },
+      },
     );
   }
 

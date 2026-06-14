@@ -1,8 +1,10 @@
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import {
   detectSectionFromHeading,
+  isDocumentNoiseLine,
   normalizeHeadingCandidate,
 } from "./documentSection";
+import { repairUtf8Mojibake } from "./textEncoding";
 
 const CHUNK_SIZE = 1000;
 const CHUNK_OVERLAP = 200;
@@ -38,6 +40,12 @@ type HeadingSection = {
   body: string;
 };
 
+const removeDocumentNoiseLines = (text: string): string =>
+  text
+    .split(/\r?\n/)
+    .filter((line) => !isDocumentNoiseLine(line))
+    .join("\n");
+
 const createBodySplitter = (headingLength = 0): RecursiveCharacterTextSplitter =>
   new RecursiveCharacterTextSplitter({
     chunkSize: Math.max(300, CHUNK_SIZE - headingLength - 1),
@@ -68,7 +76,7 @@ const splitTextIntoHeadingSections = (text: string): HeadingSection[] => {
 
   const findNextContentLine = (startIndex: number): string | undefined => {
     for (let index = startIndex; index < lines.length; index += 1) {
-      if (lines[index].trim()) {
+      if (lines[index].trim() && !isDocumentNoiseLine(lines[index])) {
         return lines[index];
       }
     }
@@ -77,6 +85,10 @@ const splitTextIntoHeadingSections = (text: string): HeadingSection[] => {
   };
 
   lines.forEach((line, index) => {
+    if (isDocumentNoiseLine(line)) {
+      return;
+    }
+
     const detectedHeading = detectSectionFromHeading(
       line,
       lines[index - 1],
@@ -195,10 +207,12 @@ const chunkByFixedSizeFallback = async (text: string): Promise<DocumentChunk[]> 
 };
 
 export const splitTextForRag = async (text: string): Promise<ChunkingResult> => {
-  const sections = splitTextIntoHeadingSections(text);
+  const encodingRepair = repairUtf8Mojibake(text);
+  const chunkableText = removeDocumentNoiseLines(encodingRepair.text);
+  const sections = splitTextIntoHeadingSections(chunkableText);
 
   if (sections.length === 0) {
-    const chunks = await chunkByFixedSizeFallback(text);
+    const chunks = await chunkByFixedSizeFallback(chunkableText);
 
     console.log("[RAG chunking] Used fixed-size fallback", {
       chunksCount: chunks.length,

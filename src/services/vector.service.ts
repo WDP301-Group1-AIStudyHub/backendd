@@ -81,6 +81,8 @@ interface PineconeChunkMetadata extends RecordMetadata {
   content: string;
 }
 
+const PINECONE_UPSERT_BATCH_SIZE = 100;
+
 const getPineconeClient = (): Pinecone => {
   const apiKey = process.env.PINECONE_API_KEY;
 
@@ -182,37 +184,47 @@ export const upsertDocumentChunks = async (
 
   const index = await getPineconeIndex();
   const embeddings = await generateEmbeddings(chunks.map((chunk) => chunk.content));
+  const records = chunks.map((chunk, chunkArrayIndex) => ({
+    id: chunk.versionId
+      ? `${chunk.documentId}:${chunk.versionId}:${chunk.chunkIndex}`
+      : `${chunk.documentId}:${chunk.chunkIndex}`,
+    values: embeddings[chunkArrayIndex],
+    metadata: {
+      documentId: chunk.documentId,
+      versionId: chunk.versionId || "",
+      versionNumber: chunk.versionNumber || 0,
+      ownerId: chunk.ownerId || chunk.userId,
+      isActiveVersion: true,
+      userId: chunk.userId,
+      subject: chunk.subject || "",
+      subjectId: chunk.subjectId || "",
+      title: chunk.title,
+      chunkIndex: chunk.chunkIndex,
+      heading: chunk.heading || "",
+      sectionTitle: chunk.sectionTitle,
+      sectionIndex: chunk.sectionIndex,
+      contentLength: chunk.contentLength,
+      section: chunk.section || "",
+      inferredSection: chunk.inferredSection || chunk.section || "",
+      semanticSectionLabel: chunk.semanticSectionLabel || chunk.section || "",
+      content: chunk.content,
+      ...chunk.metadata,
+    },
+  }));
 
-  await index.upsert({
-    namespace: getPineconeNamespace(),
-    records: chunks.map((chunk, index) => ({
-      id: chunk.versionId
-        ? `${chunk.documentId}:${chunk.versionId}:${chunk.chunkIndex}`
-        : `${chunk.documentId}:${chunk.chunkIndex}`,
-      values: embeddings[index],
-      metadata: {
-        documentId: chunk.documentId,
-        versionId: chunk.versionId || "",
-        versionNumber: chunk.versionNumber || 0,
-        ownerId: chunk.ownerId || chunk.userId,
-        isActiveVersion: true,
-        userId: chunk.userId,
-        subject: chunk.subject || "",
-        subjectId: chunk.subjectId || "",
-        title: chunk.title,
-        chunkIndex: chunk.chunkIndex,
-        heading: chunk.heading || "",
-        sectionTitle: chunk.sectionTitle,
-        sectionIndex: chunk.sectionIndex,
-        contentLength: chunk.contentLength,
-        section: chunk.section || "",
-        inferredSection: chunk.inferredSection || chunk.section || "",
-        semanticSectionLabel: chunk.semanticSectionLabel || chunk.section || "",
-        content: chunk.content,
-        ...chunk.metadata,
-      },
-    })),
-  });
+  for (
+    let startIndex = 0;
+    startIndex < records.length;
+    startIndex += PINECONE_UPSERT_BATCH_SIZE
+  ) {
+    await index.upsert({
+      namespace: getPineconeNamespace(),
+      records: records.slice(
+        startIndex,
+        startIndex + PINECONE_UPSERT_BATCH_SIZE,
+      ),
+    });
+  }
 
   return chunks.length;
 };

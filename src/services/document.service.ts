@@ -72,6 +72,7 @@ export const toDocumentResponse = (document: IDocument): DocumentResponse => {
     extractedText: document.extractedText,
     extractionStatus: document.extractionStatus || "COMPLETED",
     extractionError: document.extractionError || "",
+    totalChunks: document.totalChunks || 0,
     uploadedBy: document.ownerId,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
@@ -101,6 +102,7 @@ const toDocumentListItemResponse = (
   fileName: document.fileName,
   fileType: document.fileType,
   fileSize: document.fileSize,
+  totalChunks: document.totalChunks || 0,
   createdAt: document.createdAt,
   updatedAt: document.updatedAt,
 });
@@ -312,6 +314,34 @@ export const reindexUserDocument = async (
   }
 
   const result = await reembedDocumentForRag(document._id.toString(), userId);
+  const indexedAt = new Date();
+
+  await StudyDocument.updateOne(
+    { _id: document._id, ownerId: userId },
+    {
+      $set: {
+        totalChunks: result.chunksCreated,
+        lastIndexedAt: indexedAt,
+      },
+    },
+  );
+
+  if (document.currentVersionId) {
+    await DocumentVersion.updateOne(
+      {
+        _id: document.currentVersionId,
+        documentId: document._id,
+        isActive: true,
+        deletedAt: null,
+      },
+      {
+        $set: {
+          totalChunks: result.chunksCreated,
+          indexedAt,
+        },
+      },
+    );
+  }
 
   console.log("[RAG reindex] Reindex endpoint completed", result);
 

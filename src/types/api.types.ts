@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { RagEvaluation, RagMode } from "./rag.types";
+import type { DocumentOutlineNode } from "../utils/documentOutline";
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -99,6 +100,12 @@ export interface DocumentResponse {
   totalViews?: number;
   totalDownloads?: number;
   totalChunks?: number;
+  chunkingStrategy?: "heading-based" | "fixed-size-fallback";
+  detectedSections?: string[];
+  documentOutline?: DocumentOutlineNode[];
+  chapterCount?: number;
+  partCount?: number;
+  sectionCount?: number;
   currentVersionId?: string | Types.ObjectId;
   deletedAt?: Date | null;
   fileUrl?: string;
@@ -199,6 +206,10 @@ export interface ReindexDocumentResponse {
   chunkingStrategy?: "heading-based" | "fixed-size-fallback";
   chunksCreated: number;
   detectedSections: string[];
+  documentOutline?: DocumentOutlineNode[];
+  chapterCount?: number;
+  partCount?: number;
+  sectionCount?: number;
   upsertedVectorCount: number;
 }
 
@@ -233,6 +244,11 @@ export interface ChatSource {
   heading?: string;
   sectionTitle?: string;
   sectionIndex?: number;
+  outlineNodeId?: string;
+  outlinePath?: string;
+  outlineLevel?: number;
+  outlineType?: string;
+  chapterOrdinal?: string;
   contentPreview: string;
   relevanceScore?: number;
 }

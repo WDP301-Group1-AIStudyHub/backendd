@@ -24,6 +24,11 @@ export interface VectorChunkInput {
   section?: SectionLabel;
   inferredSection?: string;
   semanticSectionLabel?: string;
+  outlineNodeId?: string;
+  outlinePath?: string;
+  outlineLevel?: number;
+  outlineType?: string;
+  chapterOrdinal?: string;
   content: string;
   metadata: Record<string, string | number | boolean>;
 }
@@ -53,6 +58,11 @@ export interface RetrievedChunk {
     section?: SectionLabel;
     inferredSection?: string;
     semanticSectionLabel?: string;
+    outlineNodeId?: string;
+    outlinePath?: string;
+    outlineLevel?: number;
+    outlineType?: string;
+    chapterOrdinal?: string;
   };
 }
 
@@ -78,6 +88,11 @@ interface PineconeChunkMetadata extends RecordMetadata {
   section: SectionLabel;
   inferredSection: string;
   semanticSectionLabel: string;
+  outlineNodeId: string;
+  outlinePath: string;
+  outlineLevel: number;
+  outlineType: string;
+  chapterOrdinal: string;
   content: string;
 }
 
@@ -207,6 +222,11 @@ export const upsertDocumentChunks = async (
       section: chunk.section || "",
       inferredSection: chunk.inferredSection || chunk.section || "",
       semanticSectionLabel: chunk.semanticSectionLabel || chunk.section || "",
+      outlineNodeId: chunk.outlineNodeId || "",
+      outlinePath: chunk.outlinePath || "",
+      outlineLevel: chunk.outlineLevel || 0,
+      outlineType: chunk.outlineType || "",
+      chapterOrdinal: chunk.chapterOrdinal || "",
       content: chunk.content,
       ...chunk.metadata,
     },
@@ -253,6 +273,49 @@ const listDocumentVectorIds = async (documentId: string): Promise<string[]> => {
   return vectorIds;
 };
 
+const toRetrievedChunk = (
+  id: string,
+  metadata: PineconeChunkMetadata | undefined,
+  pineconeScore?: number,
+): RetrievedChunk => ({
+  id,
+  content: metadata?.content || "",
+  pineconeScore,
+  metadata: {
+    documentId: metadata?.documentId || "",
+    userId: metadata?.userId || "",
+    subject: metadata?.subject || "",
+    subjectId: metadata?.subjectId || "",
+    title: metadata?.title || "",
+    chunkIndex: Number(metadata?.chunkIndex || 0),
+    heading: (metadata?.heading as string | undefined) || undefined,
+    sectionTitle:
+      (metadata?.sectionTitle as string | undefined) || undefined,
+    sectionIndex:
+      metadata?.sectionIndex === undefined
+        ? undefined
+        : Number(metadata.sectionIndex),
+    contentLength:
+      metadata?.contentLength === undefined
+        ? undefined
+        : Number(metadata.contentLength),
+    section: (metadata?.section as SectionLabel | undefined) || undefined,
+    inferredSection:
+      (metadata?.inferredSection as string | undefined) || undefined,
+    semanticSectionLabel:
+      (metadata?.semanticSectionLabel as string | undefined) || undefined,
+    outlineNodeId: (metadata?.outlineNodeId as string | undefined) || undefined,
+    outlinePath: (metadata?.outlinePath as string | undefined) || undefined,
+    outlineLevel:
+      metadata?.outlineLevel === undefined
+        ? undefined
+        : Number(metadata.outlineLevel),
+    outlineType: (metadata?.outlineType as string | undefined) || undefined,
+    chapterOrdinal:
+      (metadata?.chapterOrdinal as string | undefined) || undefined,
+  },
+});
+
 export const searchRelevantChunks = async (
   question: string,
   filters: VectorSearchFilters,
@@ -270,39 +333,27 @@ export const searchRelevantChunks = async (
     includeValues: false,
   });
 
-  return result.matches.map((match) => {
-    const metadata = match.metadata;
+  return result.matches.map((match) =>
+    toRetrievedChunk(match.id, match.metadata, match.score),
+  );
+};
 
-    return {
-      id: match.id,
-      content: metadata?.content || "",
-      pineconeScore: match.score,
-      metadata: {
-        documentId: metadata?.documentId || "",
-        userId: metadata?.userId || "",
-        subject: metadata?.subject || "",
-        subjectId: metadata?.subjectId || "",
-        title: metadata?.title || "",
-        chunkIndex: Number(metadata?.chunkIndex || 0),
-        heading: (metadata?.heading as string | undefined) || undefined,
-        sectionTitle:
-          (metadata?.sectionTitle as string | undefined) || undefined,
-        sectionIndex:
-          metadata?.sectionIndex === undefined
-            ? undefined
-            : Number(metadata.sectionIndex),
-        contentLength:
-          metadata?.contentLength === undefined
-            ? undefined
-            : Number(metadata.contentLength),
-        section: (metadata?.section as SectionLabel | undefined) || undefined,
-        inferredSection:
-          (metadata?.inferredSection as string | undefined) || undefined,
-        semanticSectionLabel:
-          (metadata?.semanticSectionLabel as string | undefined) || undefined,
-      },
-    };
+export const fetchVectorChunksByIds = async (
+  ids: string[],
+): Promise<RetrievedChunk[]> => {
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const index = await getPineconeIndex();
+  const result = await index.fetch({
+    namespace: getPineconeNamespace(),
+    ids,
   });
+
+  return Object.values(result.records)
+    .map((record) => toRetrievedChunk(record.id, record.metadata))
+    .filter((chunk) => Boolean(chunk.content));
 };
 
 export const deleteDocumentChunks = async (

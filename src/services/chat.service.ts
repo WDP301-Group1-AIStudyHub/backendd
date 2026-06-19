@@ -10,6 +10,7 @@ import { AppError } from "../middlewares/error.middleware";
 import { askQuestionWithCorrectiveRag } from "./correctiveRag.service";
 import { createEvaluationLog } from "./evaluation.service";
 import { askQuestionWithRag } from "./rag.service";
+import { answerDocumentStructureQuestion } from "./documentStructureAnswer.service";
 
 const toChatHistoryResponse = (
   history: IChatHistory,
@@ -32,7 +33,9 @@ const toChatHistoryResponse = (
 export const askQuestion = async (
   userId: string,
   payload: AskQuestionRequest,
+  options: { persistHistory?: boolean } = {},
 ): Promise<AskQuestionResponse> => {
+  const persistHistory = options.persistHistory ?? true;
   const mode = payload.mode || "basic";
   let subjectId = payload.subjectId;
 
@@ -45,44 +48,52 @@ export const askQuestion = async (
     subjectId = document?.subjectId?.toString();
   }
 
+  const structuralResult = await answerDocumentStructureQuestion(userId, payload);
   const result =
-    mode === "corrective"
+    structuralResult ||
+    (mode === "corrective"
       ? await askQuestionWithCorrectiveRag(userId, payload)
-      : await askQuestionWithRag(userId, payload);
+      : await askQuestionWithRag(userId, payload));
 
-  await ChatHistory.create({
-    userId,
-    question: payload.question,
-    originalQuestion: result.originalQuestion,
-    rewrittenQuery: result.rewrittenQuery,
-    answer: result.answer,
-    sources: result.sources,
-    documentId: payload.documentId,
-    subjectId,
-    mode: result.mode,
-    evaluation: result.evaluation,
-  });
+  if (persistHistory) {
+    await ChatHistory.create({
+      userId,
+      question: payload.question,
+      originalQuestion: result.originalQuestion,
+      rewrittenQuery: result.rewrittenQuery,
+      answer: result.answer,
+      sources: result.sources,
+      documentId: payload.documentId,
+      subjectId,
+      mode: result.mode,
+      evaluation: result.evaluation,
+    });
 
-  await createEvaluationLog({
-    userId,
-    question: result.originalQuestion,
-    rewrittenQuery: result.rewrittenQuery,
-    retrievalMode: result.mode || "basic",
-    retrievedChunksCount: result.evaluation?.retrievedChunksCount || 0,
-    relevantChunksCount: result.evaluation?.relevantChunksCount || 0,
-    averageRelevanceScore: result.evaluation?.averageRelevanceScore || 0,
-    correctiveAttempted: result.evaluation?.correctiveAttempted || false,
-    isGrounded: result.evaluation?.isGrounded ?? true,
-    confidenceScore: result.evaluation?.confidenceScore || 0,
-    responseTimeMs: result.evaluation?.responseTimeMs || 0,
-    usedFallbackChunks: result.evaluation?.usedFallbackChunks,
-    relevanceThreshold: result.evaluation?.relevanceThreshold,
-    warning: result.evaluation?.warning,
-    fallbackGenerated: result.evaluation?.fallbackGenerated,
-    fallbackReason: result.evaluation?.fallbackReason,
-    detectedIntent: result.evaluation?.detectedIntent,
-    retrievedSections: result.evaluation?.retrievedSections,
-  });
+    await createEvaluationLog({
+      userId,
+      question: result.originalQuestion,
+      rewrittenQuery: result.rewrittenQuery,
+      retrievalMode: result.mode || "basic",
+      retrievedChunksCount: result.evaluation?.retrievedChunksCount || 0,
+      relevantChunksCount: result.evaluation?.relevantChunksCount || 0,
+      averageRelevanceScore: result.evaluation?.averageRelevanceScore || 0,
+      correctiveAttempted: result.evaluation?.correctiveAttempted || false,
+      isGrounded: result.evaluation?.isGrounded ?? true,
+      confidenceScore: result.evaluation?.confidenceScore || 0,
+      responseTimeMs: result.evaluation?.responseTimeMs || 0,
+      usedFallbackChunks: result.evaluation?.usedFallbackChunks,
+      relevanceThreshold: result.evaluation?.relevanceThreshold,
+      warning: result.evaluation?.warning,
+      fallbackGenerated: result.evaluation?.fallbackGenerated,
+      fallbackReason: result.evaluation?.fallbackReason,
+      detectedIntent: result.evaluation?.detectedIntent,
+      retrievedSections: result.evaluation?.retrievedSections,
+      answerProfile: result.evaluation?.answerProfile,
+      usedSectionExpansion: result.evaluation?.usedSectionExpansion,
+      selectedSectionTitle: result.evaluation?.selectedSectionTitle,
+      contextChunksUsed: result.evaluation?.contextChunksUsed,
+    });
+  }
 
   return result;
 };

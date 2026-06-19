@@ -23,6 +23,12 @@ import {
 } from "./rag.service";
 import { getFileExtension } from "../utils/fileName";
 import { splitTextForRag } from "../utils/textSplitter";
+import { analyzeDocumentStructure } from "../utils/documentStructure";
+import {
+  extractDocumentOutline,
+  summarizeDocumentOutline,
+  type DocumentOutlineNode,
+} from "../utils/documentOutline";
 
 const MAX_DOCUMENT_LIST_LIMIT = 50;
 const DEFAULT_DOCUMENT_LIST_LIMIT = 10;
@@ -46,6 +52,7 @@ const toSubjectSummary = (subject: unknown) => {
   return {
     _id: populatedSubject._id.toString(),
     name: populatedSubject.name,
+    color: populatedSubject.color,
     code: populatedSubject.code,
   };
 };
@@ -73,6 +80,12 @@ export const toDocumentResponse = (document: IDocument): DocumentResponse => {
     extractionStatus: document.extractionStatus || "COMPLETED",
     extractionError: document.extractionError || "",
     totalChunks: document.totalChunks || 0,
+    chunkingStrategy: document.chunkingStrategy,
+    detectedSections: document.detectedSections || [],
+    documentOutline: document.documentOutline || [],
+    chapterCount: document.chapterCount || 0,
+    partCount: document.partCount || 0,
+    sectionCount: document.sectionCount || 0,
     uploadedBy: document.ownerId,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
@@ -134,6 +147,7 @@ export const createDocument = async (
   let extractedText = "";
   let extractionStatus: "COMPLETED" | "FAILED" = "COMPLETED";
   let extractionError = "";
+  let semanticOutline: DocumentOutlineNode[] = [];
 
   try {
     const extractionResult = await extractDocumentText(
@@ -142,6 +156,7 @@ export const createDocument = async (
       file.mimetype,
     );
     extractedText = extractionResult.extractedText;
+    semanticOutline = extractionResult.metadata?.semanticOutline || [];
   } catch (error) {
     extractionStatus = "FAILED";
     extractionError = error instanceof Error ? error.message : String(error);
@@ -149,6 +164,13 @@ export const createDocument = async (
 
   const cloudinaryUpload = await uploadDocumentToCloudinary(file);
   const chunkingResult = await splitTextForRag(extractedText);
+  const documentOutline = extractDocumentOutline({
+    text: extractedText,
+    chunkingResult,
+    semanticOutline,
+  });
+  const outlineSummary = summarizeDocumentOutline(documentOutline);
+  const structure = analyzeDocumentStructure(chunkingResult);
 
   const document = await StudyDocument.create({
     title: payload.title,
@@ -169,6 +191,15 @@ export const createDocument = async (
     visibility: payload.visibility || "PRIVATE",
     status: "ACTIVE",
     ownerId: userId,
+    chunkingStrategy: structure.chunkingStrategy,
+    detectedSections:
+      outlineSummary.detectedSections.length > 0
+        ? outlineSummary.detectedSections
+        : structure.detectedSections,
+    documentOutline,
+    chapterCount: outlineSummary.chapterCount || structure.chapterCount,
+    partCount: outlineSummary.partCount || structure.partCount,
+    sectionCount: outlineSummary.sectionCount || structure.sectionCount,
   });
   const version = await DocumentVersion.create({
     documentId: document._id,
@@ -186,7 +217,20 @@ export const createDocument = async (
     extractedText,
     extractionStatus,
     extractionError,
+    processingStatus: extractionStatus === "COMPLETED" ? "PENDING" : "FAILED",
+    processingStage: extractionStatus === "COMPLETED" ? "UPLOADED" : "FAILED",
+    processingProgress: extractionStatus === "COMPLETED" ? 0 : 100,
+    processingError: extractionStatus === "COMPLETED" ? "" : extractionError,
     totalChunks: chunkingResult.chunks.length,
+    chunkingStrategy: structure.chunkingStrategy,
+    detectedSections:
+      outlineSummary.detectedSections.length > 0
+        ? outlineSummary.detectedSections
+        : structure.detectedSections,
+    documentOutline,
+    chapterCount: outlineSummary.chapterCount || structure.chapterCount,
+    partCount: outlineSummary.partCount || structure.partCount,
+    sectionCount: outlineSummary.sectionCount || structure.sectionCount,
     uploadedBy: document.ownerId,
     isActive: true,
   });
@@ -202,9 +246,26 @@ export const createDocument = async (
 
     version.indexedAt = indexedAt;
     version.totalChunks = indexResult.chunksCreated;
+    version.chunkingStrategy = indexResult.chunkingStrategy;
+    version.detectedSections = indexResult.detectedSections;
+    version.documentOutline = indexResult.documentOutline || [];
+    version.chapterCount = indexResult.chapterCount || 0;
+    version.partCount = indexResult.partCount || 0;
+    version.sectionCount = indexResult.sectionCount || 0;
+    version.processingStatus = "INDEXED";
+    version.processingStage = "COMPLETED";
+    version.processingProgress = 100;
+    version.processingError = "";
+    version.processingCompletedAt = indexedAt;
     await version.save();
     document.lastIndexedAt = indexedAt;
     document.totalChunks = indexResult.chunksCreated;
+    document.chunkingStrategy = indexResult.chunkingStrategy;
+    document.detectedSections = indexResult.detectedSections;
+    document.documentOutline = indexResult.documentOutline || [];
+    document.chapterCount = indexResult.chapterCount || 0;
+    document.partCount = indexResult.partCount || 0;
+    document.sectionCount = indexResult.sectionCount || 0;
     await document.save();
   }
 
@@ -243,7 +304,7 @@ export const getDocumentsByUser = async (
   const [documents, totalItems] = await Promise.all([
     StudyDocument.find(filters)
       .select("-extractedText")
-      .populate("subjectId", "_id name code")
+      .populate("subjectId", "_id name color code")
       .sort({ [sortBy]: sortOrder })
       .skip(skip)
       .limit(limit),
@@ -290,7 +351,7 @@ export const getDocumentById = async (
     _id: documentId,
     ownerId: userId,
     status: { $ne: "DELETED" },
-  }).populate("subjectId", "_id name code");
+  }).populate("subjectId", "_id name color code");
 
   if (!document) {
     throw new AppError("Document not found", 404);
@@ -321,6 +382,12 @@ export const reindexUserDocument = async (
     {
       $set: {
         totalChunks: result.chunksCreated,
+        chunkingStrategy: result.chunkingStrategy,
+        detectedSections: result.detectedSections,
+        documentOutline: result.documentOutline || [],
+        chapterCount: result.chapterCount || 0,
+        partCount: result.partCount || 0,
+        sectionCount: result.sectionCount || 0,
         lastIndexedAt: indexedAt,
       },
     },
@@ -337,7 +404,18 @@ export const reindexUserDocument = async (
       {
         $set: {
           totalChunks: result.chunksCreated,
+          chunkingStrategy: result.chunkingStrategy,
+          detectedSections: result.detectedSections,
+          documentOutline: result.documentOutline || [],
+          chapterCount: result.chapterCount || 0,
+          partCount: result.partCount || 0,
+          sectionCount: result.sectionCount || 0,
           indexedAt,
+          processingStatus: "INDEXED",
+          processingStage: "COMPLETED",
+          processingProgress: 100,
+          processingError: "",
+          processingCompletedAt: indexedAt,
         },
       },
     );
@@ -400,7 +478,7 @@ export const updateDocument = async (
       new: true,
       runValidators: true,
     },
-  ).populate("subjectId", "_id name code");
+  ).populate("subjectId", "_id name color code");
 
   if (!document) {
     throw new AppError("Document not found", 404);
@@ -453,7 +531,7 @@ export const searchDocuments = async (
   }
 
   const documents = await StudyDocument.find(filters)
-    .populate("subjectId", "_id name code")
+    .populate("subjectId", "_id name color code")
     .sort({ createdAt: -1 });
 
   return {

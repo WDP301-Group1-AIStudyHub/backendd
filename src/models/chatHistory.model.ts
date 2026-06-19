@@ -44,6 +44,30 @@ const chatSourceSchema = new Schema<ChatSource>(
     semanticSectionLabel: {
       type: String,
     },
+    heading: {
+      type: String,
+    },
+    sectionTitle: {
+      type: String,
+    },
+    sectionIndex: {
+      type: Number,
+    },
+    outlineNodeId: {
+      type: String,
+    },
+    outlinePath: {
+      type: String,
+    },
+    outlineLevel: {
+      type: Number,
+    },
+    outlineType: {
+      type: String,
+    },
+    chapterOrdinal: {
+      type: String,
+    },
     relevanceScore: {
       type: Number,
     },
@@ -67,6 +91,10 @@ const ragEvaluationSchema = new Schema<RagEvaluation>(
     fallbackReason: { type: String },
     detectedIntent: { type: String },
     retrievedSections: { type: [String] },
+    answerProfile: { type: String },
+    usedSectionExpansion: { type: Boolean },
+    selectedSectionTitle: { type: String },
+    contextChunksUsed: { type: Number },
   },
   { _id: false },
 );

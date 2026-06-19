@@ -148,11 +148,11 @@ export const runBenchmarkQuestion = async (
   const basicResult = await askQuestion(userId, {
     ...basePayload,
     mode: "basic",
-  });
+  }, { persistHistory: false });
   const correctiveResult = await askQuestion(userId, {
     ...basePayload,
     mode: "corrective",
-  });
+  }, { persistHistory: false });
 
   const basicEvaluation = await evaluateBenchmarkAnswer(
     benchmarkQuestion.question,

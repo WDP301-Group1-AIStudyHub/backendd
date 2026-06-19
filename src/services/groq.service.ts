@@ -5,6 +5,7 @@ import {
   detectAnswerStyle,
   AnswerLanguage,
 } from "../utils/answerStyle";
+import type { AnswerProfile } from "../utils/answerProfile";
 import { retryAsync } from "../utils/retry";
 import type { SemanticQuestionIntent } from "./intentClassifier.service";
 
@@ -113,10 +114,10 @@ const removeRepeatedLines = (answer: string): string => {
 
   return answer
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => line.trimEnd())
     .filter((line) => {
       if (!line) {
-        return false;
+        return true;
       }
 
       const normalized = line.toLowerCase();
@@ -129,6 +130,7 @@ const removeRepeatedLines = (answer: string): string => {
       return true;
     })
     .join("\n")
+    .replace(/\n{4,}/g, "\n\n\n")
     .trim();
 };
 
@@ -215,14 +217,32 @@ export const generateAnswerFromContext = async (
   strict = false,
   options: {
     intent?: SemanticQuestionIntent;
+    answerProfile?: AnswerProfile;
   } = {},
 ): Promise<string> => {
   const style = detectAnswerStyle(question);
   const intent = options.intent ?? "unknown";
+  const answerProfile = options.answerProfile ?? "standard";
+  const wantsDetailedAnswer = answerProfile === "detailed";
   const conciseAnswer = intent === "extraction" || style.wantsShortAnswer;
-  const maxSentencesRule = style.wantsShortAnswer
+  const maxSentencesRule = wantsDetailedAnswer
+    ? "Use enough detail for study notes. Prefer structured Markdown over a single paragraph."
+    : style.wantsShortAnswer
     ? "Maximum 2 sentences."
-    : "Use the shortest complete answer that satisfies the question.";
+    : intent === "summary" || intent === "comparison" || intent === "qa"
+      ? "Use 3-6 sentences with enough detail to be useful."
+      : "Use 2-4 complete sentences with sufficient detail.";
+  const formatRule = wantsDetailedAnswer
+    ? [
+        "Format the answer in Markdown with these sections when useful:",
+        "## Tóm tắt ngắn",
+        "## Ý chính",
+        "## Nội dung chi tiết",
+        "## Điểm cần nhớ",
+        "## Nguồn/section liên quan",
+        "Use bullets and short paragraphs. Keep every point grounded in CONTEXT.",
+      ].join(" ")
+    : "Use simple Markdown only if it improves readability.";
   const systemMessage = [
     "You are the answer generation layer in a RAG system for Vietnamese educational documents.",
     style.language === "other"
@@ -234,14 +254,28 @@ export const generateAnswerFromContext = async (
     "Answer only using the provided CONTEXT.",
     "Follow the user's requested format exactly.",
     intent === "list" ? "The user wants a list; use a concise list." : "",
-    "Do not add explanations unless the user asks for them.",
+    "Give a complete answer based on context, not a fragment.",
+    "If the question asks whether the document is related to another topic (for example, a different subject area):",
+    "1) Judge relation strictly from CONTEXT.",
+    "2) If not related, state clearly that the document is not related to that topic.",
+    "3) Then provide a full but concise summary of the document's main content from CONTEXT (key ideas + supporting points).",
     "Do not add unrelated information.",
     "Do not hallucinate. Do not repeat.",
     maxSentencesRule,
+    formatRule,
     "If the CONTEXT is insufficient, return an empty response instead of guessing.",
     intent === "extraction"
       ? "Intent: extraction. Extract only the requested information. No long paragraphs. Prefer a compact comma-separated or natural-language list when appropriate."
       : `Intent: ${intent}.`,
+    intent === "summary"
+      ? "For summaries, include key ideas and important details from the relevant section(s)."
+      : "",
+    intent === "qa"
+      ? "For normal questions, include the direct answer and 1-3 supporting details from context when available."
+      : "",
+    intent === "qa"
+      ? "For relation-check questions that are out-of-scope, include the not-related verdict and a structured summary of what the document is actually about."
+      : "",
     strict
       ? "Strict mode: every answer item must be directly supported by CONTEXT."
       : "If multiple chunks contain extra information, ignore anything outside the user's requested scope.",
@@ -265,7 +299,7 @@ export const generateAnswerFromContext = async (
     ],
     {
       temperature: 0.1,
-      maxTokens: conciseAnswer ? 120 : 700,
+      maxTokens: conciseAnswer ? 120 : wantsDetailedAnswer ? 1800 : 900,
     },
   );
 

@@ -16,6 +16,12 @@ import {
 import { Subject } from "../subjects/subject.model";
 import { UploadSession } from "../uploadSessions/uploadSession.model";
 import { splitTextForRag } from "../../utils/textSplitter";
+import { analyzeDocumentStructure } from "../../utils/documentStructure";
+import {
+  applyOutlineToChunks,
+  extractDocumentOutline,
+  summarizeDocumentOutline,
+} from "../../utils/documentOutline";
 import { StudyDocument, IDocument } from "../documents/document.model";
 import { DocumentVersion, IDocumentVersion } from "./documentVersion.model";
 import {
@@ -23,6 +29,7 @@ import {
   DocumentVersionUploadMode,
   UploadDocumentVersionRequest,
 } from "./documentVersion.types";
+import type { DocumentOutlineNode } from "../../utils/documentOutline";
 
 interface ListDocumentVersionsQuery {
   page?: string;
@@ -141,6 +148,12 @@ const toVersionResponse = (
   processingCompletedAt: version.processingCompletedAt,
   uploadSessionId: version.uploadSessionId?.toString(),
   totalChunks: version.totalChunks,
+  chunkingStrategy: version.chunkingStrategy,
+  detectedSections: version.detectedSections || [],
+  documentOutline: version.documentOutline || [],
+  chapterCount: version.chapterCount || 0,
+  partCount: version.partCount || 0,
+  sectionCount: version.sectionCount || 0,
   indexedAt: version.indexedAt,
   isActive: version.isActive,
   uploadedBy: version.uploadedBy,
@@ -160,6 +173,12 @@ const updateDocumentFromActiveVersion = async (
       $set: {
         currentVersionId: version._id,
         totalChunks: version.totalChunks,
+        chunkingStrategy: version.chunkingStrategy,
+        detectedSections: version.detectedSections || [],
+        documentOutline: version.documentOutline || [],
+        chapterCount: version.chapterCount || 0,
+        partCount: version.partCount || 0,
+        sectionCount: version.sectionCount || 0,
         lastIndexedAt: version.indexedAt,
         fileUrl: version.fileUrl,
         filePublicId: version.filePublicId,
@@ -183,7 +202,16 @@ const maybeReindexActiveVersion = async (
   documentId: string,
   ownerId: string,
   options: VersioningOptions,
-): Promise<{ indexedAt: Date; chunksCreated: number } | null> => {
+): Promise<{
+  indexedAt: Date;
+  chunksCreated: number;
+  chunkingStrategy?: "heading-based" | "fixed-size-fallback";
+  detectedSections: string[];
+  documentOutline?: DocumentOutlineNode[];
+  chapterCount: number;
+  partCount: number;
+  sectionCount: number;
+} | null> => {
   if (options.skipReindex) {
     return null;
   }
@@ -197,6 +225,12 @@ const maybeReindexActiveVersion = async (
   return {
     indexedAt: new Date(),
     chunksCreated: result.chunksCreated,
+    chunkingStrategy: result.chunkingStrategy,
+    detectedSections: result.detectedSections,
+    documentOutline: result.documentOutline || [],
+    chapterCount: result.chapterCount || 0,
+    partCount: result.partCount || 0,
+    sectionCount: result.sectionCount || 0,
   };
 };
 
@@ -316,8 +350,24 @@ const processVersionSynchronously = async (
       "Chunking document",
     );
     const chunkingResult = await dependencies.chunkText(version.extractedText);
-    const chunks = chunkingResult.chunks;
+    const documentOutline = extractDocumentOutline({
+      text: version.extractedText,
+      chunkingResult,
+      semanticOutline: extractionResult.metadata?.semanticOutline || [],
+    });
+    const outlineSummary = summarizeDocumentOutline(documentOutline);
+    const chunks = applyOutlineToChunks(chunkingResult.chunks, documentOutline);
+    const structure = analyzeDocumentStructure(chunkingResult);
     version.totalChunks = chunks.length;
+    version.chunkingStrategy = structure.chunkingStrategy;
+    version.detectedSections =
+      outlineSummary.detectedSections.length > 0
+        ? outlineSummary.detectedSections
+        : structure.detectedSections;
+    version.documentOutline = documentOutline;
+    version.chapterCount = outlineSummary.chapterCount || structure.chapterCount;
+    version.partCount = outlineSummary.partCount || structure.partCount;
+    version.sectionCount = outlineSummary.sectionCount || structure.sectionCount;
     await version.save();
 
     await updateProcessingProgress(
@@ -363,6 +413,11 @@ const processVersionSynchronously = async (
       section: chunk.metadata.section,
       inferredSection: chunk.metadata.inferredSection,
       semanticSectionLabel: chunk.metadata.semanticSectionLabel,
+      outlineNodeId: chunk.metadata.outlineNodeId,
+      outlinePath: chunk.metadata.outlinePath,
+      outlineLevel: chunk.metadata.outlineLevel,
+      outlineType: chunk.metadata.outlineType,
+      chapterOrdinal: chunk.metadata.chapterOrdinal,
       content: chunk.content,
       metadata: {
         heading: chunk.metadata.heading || "",
@@ -379,6 +434,11 @@ const processVersionSynchronously = async (
         section: chunk.metadata.section || "",
         inferredSection: chunk.metadata.inferredSection || "",
         semanticSectionLabel: chunk.metadata.semanticSectionLabel || "",
+        outlineNodeId: chunk.metadata.outlineNodeId || "",
+        outlinePath: chunk.metadata.outlinePath || "",
+        outlineLevel: chunk.metadata.outlineLevel || 0,
+        outlineType: chunk.metadata.outlineType || "",
+        chapterOrdinal: chunk.metadata.chapterOrdinal || "",
       },
     }));
 
@@ -387,6 +447,15 @@ const processVersionSynchronously = async (
 
     version.indexedAt = indexedAt;
     version.totalChunks = chunks.length;
+    version.chunkingStrategy = structure.chunkingStrategy;
+    version.detectedSections =
+      outlineSummary.detectedSections.length > 0
+        ? outlineSummary.detectedSections
+        : structure.detectedSections;
+    version.documentOutline = documentOutline;
+    version.chapterCount = outlineSummary.chapterCount || structure.chapterCount;
+    version.partCount = outlineSummary.partCount || structure.partCount;
+    version.sectionCount = outlineSummary.sectionCount || structure.sectionCount;
     version.processingStatus = "INDEXED";
     version.processingStage = "COMPLETED";
     version.processingProgress = 100;
@@ -414,6 +483,12 @@ const processVersionSynchronously = async (
             extractedText: version.extractedText,
             extractionStatus: "COMPLETED",
             extractionError: "",
+            chunkingStrategy: version.chunkingStrategy,
+            detectedSections: version.detectedSections || [],
+            documentOutline: version.documentOutline || [],
+            chapterCount: version.chapterCount || 0,
+            partCount: version.partCount || 0,
+            sectionCount: version.sectionCount || 0,
           },
         },
       );
@@ -666,6 +741,12 @@ export const activateDocumentVersion = async (
   if (reindexResult) {
     version.indexedAt = reindexResult.indexedAt;
     version.totalChunks = reindexResult.chunksCreated;
+    version.chunkingStrategy = reindexResult.chunkingStrategy;
+    version.detectedSections = reindexResult.detectedSections;
+    version.documentOutline = reindexResult.documentOutline || [];
+    version.chapterCount = reindexResult.chapterCount;
+    version.partCount = reindexResult.partCount;
+    version.sectionCount = reindexResult.sectionCount;
     await version.save();
     await StudyDocument.updateOne(
       { _id: documentId },
@@ -673,6 +754,12 @@ export const activateDocumentVersion = async (
         $set: {
           lastIndexedAt: reindexResult.indexedAt,
           totalChunks: reindexResult.chunksCreated,
+          chunkingStrategy: reindexResult.chunkingStrategy,
+          detectedSections: reindexResult.detectedSections,
+          documentOutline: reindexResult.documentOutline || [],
+          chapterCount: reindexResult.chapterCount,
+          partCount: reindexResult.partCount,
+          sectionCount: reindexResult.sectionCount,
         },
       },
     );
@@ -746,8 +833,24 @@ export const reindexDocumentVersion = async (
     }
 
     const chunkingResult = await dependencies.chunkText(version.extractedText);
-    const chunks = chunkingResult.chunks;
+    const documentOutline = extractDocumentOutline({
+      text: version.extractedText,
+      chunkingResult,
+      semanticOutline: version.documentOutline || [],
+    });
+    const outlineSummary = summarizeDocumentOutline(documentOutline);
+    const chunks = applyOutlineToChunks(chunkingResult.chunks, documentOutline);
+    const structure = analyzeDocumentStructure(chunkingResult);
     version.totalChunks = chunks.length;
+    version.chunkingStrategy = structure.chunkingStrategy;
+    version.detectedSections =
+      outlineSummary.detectedSections.length > 0
+        ? outlineSummary.detectedSections
+        : structure.detectedSections;
+    version.documentOutline = documentOutline;
+    version.chapterCount = outlineSummary.chapterCount || structure.chapterCount;
+    version.partCount = outlineSummary.partCount || structure.partCount;
+    version.sectionCount = outlineSummary.sectionCount || structure.sectionCount;
     await version.save();
 
     await updateProcessingProgress(
@@ -794,6 +897,11 @@ export const reindexDocumentVersion = async (
       section: chunk.metadata.section,
       inferredSection: chunk.metadata.inferredSection,
       semanticSectionLabel: chunk.metadata.semanticSectionLabel,
+      outlineNodeId: chunk.metadata.outlineNodeId,
+      outlinePath: chunk.metadata.outlinePath,
+      outlineLevel: chunk.metadata.outlineLevel,
+      outlineType: chunk.metadata.outlineType,
+      chapterOrdinal: chunk.metadata.chapterOrdinal,
       content: chunk.content,
       metadata: {
         heading: chunk.metadata.heading || "",
@@ -810,6 +918,11 @@ export const reindexDocumentVersion = async (
         section: chunk.metadata.section || "",
         inferredSection: chunk.metadata.inferredSection || "",
         semanticSectionLabel: chunk.metadata.semanticSectionLabel || "",
+        outlineNodeId: chunk.metadata.outlineNodeId || "",
+        outlinePath: chunk.metadata.outlinePath || "",
+        outlineLevel: chunk.metadata.outlineLevel || 0,
+        outlineType: chunk.metadata.outlineType || "",
+        chapterOrdinal: chunk.metadata.chapterOrdinal || "",
       },
     }));
 
@@ -818,6 +931,15 @@ export const reindexDocumentVersion = async (
 
     version.indexedAt = indexedAt;
     version.totalChunks = chunks.length;
+    version.chunkingStrategy = structure.chunkingStrategy;
+    version.detectedSections =
+      outlineSummary.detectedSections.length > 0
+        ? outlineSummary.detectedSections
+        : structure.detectedSections;
+    version.documentOutline = documentOutline;
+    version.chapterCount = outlineSummary.chapterCount || structure.chapterCount;
+    version.partCount = outlineSummary.partCount || structure.partCount;
+    version.sectionCount = outlineSummary.sectionCount || structure.sectionCount;
     await version.save();
 
     if (version.isActive) {

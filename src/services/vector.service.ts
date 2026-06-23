@@ -36,6 +36,7 @@ export interface VectorChunkInput {
 export interface VectorSearchFilters {
   userId: string;
   documentId?: string;
+  documentIds?: string[];
   subject?: string;
   subjectId?: string;
 }
@@ -168,14 +169,16 @@ const getPineconeNamespace = (): string => {
   return process.env.PINECONE_NAMESPACE || "ai-study-hub";
 };
 
-const buildPineconeFilter = (
+export const buildPineconeFilter = (
   filters: VectorSearchFilters,
 ): Record<string, unknown> => {
   const filter: Record<string, unknown> = {
     userId: { $eq: filters.userId },
   };
 
-  if (filters.documentId) {
+  if (filters.documentIds?.length) {
+    filter.documentId = { $in: filters.documentIds };
+  } else if (filters.documentId) {
     filter.documentId = { $eq: filters.documentId };
   }
 
@@ -317,12 +320,14 @@ const toRetrievedChunk = (
 });
 
 export const searchRelevantChunks = async (
-  question: string,
+  questionOrEmbedding: string | number[],
   filters: VectorSearchFilters,
   topK = 5,
 ): Promise<RetrievedChunk[]> => {
   const index = await getPineconeIndex();
-  const queryEmbedding = await generateEmbedding(question);
+  const queryEmbedding = typeof questionOrEmbedding === "string"
+    ? await generateEmbedding(questionOrEmbedding)
+    : questionOrEmbedding;
 
   const result = await index.query({
     namespace: getPineconeNamespace(),
@@ -336,6 +341,41 @@ export const searchRelevantChunks = async (
   return result.matches.map((match) =>
     toRetrievedChunk(match.id, match.metadata, match.score),
   );
+};
+
+/**
+ * Queries Pinecone separately for each document to guarantee coverage
+ * across all selected documents.  Falls back to a single broad query
+ * when the caller did not supply explicit document IDs.
+ */
+export const searchRelevantChunksPerDocument = async (
+  question: string,
+  filters: VectorSearchFilters,
+  topKPerDocument: number,
+): Promise<RetrievedChunk[]> => {
+  const documentIds = filters.documentIds;
+
+  if (!documentIds?.length) {
+    return searchRelevantChunks(question, filters, topKPerDocument * 3);
+  }
+
+  const queryEmbedding = await generateEmbedding(question);
+  const perDocTopK = Math.max(topKPerDocument, 4);
+
+  const results = await Promise.all(
+    documentIds.map((docId) =>
+      searchRelevantChunks(
+        queryEmbedding,
+        {
+          userId: filters.userId,
+          documentId: docId,
+        },
+        perDocTopK,
+      ),
+    ),
+  );
+
+  return results.flat();
 };
 
 export const fetchVectorChunksByIds = async (

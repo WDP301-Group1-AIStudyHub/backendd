@@ -31,8 +31,11 @@ import { selectContextChunksForQuestion } from "./sectionContext.service";
 import {
   deleteDocumentChunks,
   searchRelevantChunks,
+  searchRelevantChunksPerDocument,
   upsertDocumentChunks,
+  RetrievedChunk,
 } from "./vector.service";
+import { resolveChatScope } from "./chatScope.service";
 import { generateFallbackAnswer } from "./fallbackAnswer.service";
 import { analyzeDocumentStructure } from "../utils/documentStructure";
 import {
@@ -45,6 +48,8 @@ const DEFAULT_CONTEXT_CHUNK_LIMIT = 8;
 const FOCUSED_CONTEXT_CHUNK_LIMIT = 4;
 const RETRIEVAL_TOP_K = 12;
 const DETAILED_RETRIEVAL_TOP_K = 20;
+const MULTI_DOCUMENT_RETRIEVAL_TOP_K = 24;
+const MULTI_DOCUMENT_DETAILED_RETRIEVAL_TOP_K = 40;
 const DETAILED_CONTEXT_CHUNK_LIMIT = 16;
 const DOCUMENT_PROCESSING_MESSAGE =
   "Tài liệu đang được xử lý, vui lòng thử lại sau.";
@@ -240,9 +245,6 @@ export const askQuestionWithRag = async (
   payload: AskQuestionRequest,
 ): Promise<RagAnswerResult> => {
   const startedAt = Date.now();
-  let documentTitle: string | undefined;
-  let documentSubject = payload.subject;
-  let subjectIdFilter = payload.subjectId;
   const processingResponse = (): RagAnswerResult => ({
     answer: DOCUMENT_PROCESSING_MESSAGE,
     mode: "basic",
@@ -262,35 +264,10 @@ export const askQuestionWithRag = async (
     },
   });
 
-  if (payload.documentId) {
-    const document = await StudyDocument.findOne({
-      _id: payload.documentId,
-      ownerId: userId,
-      status: { $ne: "DELETED" },
-    });
+  const chatScope = await resolveChatScope(userId, payload);
 
-    if (!document) {
-      throw new AppError("Document not found", 404);
-    }
-
-    documentTitle = document.title;
-    subjectIdFilter = document.subjectId?.toString();
-    documentSubject =
-      (await getSubjectNameForUser(subjectIdFilter, userId)) || documentSubject;
-    if (document.currentVersionId) {
-      const activeVersion = await DocumentVersion.findOne({
-        _id: document.currentVersionId,
-        documentId: document._id,
-        isActive: true,
-        deletedAt: null,
-      }).select("processingStatus indexedAt totalChunks");
-
-      if (!isActiveVersionReadyForChat(activeVersion)) {
-        return processingResponse();
-      }
-    }
-  } else if (payload.subjectId) {
-    documentSubject = await getSubjectNameForUser(payload.subjectId, userId);
+  if (chatScope.hasProcessingDocument) {
+    return processingResponse();
   }
 
   const intentClassification = await classifyQuestionIntent(payload.question);
@@ -305,22 +282,27 @@ export const askQuestionWithRag = async (
     ? "summary"
     : intentClassification.intent;
   const answerStyle = detectAnswerStyle(payload.question);
-  const retrievalTopK = answerProfile.wantsDetailedAnswer
+  const retrievalTopK = chatScope.isMultiDocumentScope
+    ? answerProfile.wantsDetailedAnswer
+      ? MULTI_DOCUMENT_DETAILED_RETRIEVAL_TOP_K
+      : MULTI_DOCUMENT_RETRIEVAL_TOP_K
+    : answerProfile.wantsDetailedAnswer
     ? DETAILED_RETRIEVAL_TOP_K
     : RETRIEVAL_TOP_K;
 
   // RAG retrieval: Pinecone filters by user and optionally document/subject,
   // then returns the most relevant chunks for the user's question.
-  const chunks = await searchRelevantChunks(
-    payload.question,
-    {
-      userId,
-      documentId: payload.documentId,
-      subject: payload.documentId ? undefined : payload.subject,
-      subjectId: payload.documentId ? undefined : subjectIdFilter,
-    },
-    retrievalTopK,
-  );
+  const chunks = chatScope.isMultiDocumentScope
+    ? await searchRelevantChunksPerDocument(
+        payload.question,
+        chatScope.vectorFilters,
+        Math.max(Math.ceil(retrievalTopK / (chatScope.documentIds?.length || 1)), 6),
+      )
+    : await searchRelevantChunks(
+        payload.question,
+        chatScope.vectorFilters,
+        retrievalTopK,
+      );
   const evaluatedChunks = evaluateRetrievedChunks(payload.question, chunks);
   const relevantChunks = evaluatedChunks.filter((chunk) => chunk.isRelevant);
   const averageRelevanceScore = calculateAverageRelevance(evaluatedChunks);
@@ -333,8 +315,8 @@ export const askQuestionWithRag = async (
       retrievedChunksCount: 0,
       relevantChunksCount: 0,
       averageRelevanceScore: 0,
-      documentTitle,
-      subject: documentSubject,
+      documentTitle: chatScope.documentTitle,
+      subject: chatScope.subject,
       reason: fallbackReason,
       answerProfile: answerProfile.profile,
     });
@@ -377,7 +359,62 @@ export const askQuestionWithRag = async (
   );
 
   const answerChunks =
-    intent === "extraction" || answerStyle.wantsShortAnswer
+    chatScope.isMultiDocumentScope &&
+    intent !== "extraction" &&
+    !answerStyle.wantsShortAnswer
+      ? (() => {
+          const maxChunks = answerProfile.wantsDetailedAnswer
+            ? DETAILED_CONTEXT_CHUNK_LIMIT
+            : 10;
+          const selected: RetrievedChunk[] = [];
+          const docGroups = new Map<string, RetrievedChunk[]>();
+
+          for (const chunk of contextSelection.chunks) {
+            const docId = chunk.metadata.documentId;
+            if (!docGroups.has(docId)) {
+              docGroups.set(docId, []);
+            }
+            docGroups.get(docId)!.push(chunk);
+          }
+
+          for (const group of docGroups.values()) {
+            group.sort((a, b) => {
+              const aScore = relevanceScoreByChunkId.get(a.id) ?? a.pineconeScore ?? 0;
+              const bScore = relevanceScoreByChunkId.get(b.id) ?? b.pineconeScore ?? 0;
+              return bScore - aScore;
+            });
+          }
+
+          const docIds = Array.from(docGroups.keys());
+          let added = true;
+          let round = 0;
+
+          while (selected.length < maxChunks && added) {
+            added = false;
+            for (const docId of docIds) {
+              const group = docGroups.get(docId)!;
+              if (round < group.length) {
+                selected.push(group[round]);
+                added = true;
+                if (selected.length >= maxChunks) {
+                  break;
+                }
+              }
+            }
+            round += 1;
+          }
+
+          if (answerProfile.wantsDetailedAnswer) {
+            return selected.sort((a, b) => a.metadata.chunkIndex - b.metadata.chunkIndex);
+          }
+
+          return selected.sort((a, b) => {
+            const aScore = relevanceScoreByChunkId.get(a.id) ?? a.pineconeScore ?? 0;
+            const bScore = relevanceScoreByChunkId.get(b.id) ?? b.pineconeScore ?? 0;
+            return bScore - aScore;
+          });
+        })()
+      : intent === "extraction" || answerStyle.wantsShortAnswer
       ? [...contextSelection.chunks]
           .sort((a, b) => (b.pineconeScore ?? 0) - (a.pineconeScore ?? 0))
           .slice(0, FOCUSED_CONTEXT_CHUNK_LIMIT)
@@ -405,8 +442,13 @@ export const askQuestionWithRag = async (
       : await generateAnswerFromContext(payload.question, context, false, {
           intent,
           answerProfile: answerProfile.profile,
+          subject: chatScope.subject,
+          documentTitle: chatScope.documentTitle,
         });
-  let grounding = await checkAnswerGrounding(answer, context);
+  let grounding = await checkAnswerGrounding(answer, context, {
+    intent,
+    isMultiDocument: chatScope.isMultiDocumentScope,
+  });
 
   if (!grounding.isGrounded) {
     answer =
@@ -415,8 +457,13 @@ export const askQuestionWithRag = async (
         : await generateAnswerFromContext(payload.question, context, true, {
             intent,
             answerProfile: answerProfile.profile,
+            subject: chatScope.subject,
+            documentTitle: chatScope.documentTitle,
           });
-    grounding = await checkAnswerGrounding(answer, context);
+    grounding = await checkAnswerGrounding(answer, context, {
+      intent,
+      isMultiDocument: chatScope.isMultiDocumentScope,
+    });
   }
 
   const sources: ChatSource[] = answerChunks.map((chunk) => ({
@@ -450,8 +497,8 @@ export const askQuestionWithRag = async (
       retrievedChunksCount: chunks.length,
       relevantChunksCount: relevantChunks.length,
       averageRelevanceScore,
-      documentTitle: documentTitle || answerChunks[0]?.metadata.title,
-      subject: documentSubject,
+      documentTitle: chatScope.documentTitle || answerChunks[0]?.metadata.title,
+      subject: chatScope.subject,
       reason: fallbackReason,
       answerProfile: answerProfile.profile,
     });

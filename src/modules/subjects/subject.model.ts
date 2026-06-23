@@ -6,6 +6,7 @@ export interface ISubject extends Document {
   description?: string;
   color?: string;
   code?: string;
+  semester?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -40,6 +41,12 @@ const subjectSchema = new Schema<ISubject>(
       type: String,
       trim: true,
       maxlength: 40,
+    },
+    semester: {
+      type: String,
+      trim: true,
+      maxlength: 80,
+      default: "",
     },
   },
   {

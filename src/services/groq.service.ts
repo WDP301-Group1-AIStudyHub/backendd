@@ -218,6 +218,8 @@ export const generateAnswerFromContext = async (
   options: {
     intent?: SemanticQuestionIntent;
     answerProfile?: AnswerProfile;
+    subject?: string;
+    documentTitle?: string;
   } = {},
 ): Promise<string> => {
   const style = detectAnswerStyle(question);
@@ -243,8 +245,19 @@ export const generateAnswerFromContext = async (
         "Use bullets and short paragraphs. Keep every point grounded in CONTEXT.",
       ].join(" ")
     : "Use simple Markdown only if it improves readability.";
+
+  const metadataInfo: string[] = [];
+  if (options.subject) {
+    metadataInfo.push(`The documents in the CONTEXT belong to the subject: "${options.subject}".`);
+  }
+  if (options.documentTitle) {
+    metadataInfo.push(`The primary document is: "${options.documentTitle}".`);
+  }
+  const metadataString = metadataInfo.length > 0 ? metadataInfo.join(" ") : "";
+
   const systemMessage = [
     "You are the answer generation layer in a RAG system for Vietnamese educational documents.",
+    metadataString,
     style.language === "other"
       ? "Answer in the same language as the user's question."
       : `Answer in ${style.language}, matching the user's question language.`,
@@ -255,6 +268,9 @@ export const generateAnswerFromContext = async (
     "Follow the user's requested format exactly.",
     intent === "list" ? "The user wants a list; use a concise list." : "",
     "Give a complete answer based on context, not a fragment.",
+    options.subject
+      ? `NOTE: The subject/course name or code is "${options.subject}". If the user asks about the content or summary of this subject/course (e.g., "nội dung môn học", "tóm tắt môn học", or mentioning the subject name/code like "${options.subject}"), treat the provided CONTEXT documents as the representative content of that subject and summarize them to answer the user directly. Do not say that the subject is not mentioned or not related.`
+      : "",
     "If the question asks whether the document is related to another topic (for example, a different subject area):",
     "1) Judge relation strictly from CONTEXT.",
     "2) If not related, state clearly that the document is not related to that topic.",

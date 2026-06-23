@@ -18,7 +18,20 @@ const parseJsonObject = <T>(text: string): T | null => {
 export const checkAnswerGrounding = async (
   answer: string,
   context: string,
+  options: { intent?: string; isMultiDocument?: boolean } = {},
 ): Promise<AnswerGroundingCheck> => {
+  const isSummaryLike =
+    options.intent === "summary" ||
+    options.intent === "comparison" ||
+    options.intent === "instruction";
+  const paraphraseRules = isSummaryLike || options.isMultiDocument
+    ? [
+        "For summary or broad questions, allow synthesized answers that combine information from multiple context chunks.",
+        "Paraphrasing and reorganising context information is acceptable as long as the meaning is preserved.",
+        "For multi-document contexts, the answer may organise information by document, which is acceptable.",
+      ].join("\n")
+    : "";
+
   const prompt = `
 You are evaluating whether an answer for Vietnamese educational document QA is grounded only in the provided context.
 Return valid JSON only. Do not wrap it in markdown.
@@ -35,6 +48,7 @@ Rules:
 - Vietnamese answers must preserve the meaning and terms found in the context.
 - Do not require translation of Vietnamese educational terms.
 - If the context is insufficient, isGrounded must be false so the backend can generate a safe fallback response.
+${paraphraseRules ? `\n${paraphraseRules}` : ""}
 
 Context:
 ${context}
@@ -64,8 +78,10 @@ ${answer}
     Math.min(1, Number(parsed.confidenceScore) || 0),
   );
 
+  const threshold = isSummaryLike || options.isMultiDocument ? 0.25 : 0.4;
+
   return {
-    isGrounded: Boolean(parsed.isGrounded) && confidenceScore >= 0.4,
+    isGrounded: Boolean(parsed.isGrounded) && confidenceScore >= threshold,
     confidenceScore,
     reason: parsed.reason,
     warning: parsed.warning,

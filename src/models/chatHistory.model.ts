@@ -2,6 +2,8 @@ import mongoose, { Document, Schema, Types } from "mongoose";
 import { ChatSource } from "../types/api.types";
 import { RagEvaluation, RagMode } from "../types/rag.types";
 
+type ChatScope = "single_document" | "subject_all" | "document_set" | "library_all";
+
 export interface IChatHistory extends Document {
   userId: Types.ObjectId;
   question: string;
@@ -10,7 +12,9 @@ export interface IChatHistory extends Document {
   answer: string;
   sources: ChatSource[];
   documentId?: Types.ObjectId;
+  documentIds?: Types.ObjectId[];
   subjectId?: Types.ObjectId;
+  scope?: ChatScope;
   mode?: RagMode;
   evaluation?: RagEvaluation;
   createdAt: Date;
@@ -132,9 +136,18 @@ const chatHistorySchema = new Schema<IChatHistory>(
       type: Schema.Types.ObjectId,
       ref: "Document",
     },
+    documentIds: {
+      type: [Schema.Types.ObjectId],
+      ref: "Document",
+      default: undefined,
+    },
     subjectId: {
       type: Schema.Types.ObjectId,
       ref: "Subject",
+    },
+    scope: {
+      type: String,
+      enum: ["single_document", "subject_all", "document_set", "library_all"],
     },
     mode: {
       type: String,

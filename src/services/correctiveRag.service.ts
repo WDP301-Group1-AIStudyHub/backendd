@@ -14,7 +14,8 @@ import {
   evaluateRetrievedChunks,
 } from "./relevance.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
-import { searchRelevantChunks } from "./vector.service";
+import { searchRelevantChunks, searchRelevantChunksPerDocument } from "./vector.service";
+import { resolveChatScope } from "./chatScope.service";
 import { detectAnswerStyle } from "../utils/answerStyle";
 import {
   detectAnswerProfile,
@@ -33,6 +34,8 @@ const FOCUSED_CONTEXT_CHUNK_LIMIT = 3;
 const DETAILED_CONTEXT_CHUNK_LIMIT = 16;
 const DEFAULT_RETRIEVAL_TOP_K = 8;
 const DETAILED_RETRIEVAL_TOP_K = 20;
+const MULTI_DOCUMENT_RETRIEVAL_TOP_K = 24;
+const MULTI_DOCUMENT_DETAILED_RETRIEVAL_TOP_K = 40;
 const DOCUMENT_PROCESSING_MESSAGE =
   "Tài liệu đang được xử lý, vui lòng thử lại sau.";
 
@@ -185,12 +188,14 @@ export const askQuestionWithCorrectiveRag = async (
     ? "summary"
     : intentClassification.intent;
   const answerStyle = detectAnswerStyle(payload.question);
-  const retrievalTopK = answerProfile.wantsDetailedAnswer
+  const chatScope = await resolveChatScope(userId, payload);
+  const retrievalTopK = chatScope.isMultiDocumentScope
+    ? answerProfile.wantsDetailedAnswer
+      ? MULTI_DOCUMENT_DETAILED_RETRIEVAL_TOP_K
+      : MULTI_DOCUMENT_RETRIEVAL_TOP_K
+    : answerProfile.wantsDetailedAnswer
     ? DETAILED_RETRIEVAL_TOP_K
     : DEFAULT_RETRIEVAL_TOP_K;
-  let documentTitle: string | undefined;
-  let documentSubject = payload.subject;
-  let subjectIdFilter = payload.subjectId;
   const processingResponse = (): RagAnswerResult => ({
     answer: DOCUMENT_PROCESSING_MESSAGE,
     mode: "corrective",
@@ -217,51 +222,25 @@ export const askQuestionWithCorrectiveRag = async (
     },
   });
 
-  if (payload.documentId) {
-    const document = await StudyDocument.findOne({
-      _id: payload.documentId,
-      ownerId: userId,
-      status: { $ne: "DELETED" },
-    });
-
-    if (!document) {
-      throw new AppError("Document not found", 404);
-    }
-
-    documentTitle = document.title;
-    subjectIdFilter = document.subjectId?.toString();
-    documentSubject =
-      (await getSubjectNameForUser(subjectIdFilter, userId)) || documentSubject;
-    if (document.currentVersionId) {
-      const activeVersion = await DocumentVersion.findOne({
-        _id: document.currentVersionId,
-        documentId: document._id,
-        isActive: true,
-        deletedAt: null,
-      }).select("processingStatus indexedAt totalChunks");
-
-      if (!isActiveVersionReadyForChat(activeVersion)) {
-        return processingResponse();
-      }
-    }
-  } else if (payload.subjectId) {
-    documentSubject = await getSubjectNameForUser(payload.subjectId, userId);
+  if (chatScope.hasProcessingDocument) {
+    return processingResponse();
   }
 
   const rewrittenQuery = await rewriteAcademicQuery(payload.question);
 
   // Phase 3 retrieval: search with a rewritten academic query, then grade each
   // returned chunk before allowing it into the final answer context.
-  const firstPassChunks = await searchRelevantChunks(
-    rewrittenQuery,
-    {
-      userId,
-      documentId: payload.documentId,
-      subject: payload.documentId ? undefined : payload.subject,
-      subjectId: payload.documentId ? undefined : subjectIdFilter,
-    },
-    retrievalTopK,
-  );
+  const firstPassChunks = chatScope.isMultiDocumentScope
+    ? await searchRelevantChunksPerDocument(
+        rewrittenQuery,
+        chatScope.vectorFilters,
+        Math.max(Math.ceil(retrievalTopK / (chatScope.documentIds?.length || 1)), 6),
+      )
+    : await searchRelevantChunks(
+        rewrittenQuery,
+        chatScope.vectorFilters,
+        retrievalTopK,
+      );
   let evaluatedChunks = evaluateRetrievedChunks(
     `${payload.question} ${rewrittenQuery}`,
     firstPassChunks,
@@ -281,16 +260,17 @@ export const askQuestionWithCorrectiveRag = async (
       `${payload.question}\nPrevious rewritten query: ${rewrittenQuery}\nFocus on concrete keywords and definitions from the study document.`,
       2,
     );
-    const secondPassChunks = await searchRelevantChunks(
-      stricterQuery,
-      {
-        userId,
-        documentId: payload.documentId,
-        subject: payload.documentId ? undefined : payload.subject,
-        subjectId: payload.documentId ? undefined : subjectIdFilter,
-      },
-      retrievalTopK,
-    );
+    const secondPassChunks = chatScope.isMultiDocumentScope
+      ? await searchRelevantChunksPerDocument(
+          stricterQuery,
+          chatScope.vectorFilters,
+          Math.max(Math.ceil(retrievalTopK / (chatScope.documentIds?.length || 1)), 6),
+        )
+      : await searchRelevantChunks(
+          stricterQuery,
+          chatScope.vectorFilters,
+          retrievalTopK,
+        );
     const secondEvaluatedChunks = evaluateRetrievedChunks(
       `${payload.question} ${rewrittenQuery} ${stricterQuery}`,
       secondPassChunks,
@@ -348,8 +328,8 @@ export const askQuestionWithCorrectiveRag = async (
       retrievedChunksCount: evaluatedChunks.length,
       relevantChunksCount: relevantChunks.length,
       averageRelevanceScore,
-      documentTitle: documentTitle || evaluatedChunks[0]?.metadata.title,
-      subject: documentSubject,
+      documentTitle: chatScope.documentTitle || evaluatedChunks[0]?.metadata.title,
+      subject: chatScope.subject,
       reason: fallbackReason,
       answerProfile: answerProfile.profile,
     });
@@ -390,8 +370,13 @@ export const askQuestionWithCorrectiveRag = async (
       : await generateAnswerFromContext(payload.question, context, false, {
           intent,
           answerProfile: answerProfile.profile,
+          subject: chatScope.subject,
+          documentTitle: chatScope.documentTitle,
         });
-  let grounding = await checkAnswerGrounding(answer, context);
+  let grounding = await checkAnswerGrounding(answer, context, {
+    intent,
+    isMultiDocument: chatScope.isMultiDocumentScope,
+  });
 
   if (!grounding.isGrounded) {
     answer =
@@ -400,8 +385,13 @@ export const askQuestionWithCorrectiveRag = async (
         : await generateAnswerFromContext(payload.question, context, true, {
             intent,
             answerProfile: answerProfile.profile,
+            subject: chatScope.subject,
+            documentTitle: chatScope.documentTitle,
           });
-    grounding = await checkAnswerGrounding(answer, context);
+    grounding = await checkAnswerGrounding(answer, context, {
+      intent,
+      isMultiDocument: chatScope.isMultiDocumentScope,
+    });
   }
 
   if (!answer || !grounding.isGrounded) {
@@ -412,8 +402,8 @@ export const askQuestionWithCorrectiveRag = async (
       retrievedChunksCount: evaluatedChunks.length,
       relevantChunksCount: relevantChunks.length,
       averageRelevanceScore,
-      documentTitle: documentTitle || answerChunks[0]?.metadata.title,
-      subject: documentSubject,
+      documentTitle: chatScope.documentTitle || answerChunks[0]?.metadata.title,
+      subject: chatScope.subject,
       reason: fallbackReason,
       answerProfile: answerProfile.profile,
     });

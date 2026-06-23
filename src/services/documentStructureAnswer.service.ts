@@ -131,6 +131,19 @@ export const answerDocumentStructureQuestion = async (
   const startedAt = Date.now();
   const mode = payload.mode || "basic";
 
+  if (payload.documentIds?.length || payload.scope === "subject_all") {
+    return buildResult({
+      answer:
+        "Vui lòng chọn một tài liệu cụ thể để mình có thể kiểm tra số chương, phần hoặc section của tài liệu đó. Mình không cộng gộp cấu trúc khi bạn đang chọn nhiều tài liệu hoặc toàn bộ môn học.",
+      mode,
+      originalQuestion: payload.question,
+      responseTimeMs: Date.now() - startedAt,
+      fallbackGenerated: true,
+      fallbackReason: "single_document_required",
+      isGrounded: false,
+    });
+  }
+
   if (!payload.documentId) {
     return buildResult({
       answer:

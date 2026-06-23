@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { ChatHistory } from "../models/chatHistory.model";
 import { StudyDocument } from "../models/document.model";
+import { Subject } from "../models/subject.model";
 import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
 import * as evaluationService from "./evaluation.service";
 import * as ragService from "./rag.service";
@@ -11,6 +12,7 @@ const originalAskQuestionWithRag = ragService.askQuestionWithRag;
 const originalChatHistoryCreate = ChatHistory.create;
 const originalCreateEvaluationLog = evaluationService.createEvaluationLog;
 const originalStudyDocumentFindOne = StudyDocument.findOne;
+const originalSubjectFindOne = Subject.findOne;
 const originalDocumentVersionFindOne = DocumentVersion.findOne;
 
 afterEach(() => {
@@ -26,6 +28,7 @@ afterEach(() => {
     }
   ).createEvaluationLog = originalCreateEvaluationLog;
   StudyDocument.findOne = originalStudyDocumentFindOne;
+  Subject.findOne = originalSubjectFindOne;
   DocumentVersion.findOne = originalDocumentVersionFindOne;
 });
 
@@ -154,8 +157,21 @@ Chương 2 Phương pháp
 Nội dung chương hai.
 `,
       currentVersionId: undefined,
-      select: async () => ({ subjectId: "subject-1" }),
+      select: async () => ({
+        _id: filter._id || "doc-1",
+        subjectId: "subject-1",
+        title: "Structured document",
+        extractedText: `
+ChÆ°Æ¡ng 1 Tá»•ng quan
+Ná»™i dung chÆ°Æ¡ng má»™t.
+
+ChÆ°Æ¡ng 2 PhÆ°Æ¡ng phÃ¡p
+Ná»™i dung chÆ°Æ¡ng hai.
+`,
+        currentVersionId: undefined,
+      }),
     })) as unknown as typeof StudyDocument.findOne;
+    Subject.findOne = (async () => ({ name: "WDP301" })) as typeof Subject.findOne;
     (
       ragService as unknown as {
         askQuestionWithRag: typeof ragService.askQuestionWithRag;
@@ -189,8 +205,15 @@ Nội dung chương hai.
       title: "Plain document",
       extractedText: "Đây là tài liệu dạng văn bản không có heading rõ ràng.",
       currentVersionId: undefined,
-      select: async () => ({ subjectId: "subject-1" }),
+      select: async () => ({
+        _id: filter._id || "doc-1",
+        subjectId: "subject-1",
+        title: "Plain document",
+        extractedText: "ÄÃ¢y lÃ  tÃ i liá»‡u dáº¡ng vÄƒn báº£n khÃ´ng cÃ³ heading rÃµ rÃ ng.",
+        currentVersionId: undefined,
+      }),
     })) as unknown as typeof StudyDocument.findOne;
+    Subject.findOne = (async () => ({ name: "WDP301" })) as typeof Subject.findOne;
 
     const result = await askQuestion(
       "user-1",
@@ -213,9 +236,18 @@ Nội dung chương hai.
     let ragCalled = false;
 
     StudyDocument.findOne = (() => ({
+      _id: "doc-1",
       subjectId: "subject-1",
-      select: async () => ({ subjectId: "subject-1" }),
+      title: "Document",
+      currentVersionId: undefined,
+      select: async () => ({
+        _id: "doc-1",
+        subjectId: "subject-1",
+        title: "Document",
+        currentVersionId: undefined,
+      }),
     })) as unknown as typeof StudyDocument.findOne;
+    Subject.findOne = (async () => ({ name: "WDP301" })) as typeof Subject.findOne;
     (
       ragService as unknown as {
         askQuestionWithRag: typeof ragService.askQuestionWithRag;

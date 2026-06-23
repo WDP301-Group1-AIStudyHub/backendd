@@ -52,13 +52,20 @@ describe("rag service document processing safety", () => {
     const subjectId = new Types.ObjectId();
     const versionId = new Types.ObjectId();
 
-    StudyDocument.findOne = (async () => ({
+    StudyDocument.findOne = (() => ({
       _id: documentId,
       ownerId,
       subjectId,
       currentVersionId: versionId,
       title: "Lecture",
-    })) as typeof StudyDocument.findOne;
+      select: async () => ({
+        _id: documentId,
+        ownerId,
+        subjectId,
+        currentVersionId: versionId,
+        title: "Lecture",
+      }),
+    })) as unknown as typeof StudyDocument.findOne;
     Subject.findOne = (async () => ({ name: "WDP301" })) as typeof Subject.findOne;
     DocumentVersion.findOne = (() => ({
       select: async () => ({ processingStatus: "PROCESSING" }),

@@ -54,6 +54,7 @@ const toSubjectSummary = (subject: unknown) => {
     name: populatedSubject.name,
     color: populatedSubject.color,
     code: populatedSubject.code,
+    semester: populatedSubject.semester,
   };
 };
 
@@ -304,7 +305,7 @@ export const getDocumentsByUser = async (
   const [documents, totalItems] = await Promise.all([
     StudyDocument.find(filters)
       .select("-extractedText")
-      .populate("subjectId", "_id name color code")
+      .populate("subjectId", "_id name color code semester")
       .sort({ [sortBy]: sortOrder })
       .skip(skip)
       .limit(limit),
@@ -351,7 +352,7 @@ export const getDocumentById = async (
     _id: documentId,
     ownerId: userId,
     status: { $ne: "DELETED" },
-  }).populate("subjectId", "_id name color code");
+  }).populate("subjectId", "_id name color code semester");
 
   if (!document) {
     throw new AppError("Document not found", 404);
@@ -478,7 +479,7 @@ export const updateDocument = async (
       new: true,
       runValidators: true,
     },
-  ).populate("subjectId", "_id name color code");
+  ).populate("subjectId", "_id name color code semester");
 
   if (!document) {
     throw new AppError("Document not found", 404);
@@ -531,7 +532,7 @@ export const searchDocuments = async (
   }
 
   const documents = await StudyDocument.find(filters)
-    .populate("subjectId", "_id name color code")
+    .populate("subjectId", "_id name color code semester")
     .sort({ createdAt: -1 });
 
   return {

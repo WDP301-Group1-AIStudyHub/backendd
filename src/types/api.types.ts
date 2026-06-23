@@ -130,6 +130,7 @@ export interface CreateSubjectRequest {
   code?: string;
   description?: string;
   color?: string;
+  semester?: string;
 }
 
 export interface UpdateSubjectRequest {
@@ -137,6 +138,7 @@ export interface UpdateSubjectRequest {
   code?: string;
   description?: string;
   color?: string;
+  semester?: string;
 }
 
 export interface ListSubjectQuery {
@@ -152,6 +154,7 @@ export interface SubjectResponse {
   code?: string;
   description?: string;
   color?: string;
+  semester?: string;
   userId: string | Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -163,6 +166,7 @@ export interface SubjectSummaryResponse {
   code?: string;
   description?: string;
   color?: string;
+  semester?: string;
 }
 
 export interface DocumentListItemResponse {
@@ -229,8 +233,10 @@ export interface DebugDocumentChunkResponse {
 export interface AskQuestionRequest {
   question: string;
   documentId?: string;
+  documentIds?: string[];
   subject?: string;
   subjectId?: string;
+  scope?: "single_document" | "subject_all" | "document_set" | "library_all";
   mode?: RagMode;
 }
 
@@ -271,8 +277,10 @@ export interface ChatHistoryResponse {
   answer: string;
   sources: ChatSource[];
   documentId?: string | Types.ObjectId;
+  documentIds?: Array<string | Types.ObjectId>;
   subject?: string;
   subjectId?: string | Types.ObjectId;
+  scope?: "single_document" | "subject_all" | "document_set" | "library_all";
   mode?: RagMode;
   evaluation?: RagEvaluation;
   createdAt: Date;

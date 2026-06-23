@@ -1,5 +1,4 @@
 import { ChatHistory, IChatHistory } from "../models/chatHistory.model";
-import { StudyDocument } from "../models/document.model";
 import {
   AskQuestionRequest,
   AskQuestionResponse,
@@ -11,6 +10,7 @@ import { askQuestionWithCorrectiveRag } from "./correctiveRag.service";
 import { createEvaluationLog } from "./evaluation.service";
 import { askQuestionWithRag } from "./rag.service";
 import { answerDocumentStructureQuestion } from "./documentStructureAnswer.service";
+import { resolveChatScope } from "./chatScope.service";
 
 const toChatHistoryResponse = (
   history: IChatHistory,
@@ -23,7 +23,9 @@ const toChatHistoryResponse = (
   answer: history.answer,
   sources: history.sources,
   documentId: history.documentId,
+  documentIds: history.documentIds,
   subjectId: history.subjectId,
+  scope: history.scope,
   mode: history.mode,
   evaluation: history.evaluation,
   createdAt: history.createdAt,
@@ -37,16 +39,7 @@ export const askQuestion = async (
 ): Promise<AskQuestionResponse> => {
   const persistHistory = options.persistHistory ?? true;
   const mode = payload.mode || "basic";
-  let subjectId = payload.subjectId;
-
-  if (!subjectId && payload.documentId) {
-    const document = await StudyDocument.findOne({
-      _id: payload.documentId,
-      ownerId: userId,
-    }).select("subjectId");
-
-    subjectId = document?.subjectId?.toString();
-  }
+  const chatScope = await resolveChatScope(userId, payload);
 
   const structuralResult = await answerDocumentStructureQuestion(userId, payload);
   const result =
@@ -63,8 +56,10 @@ export const askQuestion = async (
       rewrittenQuery: result.rewrittenQuery,
       answer: result.answer,
       sources: result.sources,
-      documentId: payload.documentId,
-      subjectId,
+      documentId: chatScope.documentId,
+      documentIds: chatScope.documentIds,
+      subjectId: chatScope.subjectId,
+      scope: payload.scope || chatScope.scope,
       mode: result.mode,
       evaluation: result.evaluation,
     });

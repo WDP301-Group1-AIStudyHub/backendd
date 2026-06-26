@@ -7,6 +7,7 @@ const objectIdSchema = z.string().trim().regex(/^[0-9a-fA-F]{24}$/, {
 export const askQuestionSchema = z.object({
   body: z.object({
     question: z.string().trim().min(1).max(2000),
+    threadId: objectIdSchema.optional(),
     documentId: objectIdSchema.optional(),
     documentIds: z.array(objectIdSchema).min(1).max(20).optional(),
     subject: z.string().trim().min(1).max(80).optional(),
@@ -46,4 +47,24 @@ export const chatHistoryIdSchema = z.object({
   params: z.object({
     id: objectIdSchema,
   }),
+});
+
+export const chatThreadIdSchema = z.object({
+  params: z.object({
+    threadId: objectIdSchema,
+  }),
+});
+
+export const updateChatThreadSchema = z.object({
+  params: z.object({
+    threadId: objectIdSchema,
+  }),
+  body: z
+    .object({
+      title: z.string().trim().min(1).max(120).optional(),
+      status: z.enum(["ACTIVE", "ARCHIVED"]).optional(),
+    })
+    .refine((data) => Object.keys(data).length > 0, {
+      message: "At least one field is required",
+    }),
 });

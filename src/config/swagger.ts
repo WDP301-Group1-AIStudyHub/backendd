@@ -487,6 +487,36 @@ const options: swaggerJsdoc.Options = {
             },
           },
         },
+        StudyMaterial: {
+          type: "object",
+          properties: {
+            id: { type: "string", example: "665f2a9d2a5b6f0012a67890" },
+            title: { type: "string", example: "Quiz - Lesson 1" },
+            userId: { type: "string", example: "665f1c9d2a5b6f0012a12345" },
+            documentId: { type: "string", example: "665f2a9d2a5b6f0012a67890" },
+            type: { type: "string", enum: ["MCQ", "FLASHCARD"], example: "MCQ" },
+            status: {
+              type: "string",
+              enum: ["PENDING", "GENERATING", "COMPLETED", "FAILED"],
+              example: "COMPLETED",
+            },
+            error: { type: "string", nullable: true, example: null },
+            items: {
+              type: "array",
+              items: { type: "object" },
+              example: [
+                {
+                  question: "What is 2+2?",
+                  options: ["3", "4", "5", "6"],
+                  correctIndex: 1,
+                  explanation: "2+2 equals 4.",
+                },
+              ],
+            },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
       },
     },
     paths: {
@@ -1629,6 +1659,189 @@ const options: swaggerJsdoc.Options = {
           responses: {
             "200": { description: "Document deleted successfully" },
             "404": { description: "Document not found" },
+          },
+        },
+      },
+      "/api/study-materials": {
+        get: {
+          tags: ["Study Materials"],
+          summary: "List all study materials for the logged-in user",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "List of all user study materials",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example: "All study materials fetched successfully",
+                      },
+                      data: {
+                        type: "array",
+                        items: { $ref: "#/components/schemas/StudyMaterial" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/study-materials/generate": {
+        post: {
+          tags: ["Study Materials"],
+          summary: "Generate multiple choice questions or flashcard sets in the background",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["documentId", "type"],
+                  properties: {
+                    documentId: { type: "string", example: "665f2a9d2a5b6f0012a67890" },
+                    type: { type: "string", enum: ["MCQ", "FLASHCARD"], example: "MCQ" },
+                    count: { type: "number", default: 5, example: 5 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "202": {
+              description: "Generation started in the background",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example: "Study material generation started in background",
+                      },
+                      data: { $ref: "#/components/schemas/StudyMaterial" },
+                    },
+                  },
+                },
+              },
+            },
+            "400": { description: "Text context empty or extraction in progress" },
+            "404": { description: "Document not found" },
+          },
+        },
+      },
+      "/api/study-materials/document/{documentId}": {
+        get: {
+          tags: ["Study Materials"],
+          summary: "List all study materials generated for a document",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "documentId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "List of study materials",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example: "Study materials fetched successfully",
+                      },
+                      data: {
+                        type: "array",
+                        items: { $ref: "#/components/schemas/StudyMaterial" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            "404": { description: "Document not found" },
+          },
+        },
+      },
+      "/api/study-materials/{id}": {
+        get: {
+          tags: ["Study Materials"],
+          summary: "Get detail and status of a study material set",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Study material details",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example: "Study material fetched successfully",
+                      },
+                      data: { $ref: "#/components/schemas/StudyMaterial" },
+                    },
+                  },
+                },
+              },
+            },
+            "404": { description: "Study material not found" },
+          },
+        },
+        delete: {
+          tags: ["Study Materials"],
+          summary: "Delete a study material set",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Study material deleted successfully",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      success: { type: "boolean", example: true },
+                      message: {
+                        type: "string",
+                        example: "Study material deleted successfully",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            "404": { description: "Study material not found" },
           },
         },
       },

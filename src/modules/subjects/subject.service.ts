@@ -39,6 +39,7 @@ export interface SubjectResponse {
   color?: string;
   code?: string;
   semester?: string;
+  documentCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -111,9 +112,28 @@ export const toSubjectResponse = (subject: ISubject): SubjectResponse => ({
   color: subject.color,
   code: subject.code,
   semester: subject.semester,
+  documentCount: 0,
   createdAt: subject.createdAt,
   updatedAt: subject.updatedAt,
 });
+
+const withDocumentCount = (
+  subject: ISubject,
+  documentCount: number,
+): SubjectResponse => ({
+  ...toSubjectResponse(subject),
+  documentCount,
+});
+
+const getActiveDocumentCount = async (
+  ownerId: string,
+  subjectId: string | Types.ObjectId,
+): Promise<number> =>
+  StudyDocument.countDocuments({
+    ownerId,
+    subjectId: new Types.ObjectId(subjectId.toString()),
+    status: { $ne: "DELETED" },
+  });
 
 export const createSubject = async (
   ownerId: string,
@@ -128,7 +148,7 @@ export const createSubject = async (
     ownerId,
   });
 
-  return toSubjectResponse(subject);
+  return withDocumentCount(subject, 0);
 };
 
 export const getSubjectsByUser = async (
@@ -152,8 +172,33 @@ export const getSubjectsByUser = async (
     Subject.countDocuments(filters),
   ]);
 
+  const subjectIds = subjects.map((subject) => subject._id);
+  const documentCounts = await StudyDocument.aggregate<{
+    _id: Types.ObjectId;
+    count: number;
+  }>([
+    {
+      $match: {
+        ownerId: new Types.ObjectId(ownerId),
+        subjectId: { $in: subjectIds },
+        status: { $ne: "DELETED" },
+      },
+    },
+    {
+      $group: {
+        _id: "$subjectId",
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+  const countBySubjectId = new Map(
+    documentCounts.map((item) => [item._id.toString(), item.count]),
+  );
+
   return {
-    items: subjects.map(toSubjectResponse),
+    items: subjects.map((subject) =>
+      withDocumentCount(subject, countBySubjectId.get(subject._id.toString()) || 0),
+    ),
     pagination: buildPaginationResponse(page, limit, totalItems),
   };
 };
@@ -168,7 +213,10 @@ export const getSubjectById = async (
     throw new AppError("Subject not found", 404);
   }
 
-  return toSubjectResponse(subject);
+  return withDocumentCount(
+    subject,
+    await getActiveDocumentCount(ownerId, subjectId),
+  );
 };
 
 export const updateSubject = async (
@@ -193,7 +241,10 @@ export const updateSubject = async (
     throw new AppError("Subject not found", 404);
   }
 
-  return toSubjectResponse(subject);
+  return withDocumentCount(
+    subject,
+    await getActiveDocumentCount(ownerId, subjectId),
+  );
 };
 
 export const deleteSubject = async (
@@ -206,14 +257,20 @@ export const deleteSubject = async (
     throw new AppError("Subject not found", 404);
   }
 
-  const documentCount = await StudyDocument.countDocuments({
-    ownerId,
-    subjectId: new Types.ObjectId(subjectId),
-  });
-
-  if (documentCount > 0) {
-    throw new AppError("Subject is being used by documents", 409);
-  }
+  await StudyDocument.updateMany(
+    {
+      ownerId,
+      subjectId: new Types.ObjectId(subjectId),
+      status: { $ne: "DELETED" },
+    },
+    {
+      status: "DELETED",
+      deletedAt: new Date(),
+    },
+    {
+      runValidators: true,
+    },
+  );
 
   await subject.deleteOne();
 };

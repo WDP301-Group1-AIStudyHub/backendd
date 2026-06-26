@@ -6,6 +6,7 @@ type ChatScope = "single_document" | "subject_all" | "document_set" | "library_a
 
 export interface IChatHistory extends Document {
   userId: Types.ObjectId;
+  threadId?: Types.ObjectId;
   question: string;
   originalQuestion?: string;
   rewrittenQuery?: string;
@@ -111,6 +112,11 @@ const chatHistorySchema = new Schema<IChatHistory>(
       required: true,
       index: true,
     },
+    threadId: {
+      type: Schema.Types.ObjectId,
+      ref: "ChatThread",
+      index: true,
+    },
     question: {
       type: String,
       required: true,
@@ -162,6 +168,8 @@ const chatHistorySchema = new Schema<IChatHistory>(
     timestamps: true,
   },
 );
+
+chatHistorySchema.index({ userId: 1, threadId: 1, createdAt: 1 });
 
 export const ChatHistory = mongoose.model<IChatHistory>(
   "ChatHistory",

@@ -232,6 +232,7 @@ export interface DebugDocumentChunkResponse {
 
 export interface AskQuestionRequest {
   question: string;
+  threadId?: string;
   documentId?: string;
   documentIds?: string[];
   subject?: string;
@@ -260,6 +261,7 @@ export interface ChatSource {
 }
 
 export interface AskQuestionResponse {
+  threadId?: string;
   answer: string;
   mode?: RagMode;
   originalQuestion?: string;
@@ -271,6 +273,7 @@ export interface AskQuestionResponse {
 export interface ChatHistoryResponse {
   id: string;
   userId: string | Types.ObjectId;
+  threadId?: string | Types.ObjectId;
   question: string;
   originalQuestion?: string;
   rewrittenQuery?: string;
@@ -289,6 +292,32 @@ export interface ChatHistoryResponse {
 
 export interface ChatHistoryListResponse {
   histories: ChatHistoryResponse[];
+  total: number;
+}
+
+export interface ChatThreadResponse {
+  id: string;
+  ownerId: string | Types.ObjectId;
+  title: string;
+  status: "ACTIVE" | "ARCHIVED";
+  lastMessageAt: Date;
+  messageCount: number;
+  scope?: "single_document" | "subject_all" | "document_set" | "library_all";
+  subjectId?: string | Types.ObjectId;
+  documentId?: string | Types.ObjectId;
+  documentIds?: Array<string | Types.ObjectId>;
+  mode?: RagMode;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChatThreadDetailResponse {
+  thread: ChatThreadResponse;
+  messages: ChatHistoryResponse[];
+}
+
+export interface ChatThreadListResponse {
+  threads: ChatThreadResponse[];
   total: number;
 }
 

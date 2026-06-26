@@ -19,7 +19,16 @@ export const evaluateChunkRelevance = (
   // Vietnamese accents, spacing, and paraphrases can reduce lexical overlap,
   // so lexical scoring stays secondary and does not use fixed keyword lists.
   const questionTerms = new Set(normalizeTerms(question));
-  const chunkTerms = new Set(normalizeTerms(chunk.content));
+  const chunkTextToEvaluate = [
+    chunk.content,
+    chunk.metadata?.title,
+    chunk.metadata?.subject,
+    chunk.metadata?.sectionTitle,
+    chunk.metadata?.heading,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const chunkTerms = new Set(normalizeTerms(chunkTextToEvaluate));
   const pineconeScore = chunk.pineconeScore ?? 0;
 
   if (questionTerms.size === 0 || chunkTerms.size === 0) {

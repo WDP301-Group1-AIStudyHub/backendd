@@ -80,6 +80,19 @@ const options: swaggerJsdoc.Options = {
             },
             totalVersions: { type: "number", example: 3 },
             totalChunks: { type: "number", example: 12 },
+            chunkingStrategy: {
+              type: "string",
+              enum: ["heading-based", "fixed-size-fallback"],
+              example: "heading-based",
+            },
+            detectedSections: {
+              type: "array",
+              items: { type: "string" },
+              example: ["Chương 1 Tổng quan", "Chương 2 Phương pháp"],
+            },
+            chapterCount: { type: "number", example: 2 },
+            partCount: { type: "number", example: 0 },
+            sectionCount: { type: "number", example: 2 },
             lastIndexedAt: {
               type: "string",
               format: "date-time",
@@ -255,6 +268,19 @@ const options: swaggerJsdoc.Options = {
               example: "665f2a9d2a5b6f0012a67000",
             },
             totalChunks: { type: "number", example: 12 },
+            chunkingStrategy: {
+              type: "string",
+              enum: ["heading-based", "fixed-size-fallback"],
+              example: "heading-based",
+            },
+            detectedSections: {
+              type: "array",
+              items: { type: "string" },
+              example: ["Chương 1 Tổng quan", "Chương 2 Phương pháp"],
+            },
+            chapterCount: { type: "number", example: 2 },
+            partCount: { type: "number", example: 0 },
+            sectionCount: { type: "number", example: 2 },
             indexedAt: {
               type: "string",
               format: "date-time",
@@ -375,6 +401,9 @@ const options: swaggerJsdoc.Options = {
             section: { type: "string", example: "Course Overview" },
             inferredSection: { type: "string", example: "Course Overview" },
             semanticSectionLabel: { type: "string", example: "Course Overview" },
+            heading: { type: "string", example: "Chapter 2" },
+            sectionTitle: { type: "string", example: "Chapter 2" },
+            sectionIndex: { type: "number", example: 2 },
             contentPreview: {
               type: "string",
               example: "This chunk contains the relevant lesson content...",
@@ -410,6 +439,14 @@ const options: swaggerJsdoc.Options = {
               items: { type: "string" },
               example: ["Course Overview", "Practice Questions"],
             },
+            answerProfile: {
+              type: "string",
+              enum: ["brief", "standard", "detailed"],
+              example: "detailed",
+            },
+            usedSectionExpansion: { type: "boolean", example: true },
+            selectedSectionTitle: { type: "string", example: "Chapter 2" },
+            contextChunksUsed: { type: "number", example: 12 },
           },
         },
         AskQuestionData: {

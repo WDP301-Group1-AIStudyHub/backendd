@@ -1,4 +1,5 @@
 import { Types } from "mongoose";
+import type { DocumentOutlineNode } from "../../utils/documentOutline";
 
 export type DocumentVersionUploadMode = "OVERRIDE" | "APPEND";
 export type DocumentVersionExtractionStatus =
@@ -46,6 +47,12 @@ export interface DocumentVersionResponse {
   processingCompletedAt?: Date | null;
   uploadSessionId?: string;
   totalChunks: number;
+  chunkingStrategy?: "heading-based" | "fixed-size-fallback";
+  detectedSections?: string[];
+  documentOutline?: DocumentOutlineNode[];
+  chapterCount?: number;
+  partCount?: number;
+  sectionCount?: number;
   indexedAt?: Date | null;
   isActive: boolean;
   uploadedBy: string | Types.ObjectId;

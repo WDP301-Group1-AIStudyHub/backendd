@@ -20,16 +20,63 @@ import {
 } from "../utils/answerStyle";
 import { classifyQuestionIntent } from "./intentClassifier.service";
 import {
+  detectAnswerProfile,
+  shouldTreatAsSummaryIntent,
+} from "../utils/answerProfile";
+import {
+  calculateAverageRelevance,
+  evaluateRetrievedChunks,
+} from "./relevance.service";
+import { selectContextChunksForQuestion } from "./sectionContext.service";
+import {
   deleteDocumentChunks,
   searchRelevantChunks,
+  searchRelevantChunksPerDocument,
   upsertDocumentChunks,
+  RetrievedChunk,
 } from "./vector.service";
+import { resolveChatScope } from "./chatScope.service";
 import { generateFallbackAnswer } from "./fallbackAnswer.service";
+import { analyzeDocumentStructure } from "../utils/documentStructure";
+import {
+  applyOutlineToChunks,
+  extractDocumentOutline,
+  summarizeDocumentOutline,
+} from "../utils/documentOutline";
 
-const DEFAULT_CONTEXT_CHUNK_LIMIT = 5;
-const FOCUSED_CONTEXT_CHUNK_LIMIT = 3;
+const DEFAULT_CONTEXT_CHUNK_LIMIT = 8;
+const FOCUSED_CONTEXT_CHUNK_LIMIT = 4;
+const RETRIEVAL_TOP_K = 12;
+const DETAILED_RETRIEVAL_TOP_K = 20;
+const MULTI_DOCUMENT_RETRIEVAL_TOP_K = 24;
+const MULTI_DOCUMENT_DETAILED_RETRIEVAL_TOP_K = 40;
+const DETAILED_CONTEXT_CHUNK_LIMIT = 16;
 const DOCUMENT_PROCESSING_MESSAGE =
   "Tài liệu đang được xử lý, vui lòng thử lại sau.";
+
+type ActiveVersionProcessingSnapshot = {
+  processingStatus?: string;
+  indexedAt?: Date | null;
+  totalChunks?: number;
+};
+
+const isActiveVersionReadyForChat = (
+  activeVersion: ActiveVersionProcessingSnapshot | null,
+): boolean => {
+  if (!activeVersion) {
+    return true;
+  }
+
+  if (activeVersion.processingStatus === "INDEXED") {
+    return true;
+  }
+
+  if (activeVersion.indexedAt) {
+    return true;
+  }
+
+  return (activeVersion.totalChunks ?? 0) > 0;
+};
 
 const getSubjectNameForUser = async (
   subjectId: string | undefined,
@@ -63,6 +110,10 @@ export const indexDocumentForRag = async (
       documentId,
       chunksCreated: 0,
       detectedSections: [],
+      documentOutline: [],
+      chapterCount: 0,
+      partCount: 0,
+      sectionCount: 0,
       upsertedVectorCount: 0,
     };
   }
@@ -83,7 +134,14 @@ export const indexDocumentForRag = async (
   // PDF/Office binaries directly, so format-specific parsing happens before
   // this unchanged chunking and vector storage step.
   const chunkingResult = await splitTextForRag(document.extractedText);
-  const chunks = chunkingResult.chunks;
+  const outline = extractDocumentOutline({
+    text: document.extractedText,
+    chunkingResult,
+    semanticOutline: document.documentOutline,
+  });
+  const outlineSummary = summarizeDocumentOutline(outline);
+  const fallbackStructure = analyzeDocumentStructure(chunkingResult);
+  const chunks = applyOutlineToChunks(chunkingResult.chunks, outline);
 
   const vectorChunks = chunks.map((chunk) => ({
     documentId: document._id.toString(),
@@ -102,6 +160,11 @@ export const indexDocumentForRag = async (
     section: chunk.metadata.section,
     inferredSection: chunk.metadata.inferredSection,
     semanticSectionLabel: chunk.metadata.semanticSectionLabel,
+    outlineNodeId: chunk.metadata.outlineNodeId,
+    outlinePath: chunk.metadata.outlinePath,
+    outlineLevel: chunk.metadata.outlineLevel,
+    outlineType: chunk.metadata.outlineType,
+    chapterOrdinal: chunk.metadata.chapterOrdinal,
     content: chunk.content,
     metadata: {
       heading: chunk.metadata.heading || "",
@@ -113,22 +176,19 @@ export const indexDocumentForRag = async (
       section: chunk.metadata.section || "",
       inferredSection: chunk.metadata.inferredSection || "",
       semanticSectionLabel: chunk.metadata.semanticSectionLabel || "",
+      outlineNodeId: chunk.metadata.outlineNodeId || "",
+      outlinePath: chunk.metadata.outlinePath || "",
+      outlineLevel: chunk.metadata.outlineLevel || 0,
+      outlineType: chunk.metadata.outlineType || "",
+      chapterOrdinal: chunk.metadata.chapterOrdinal || "",
     },
   }));
   const upsertedVectorCount = await upsertDocumentChunks(vectorChunks);
-  const detectedSections = [
-    ...new Set(
-      chunks
-        .map((chunk) => chunk.metadata.sectionTitle)
-        .filter((section): section is string => Boolean(section)),
-    ),
-  ];
-
   console.log("[RAG reindex] Indexed document chunks", {
     documentId,
     chunkingStrategy: chunkingResult.chunkingStrategy,
     chunksCreated: chunks.length,
-    detectedSections,
+    detectedSections: outlineSummary.detectedSections,
     upsertedVectorCount,
   });
 
@@ -136,7 +196,14 @@ export const indexDocumentForRag = async (
     documentId,
     chunkingStrategy: chunkingResult.chunkingStrategy,
     chunksCreated: chunks.length,
-    detectedSections,
+    detectedSections:
+      outlineSummary.detectedSections.length > 0
+        ? outlineSummary.detectedSections
+        : fallbackStructure.detectedSections,
+    documentOutline: outline,
+    chapterCount: outlineSummary.chapterCount || fallbackStructure.chapterCount,
+    partCount: outlineSummary.partCount || fallbackStructure.partCount,
+    sectionCount: outlineSummary.sectionCount || fallbackStructure.sectionCount,
     upsertedVectorCount,
   };
 };
@@ -178,9 +245,6 @@ export const askQuestionWithRag = async (
   payload: AskQuestionRequest,
 ): Promise<RagAnswerResult> => {
   const startedAt = Date.now();
-  let documentTitle: string | undefined;
-  let documentSubject = payload.subject;
-  let subjectIdFilter = payload.subjectId;
   const processingResponse = (): RagAnswerResult => ({
     answer: DOCUMENT_PROCESSING_MESSAGE,
     mode: "basic",
@@ -200,48 +264,48 @@ export const askQuestionWithRag = async (
     },
   });
 
-  if (payload.documentId) {
-    const document = await StudyDocument.findOne({
-      _id: payload.documentId,
-      ownerId: userId,
-      status: { $ne: "DELETED" },
-    });
+  const chatScope = await resolveChatScope(userId, payload);
 
-    if (!document) {
-      throw new AppError("Document not found", 404);
-    }
-
-    documentTitle = document.title;
-    subjectIdFilter = document.subjectId?.toString();
-    documentSubject =
-      (await getSubjectNameForUser(subjectIdFilter, userId)) || documentSubject;
-    if (document.currentVersionId) {
-      const activeVersion = await DocumentVersion.findOne({
-        _id: document.currentVersionId,
-        documentId: document._id,
-        isActive: true,
-        deletedAt: null,
-      }).select("processingStatus");
-
-      if (activeVersion?.processingStatus !== "INDEXED") {
-        return processingResponse();
-      }
-    }
-  } else if (payload.subjectId) {
-    documentSubject = await getSubjectNameForUser(payload.subjectId, userId);
+  if (chatScope.hasProcessingDocument) {
+    return processingResponse();
   }
+
+  const intentClassification = await classifyQuestionIntent(payload.question);
+  const answerProfile = detectAnswerProfile(
+    payload.question,
+    intentClassification.intent,
+  );
+  const intent = shouldTreatAsSummaryIntent(
+    intentClassification.intent,
+    answerProfile,
+  )
+    ? "summary"
+    : intentClassification.intent;
+  const answerStyle = detectAnswerStyle(payload.question);
+  const retrievalTopK = chatScope.isMultiDocumentScope
+    ? answerProfile.wantsDetailedAnswer
+      ? MULTI_DOCUMENT_DETAILED_RETRIEVAL_TOP_K
+      : MULTI_DOCUMENT_RETRIEVAL_TOP_K
+    : answerProfile.wantsDetailedAnswer
+    ? DETAILED_RETRIEVAL_TOP_K
+    : RETRIEVAL_TOP_K;
 
   // RAG retrieval: Pinecone filters by user and optionally document/subject,
   // then returns the most relevant chunks for the user's question.
-  const chunks = await searchRelevantChunks(payload.question, {
-    userId,
-    documentId: payload.documentId,
-    subject: payload.documentId ? undefined : payload.subject,
-    subjectId: payload.documentId ? undefined : subjectIdFilter,
-  });
-  const intentClassification = await classifyQuestionIntent(payload.question);
-  const intent = intentClassification.intent;
-  const answerStyle = detectAnswerStyle(payload.question);
+  const chunks = chatScope.isMultiDocumentScope
+    ? await searchRelevantChunksPerDocument(
+        payload.question,
+        chatScope.vectorFilters,
+        Math.max(Math.ceil(retrievalTopK / (chatScope.documentIds?.length || 1)), 6),
+      )
+    : await searchRelevantChunks(
+        payload.question,
+        chatScope.vectorFilters,
+        retrievalTopK,
+      );
+  const evaluatedChunks = evaluateRetrievedChunks(payload.question, chunks);
+  const relevantChunks = evaluatedChunks.filter((chunk) => chunk.isRelevant);
+  const averageRelevanceScore = calculateAverageRelevance(evaluatedChunks);
 
   if (chunks.length === 0) {
     const fallbackReason = "no_relevant_chunks_found";
@@ -251,9 +315,10 @@ export const askQuestionWithRag = async (
       retrievedChunksCount: 0,
       relevantChunksCount: 0,
       averageRelevanceScore: 0,
-      documentTitle,
-      subject: documentSubject,
+      documentTitle: chatScope.documentTitle,
+      subject: chatScope.subject,
       reason: fallbackReason,
+      answerProfile: answerProfile.profile,
     });
 
     return {
@@ -273,16 +338,92 @@ export const askQuestionWithRag = async (
         fallbackReason,
         detectedIntent: intent,
         retrievedSections: [],
+        answerProfile: answerProfile.profile,
+        usedSectionExpansion: false,
+        contextChunksUsed: 0,
       },
     };
   }
 
+  const contextSelection = answerProfile.wantsDetailedAnswer
+    ? await selectContextChunksForQuestion(payload.question, evaluatedChunks, {
+        maxChunks: DETAILED_CONTEXT_CHUNK_LIMIT,
+      })
+    : {
+        chunks: evaluatedChunks,
+        usedSectionExpansion: false,
+        selectedSectionTitle: undefined,
+      };
+  const relevanceScoreByChunkId = new Map(
+    evaluatedChunks.map((chunk) => [chunk.id, chunk.relevanceScore]),
+  );
+
   const answerChunks =
-    intent === "extraction" || answerStyle.wantsShortAnswer
-      ? [...chunks]
+    chatScope.isMultiDocumentScope &&
+    intent !== "extraction" &&
+    !answerStyle.wantsShortAnswer
+      ? (() => {
+          const maxChunks = answerProfile.wantsDetailedAnswer
+            ? DETAILED_CONTEXT_CHUNK_LIMIT
+            : 10;
+          const selected: RetrievedChunk[] = [];
+          const docGroups = new Map<string, RetrievedChunk[]>();
+
+          for (const chunk of contextSelection.chunks) {
+            const docId = chunk.metadata.documentId;
+            if (!docGroups.has(docId)) {
+              docGroups.set(docId, []);
+            }
+            docGroups.get(docId)!.push(chunk);
+          }
+
+          for (const group of docGroups.values()) {
+            group.sort((a, b) => {
+              const aScore = relevanceScoreByChunkId.get(a.id) ?? a.pineconeScore ?? 0;
+              const bScore = relevanceScoreByChunkId.get(b.id) ?? b.pineconeScore ?? 0;
+              return bScore - aScore;
+            });
+          }
+
+          const docIds = Array.from(docGroups.keys());
+          let added = true;
+          let round = 0;
+
+          while (selected.length < maxChunks && added) {
+            added = false;
+            for (const docId of docIds) {
+              const group = docGroups.get(docId)!;
+              if (round < group.length) {
+                selected.push(group[round]);
+                added = true;
+                if (selected.length >= maxChunks) {
+                  break;
+                }
+              }
+            }
+            round += 1;
+          }
+
+          if (answerProfile.wantsDetailedAnswer) {
+            return selected.sort((a, b) => a.metadata.chunkIndex - b.metadata.chunkIndex);
+          }
+
+          return selected.sort((a, b) => {
+            const aScore = relevanceScoreByChunkId.get(a.id) ?? a.pineconeScore ?? 0;
+            const bScore = relevanceScoreByChunkId.get(b.id) ?? b.pineconeScore ?? 0;
+            return bScore - aScore;
+          });
+        })()
+      : intent === "extraction" || answerStyle.wantsShortAnswer
+      ? [...contextSelection.chunks]
           .sort((a, b) => (b.pineconeScore ?? 0) - (a.pineconeScore ?? 0))
           .slice(0, FOCUSED_CONTEXT_CHUNK_LIMIT)
-      : chunks.slice(0, DEFAULT_CONTEXT_CHUNK_LIMIT);
+      : contextSelection.chunks.slice(
+          0,
+          answerProfile.wantsDetailedAnswer
+            ? DETAILED_CONTEXT_CHUNK_LIMIT
+            : DEFAULT_CONTEXT_CHUNK_LIMIT,
+        );
 
   const context = answerChunks
     .map(
@@ -300,8 +441,14 @@ export const askQuestionWithRag = async (
       ? await generateEntityExtractionAnswer(payload.question, context)
       : await generateAnswerFromContext(payload.question, context, false, {
           intent,
+          answerProfile: answerProfile.profile,
+          subject: chatScope.subject,
+          documentTitle: chatScope.documentTitle,
         });
-  let grounding = await checkAnswerGrounding(answer, context);
+  let grounding = await checkAnswerGrounding(answer, context, {
+    intent,
+    isMultiDocument: chatScope.isMultiDocumentScope,
+  });
 
   if (!grounding.isGrounded) {
     answer =
@@ -309,8 +456,14 @@ export const askQuestionWithRag = async (
         ? await generateEntityExtractionAnswer(payload.question, context)
         : await generateAnswerFromContext(payload.question, context, true, {
             intent,
+            answerProfile: answerProfile.profile,
+            subject: chatScope.subject,
+            documentTitle: chatScope.documentTitle,
           });
-    grounding = await checkAnswerGrounding(answer, context);
+    grounding = await checkAnswerGrounding(answer, context, {
+      intent,
+      isMultiDocument: chatScope.isMultiDocumentScope,
+    });
   }
 
   const sources: ChatSource[] = answerChunks.map((chunk) => ({
@@ -323,10 +476,17 @@ export const askQuestionWithRag = async (
     heading: chunk.metadata.heading,
     sectionTitle: chunk.metadata.sectionTitle,
     sectionIndex: chunk.metadata.sectionIndex,
+    outlineNodeId: chunk.metadata.outlineNodeId,
+    outlinePath: chunk.metadata.outlinePath,
+    outlineLevel: chunk.metadata.outlineLevel,
+    outlineType: chunk.metadata.outlineType,
+    chapterOrdinal: chunk.metadata.chapterOrdinal,
     contentPreview:
       chunk.content.length > 220
         ? `${chunk.content.slice(0, 220)}...`
         : chunk.content,
+    relevanceScore:
+      relevanceScoreByChunkId.get(chunk.id) ?? chunk.pineconeScore ?? 0,
   }));
 
   if (!answer || !grounding.isGrounded) {
@@ -335,11 +495,12 @@ export const askQuestionWithRag = async (
       question: payload.question,
       language: answerStyle.language,
       retrievedChunksCount: chunks.length,
-      relevantChunksCount: chunks.length,
-      averageRelevanceScore: chunks.length > 0 ? 1 : 0,
-      documentTitle: documentTitle || answerChunks[0]?.metadata.title,
-      subject: documentSubject,
+      relevantChunksCount: relevantChunks.length,
+      averageRelevanceScore,
+      documentTitle: chatScope.documentTitle || answerChunks[0]?.metadata.title,
+      subject: chatScope.subject,
       reason: fallbackReason,
+      answerProfile: answerProfile.profile,
     });
 
     return {
@@ -349,8 +510,8 @@ export const askQuestionWithRag = async (
       sources,
       evaluation: {
         retrievedChunksCount: chunks.length,
-        relevantChunksCount: chunks.length,
-        averageRelevanceScore: chunks.length > 0 ? 1 : 0,
+        relevantChunksCount: relevantChunks.length,
+        averageRelevanceScore,
         correctiveAttempted: false,
         isGrounded: false,
         confidenceScore: grounding.confidenceScore,
@@ -359,6 +520,10 @@ export const askQuestionWithRag = async (
         fallbackGenerated: true,
         fallbackReason,
         detectedIntent: intent,
+        answerProfile: answerProfile.profile,
+        usedSectionExpansion: contextSelection.usedSectionExpansion,
+        selectedSectionTitle: contextSelection.selectedSectionTitle,
+        contextChunksUsed: answerChunks.length,
         retrievedSections: [
           ...new Set(
             chunks
@@ -383,8 +548,8 @@ export const askQuestionWithRag = async (
     sources,
     evaluation: {
       retrievedChunksCount: chunks.length,
-      relevantChunksCount: chunks.length,
-      averageRelevanceScore: chunks.length > 0 ? 1 : 0,
+      relevantChunksCount: relevantChunks.length,
+      averageRelevanceScore,
       correctiveAttempted: false,
       isGrounded: grounding.isGrounded,
       confidenceScore: grounding.confidenceScore,
@@ -392,6 +557,10 @@ export const askQuestionWithRag = async (
       warning: grounding.warning,
       fallbackGenerated: false,
       detectedIntent: intent,
+      answerProfile: answerProfile.profile,
+      usedSectionExpansion: contextSelection.usedSectionExpansion,
+      selectedSectionTitle: contextSelection.selectedSectionTitle,
+      contextChunksUsed: answerChunks.length,
       retrievedSections: [
         ...new Set(
           chunks

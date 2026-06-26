@@ -43,6 +43,7 @@ export interface SubjectSummaryResponse {
   description?: string;
   color?: string;
   code?: string;
+  semester?: string;
 }
 
 export interface DocumentResponse {
@@ -94,6 +95,7 @@ const toSubjectSummary = (subject: unknown): SubjectSummaryResponse | null => {
     description: populatedSubject.description,
     color: populatedSubject.color,
     code: populatedSubject.code,
+    semester: populatedSubject.semester,
   };
 };
 
@@ -207,7 +209,7 @@ export const createDocumentMetadata = async (
     status: "ACTIVE",
   });
 
-  await document.populate("subjectId", "_id name description color code");
+  await document.populate("subjectId", "_id name description color code semester");
 
   return toDocumentResponse(document);
 };
@@ -222,7 +224,7 @@ export const getDocuments = async (
   const [documents, totalItems] = await Promise.all([
     StudyDocument.find(filters)
       .select("-extractedText")
-      .populate("subjectId", "_id name description color code")
+      .populate("subjectId", "_id name description color code semester")
       .populate(
         "currentVersionId",
         "_id processingStatus processingStage processingProgress",
@@ -247,7 +249,7 @@ export const getDocumentDetail = async (
     _id: documentId,
     status: { $ne: "DELETED" },
     $or: [{ ownerId: userId }, { visibility: "PUBLIC" }],
-  }).populate("subjectId", "_id name description color code");
+  }).populate("subjectId", "_id name description color code semester");
   await document?.populate(
     "currentVersionId",
     "_id processingStatus processingStage processingProgress",
@@ -290,7 +292,7 @@ export const updateDocumentMetadata = async (
       new: true,
       runValidators: true,
     },
-  ).populate("subjectId", "_id name description color code");
+  ).populate("subjectId", "_id name description color code semester");
 
   if (!document) {
     throw new AppError("Document not found", 404);

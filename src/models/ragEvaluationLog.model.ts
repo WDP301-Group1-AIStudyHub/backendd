@@ -20,6 +20,10 @@ export interface IRagEvaluationLog extends Document {
   fallbackReason?: string;
   detectedIntent?: string;
   retrievedSections?: string[];
+  answerProfile?: string;
+  usedSectionExpansion?: boolean;
+  selectedSectionTitle?: string;
+  contextChunksUsed?: number;
   createdAt: Date;
 }
 
@@ -94,6 +98,18 @@ const ragEvaluationLogSchema = new Schema<IRagEvaluationLog>(
     },
     retrievedSections: {
       type: [String],
+    },
+    answerProfile: {
+      type: String,
+    },
+    usedSectionExpansion: {
+      type: Boolean,
+    },
+    selectedSectionTitle: {
+      type: String,
+    },
+    contextChunksUsed: {
+      type: Number,
     },
   },
   {

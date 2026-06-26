@@ -5,6 +5,7 @@ import {
   DocumentVersionProcessingStatus,
   DocumentVersionUploadMode,
 } from "./documentVersion.types";
+import type { DocumentOutlineNode } from "../../utils/documentOutline";
 
 export interface IDocumentVersion extends Document {
   documentId: Types.ObjectId;
@@ -30,6 +31,12 @@ export interface IDocumentVersion extends Document {
   processingCompletedAt?: Date | null;
   uploadSessionId?: Types.ObjectId;
   totalChunks: number;
+  chunkingStrategy?: "heading-based" | "fixed-size-fallback";
+  detectedSections?: string[];
+  documentOutline?: DocumentOutlineNode[];
+  chapterCount?: number;
+  partCount?: number;
+  sectionCount?: number;
   indexedAt?: Date | null;
   uploadedBy: Types.ObjectId;
   uploadReason?: string;
@@ -156,6 +163,33 @@ const documentVersionSchema = new Schema<IDocumentVersion>(
       index: true,
     },
     totalChunks: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    chunkingStrategy: {
+      type: String,
+      enum: ["heading-based", "fixed-size-fallback"],
+    },
+    detectedSections: {
+      type: [String],
+      default: [],
+    },
+    documentOutline: {
+      type: [Schema.Types.Mixed],
+      default: [],
+    },
+    chapterCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    partCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    sectionCount: {
       type: Number,
       default: 0,
       min: 0,

@@ -27,6 +27,10 @@ const toEvaluationLogResponse = (
   fallbackReason: log.fallbackReason,
   detectedIntent: log.detectedIntent,
   retrievedSections: log.retrievedSections,
+  answerProfile: log.answerProfile as RagEvaluationLogResponse["answerProfile"],
+  usedSectionExpansion: log.usedSectionExpansion,
+  selectedSectionTitle: log.selectedSectionTitle,
+  contextChunksUsed: log.contextChunksUsed,
   createdAt: log.createdAt,
 });
 

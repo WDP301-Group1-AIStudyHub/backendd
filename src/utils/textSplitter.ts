@@ -25,6 +25,11 @@ export interface DocumentChunk {
     section?: string;
     inferredSection?: string;
     semanticSectionLabel?: string;
+    outlineNodeId?: string;
+    outlinePath?: string;
+    outlineLevel?: number;
+    outlineType?: string;
+    chapterOrdinal?: string;
   };
 }
 

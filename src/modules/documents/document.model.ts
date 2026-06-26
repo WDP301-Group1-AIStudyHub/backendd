@@ -1,8 +1,10 @@
 import mongoose, { Document, Schema, Types } from "mongoose";
+import type { DocumentOutlineNode } from "../../utils/documentOutline";
 
 export type DocumentVisibility = "PUBLIC" | "PRIVATE";
 export type DocumentStatus = "ACTIVE" | "ARCHIVED" | "DELETED";
 export type ExtractionStatus = "COMPLETED" | "FAILED";
+export type DocumentChunkingStrategy = "heading-based" | "fixed-size-fallback";
 
 export interface IDocument extends Document {
   ownerId: Types.ObjectId;
@@ -16,6 +18,12 @@ export interface IDocument extends Document {
   currentVersionId?: Types.ObjectId;
   totalVersions: number;
   totalChunks: number;
+  chunkingStrategy?: DocumentChunkingStrategy;
+  detectedSections?: string[];
+  documentOutline?: DocumentOutlineNode[];
+  chapterCount?: number;
+  partCount?: number;
+  sectionCount?: number;
   lastIndexedAt?: Date | null;
   deletedAt?: Date | null;
   fileUrl?: string;
@@ -94,6 +102,33 @@ const documentSchema = new Schema<IDocument>(
       min: 0,
     },
     totalChunks: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    chunkingStrategy: {
+      type: String,
+      enum: ["heading-based", "fixed-size-fallback"],
+    },
+    detectedSections: {
+      type: [String],
+      default: [],
+    },
+    documentOutline: {
+      type: [Schema.Types.Mixed],
+      default: [],
+    },
+    chapterCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    partCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    sectionCount: {
       type: Number,
       default: 0,
       min: 0,

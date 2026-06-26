@@ -1,4 +1,5 @@
 import { generateGroqText } from "./groq.service";
+import type { AnswerProfile } from "../utils/answerProfile";
 
 export type FallbackAnswerParams = {
   question: string;
@@ -9,6 +10,7 @@ export type FallbackAnswerParams = {
   documentTitle?: string;
   subject?: string;
   reason?: string;
+  answerProfile?: AnswerProfile;
 };
 
 const getFallbackReason = (params: FallbackAnswerParams): string => {
@@ -57,8 +59,9 @@ export const generateFallbackAnswer = async (
   params: FallbackAnswerParams,
 ): Promise<string> => {
   const reason = getFallbackReason(params);
+  const detailedFallback = params.answerProfile === "detailed";
   const prompt = `
-Generate a short fallback response for a RAG document QA system.
+Generate a ${detailedFallback ? "structured" : "short"} fallback response for a RAG document QA system.
 Answer in the same language as the user's question: ${params.language}.
 Do not answer the actual question because the retrieved document context is insufficient.
 Do not use outside knowledge.
@@ -69,7 +72,7 @@ Mention likely reasons only when relevant: tài liệu chưa chứa thông tin n
 If retrievedChunksCount is 0, say no relevant chunks were found.
 If retrievedChunksCount is greater than 0 but relevantChunksCount is 0, say retrieved chunks were found but not relevant enough.
 If reason is grounding_failed, say the generated answer was not well supported by the document context.
-Keep the response short, maximum 3 sentences.
+${detailedFallback ? "Use Markdown with short sections: Van de, Ly do, Cach hoi lai tot hon." : "Keep the response short, maximum 3 sentences."}
 Return only the fallback answer.
 
 Question: ${params.question}
@@ -91,7 +94,7 @@ reason: ${reason}
       ],
       {
         temperature: 0,
-        maxTokens: 150,
+        maxTokens: detailedFallback ? 360 : 150,
       },
     );
 

@@ -9,6 +9,7 @@ export const createSubjectSchema = z.object({
     name: z.string().trim().min(1).max(120),
     code: z.string().trim().max(40).optional(),
     description: z.string().trim().max(1000).optional(),
+    semester: z.string().trim().max(80).optional(),
   }),
 });
 
@@ -21,6 +22,7 @@ export const updateSubjectSchema = z.object({
       name: z.string().trim().min(1).max(120).optional(),
       code: z.string().trim().max(40).optional(),
       description: z.string().trim().max(1000).optional(),
+      semester: z.string().trim().max(80).optional(),
     })
     .refine((data) => Object.keys(data).length > 0, {
       message: "At least one field is required",

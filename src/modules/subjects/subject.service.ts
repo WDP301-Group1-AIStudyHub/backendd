@@ -13,6 +13,7 @@ export interface CreateSubjectRequest {
   description?: string;
   color?: string;
   code?: string;
+  semester?: string;
 }
 
 export interface UpdateSubjectRequest {
@@ -20,6 +21,7 @@ export interface UpdateSubjectRequest {
   description?: string;
   color?: string;
   code?: string;
+  semester?: string;
 }
 
 export interface ListSubjectQuery {
@@ -36,6 +38,7 @@ export interface SubjectResponse {
   description?: string;
   color?: string;
   code?: string;
+  semester?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,13 +50,21 @@ const normalizeSubjectPayload = <
   T extends CreateSubjectRequest | UpdateSubjectRequest,
 >(
   payload: T,
-): T => ({
-  ...payload,
-  name: payload.name?.trim(),
-  description: payload.description?.trim(),
-  color: payload.color?.trim(),
-  code: payload.code?.trim() || undefined,
-});
+): T => {
+  const normalized = {
+    ...payload,
+    name: payload.name?.trim(),
+    description: payload.description?.trim(),
+    color: payload.color?.trim(),
+    code: payload.code?.trim() || undefined,
+  } as T;
+
+  if (payload.semester !== undefined) {
+    normalized.semester = payload.semester.trim();
+  }
+
+  return normalized;
+};
 
 const assertSubjectUnique = async (
   ownerId: string,
@@ -99,6 +110,7 @@ export const toSubjectResponse = (subject: ISubject): SubjectResponse => ({
   description: subject.description,
   color: subject.color,
   code: subject.code,
+  semester: subject.semester,
   createdAt: subject.createdAt,
   updatedAt: subject.updatedAt,
 });

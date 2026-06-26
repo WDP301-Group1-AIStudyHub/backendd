@@ -1,4 +1,5 @@
 import { detectQuestionLanguage } from "./languageDetector";
+import { detectAnswerProfile } from "./answerProfile";
 
 export type AnswerLanguage = "Vietnamese" | "English" | "other";
 
@@ -23,11 +24,11 @@ const detectAnswerLanguage = (question: string): AnswerLanguage => {
 };
 
 export const detectAnswerStyle = (question: string): AnswerStyle => {
+  const profile = detectAnswerProfile(question);
+
   return {
     language: detectAnswerLanguage(question),
-    // Formatting preferences are handled semantically by the LLM prompt.
-    // This avoids maintaining brittle multilingual keyword dictionaries.
-    wantsShortAnswer: false,
+    wantsShortAnswer: profile.wantsShortAnswer,
     wantsList: false,
   };
 };

@@ -2,6 +2,8 @@ import mongoose, { Document, Schema, Types } from "mongoose";
 import { ChatSource } from "../types/api.types";
 import { RagEvaluation, RagMode } from "../types/rag.types";
 
+type ChatScope = "single_document" | "subject_all" | "document_set" | "library_all";
+
 export interface IChatHistory extends Document {
   userId: Types.ObjectId;
   question: string;
@@ -10,7 +12,9 @@ export interface IChatHistory extends Document {
   answer: string;
   sources: ChatSource[];
   documentId?: Types.ObjectId;
+  documentIds?: Types.ObjectId[];
   subjectId?: Types.ObjectId;
+  scope?: ChatScope;
   mode?: RagMode;
   evaluation?: RagEvaluation;
   createdAt: Date;
@@ -44,6 +48,30 @@ const chatSourceSchema = new Schema<ChatSource>(
     semanticSectionLabel: {
       type: String,
     },
+    heading: {
+      type: String,
+    },
+    sectionTitle: {
+      type: String,
+    },
+    sectionIndex: {
+      type: Number,
+    },
+    outlineNodeId: {
+      type: String,
+    },
+    outlinePath: {
+      type: String,
+    },
+    outlineLevel: {
+      type: Number,
+    },
+    outlineType: {
+      type: String,
+    },
+    chapterOrdinal: {
+      type: String,
+    },
     relevanceScore: {
       type: Number,
     },
@@ -67,6 +95,10 @@ const ragEvaluationSchema = new Schema<RagEvaluation>(
     fallbackReason: { type: String },
     detectedIntent: { type: String },
     retrievedSections: { type: [String] },
+    answerProfile: { type: String },
+    usedSectionExpansion: { type: Boolean },
+    selectedSectionTitle: { type: String },
+    contextChunksUsed: { type: Number },
   },
   { _id: false },
 );
@@ -104,9 +136,18 @@ const chatHistorySchema = new Schema<IChatHistory>(
       type: Schema.Types.ObjectId,
       ref: "Document",
     },
+    documentIds: {
+      type: [Schema.Types.ObjectId],
+      ref: "Document",
+      default: undefined,
+    },
     subjectId: {
       type: Schema.Types.ObjectId,
       ref: "Subject",
+    },
+    scope: {
+      type: String,
+      enum: ["single_document", "subject_all", "document_set", "library_all"],
     },
     mode: {
       type: String,

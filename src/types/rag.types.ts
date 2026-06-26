@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { ChatSource } from "./api.types";
+import type { AnswerProfile } from "../utils/answerProfile";
 
 export type RagMode = "basic" | "corrective";
 
@@ -21,6 +22,11 @@ export interface EvaluatedChunk {
     section?: string;
     inferredSection?: string;
     semanticSectionLabel?: string;
+    outlineNodeId?: string;
+    outlinePath?: string;
+    outlineLevel?: number;
+    outlineType?: string;
+    chapterOrdinal?: string;
   };
   relevanceScore: number;
   isRelevant: boolean;
@@ -49,6 +55,10 @@ export interface RagEvaluation {
   fallbackReason?: string;
   detectedIntent?: string;
   retrievedSections?: string[];
+  answerProfile?: AnswerProfile;
+  usedSectionExpansion?: boolean;
+  selectedSectionTitle?: string;
+  contextChunksUsed?: number;
 }
 
 export interface RagAnswerResult {
@@ -79,6 +89,10 @@ export interface CreateRagEvaluationLogInput {
   fallbackReason?: string;
   detectedIntent?: string;
   retrievedSections?: string[];
+  answerProfile?: AnswerProfile;
+  usedSectionExpansion?: boolean;
+  selectedSectionTitle?: string;
+  contextChunksUsed?: number;
 }
 
 export interface RagEvaluationLogResponse extends CreateRagEvaluationLogInput {

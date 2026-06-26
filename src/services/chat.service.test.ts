@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { ChatHistory } from "../models/chatHistory.model";
+import { ChatThread } from "../models/chatThread.model";
 import { StudyDocument } from "../models/document.model";
 import { Subject } from "../models/subject.model";
 import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
@@ -10,6 +11,9 @@ import { askQuestion } from "./chat.service";
 
 const originalAskQuestionWithRag = ragService.askQuestionWithRag;
 const originalChatHistoryCreate = ChatHistory.create;
+const originalChatThreadCreate = ChatThread.create;
+const originalChatThreadFindOne = ChatThread.findOne;
+const originalChatThreadFindOneAndUpdate = ChatThread.findOneAndUpdate;
 const originalCreateEvaluationLog = evaluationService.createEvaluationLog;
 const originalStudyDocumentFindOne = StudyDocument.findOne;
 const originalSubjectFindOne = Subject.findOne;
@@ -22,6 +26,9 @@ afterEach(() => {
     }
   ).askQuestionWithRag = originalAskQuestionWithRag;
   ChatHistory.create = originalChatHistoryCreate;
+  ChatThread.create = originalChatThreadCreate;
+  ChatThread.findOne = originalChatThreadFindOne;
+  ChatThread.findOneAndUpdate = originalChatThreadFindOneAndUpdate;
   (
     evaluationService as unknown as {
       createEvaluationLog: typeof evaluationService.createEvaluationLog;
@@ -35,6 +42,7 @@ afterEach(() => {
 describe("chat service persistence controls", () => {
   it("can answer without writing chat history or evaluation logs", async () => {
     let historyCreated = false;
+    let threadCreated = false;
     let evaluationLogged = false;
 
     (
@@ -60,6 +68,10 @@ describe("chat service persistence controls", () => {
       historyCreated = true;
       return {};
     }) as typeof ChatHistory.create;
+    ChatThread.create = (async () => {
+      threadCreated = true;
+      return {};
+    }) as typeof ChatThread.create;
     (
       evaluationService as unknown as {
         createEvaluationLog: typeof evaluationService.createEvaluationLog;
@@ -79,11 +91,16 @@ describe("chat service persistence controls", () => {
 
     assert.equal(result.answer, "Grounded answer");
     assert.equal(historyCreated, false);
+    assert.equal(threadCreated, false);
     assert.equal(evaluationLogged, false);
   });
 
   it("persists outline metadata in chat source history", async () => {
     let createdHistory: Record<string, any> | undefined;
+    let updatedThread: Record<string, any> | undefined;
+    const threadId = {
+      toString: () => "thread-1",
+    };
 
     (
       ragService as unknown as {
@@ -121,6 +138,28 @@ describe("chat service persistence controls", () => {
       createdHistory = payload;
       return payload;
     }) as typeof ChatHistory.create;
+    ChatThread.create = (async (payload: Record<string, any>) => ({
+      _id: threadId,
+      ownerId: payload.ownerId,
+      title: payload.title,
+      status: payload.status,
+      lastMessageAt: payload.lastMessageAt,
+      messageCount: payload.messageCount,
+      scope: payload.scope,
+      subjectId: payload.subjectId,
+      documentId: payload.documentId,
+      documentIds: payload.documentIds,
+      mode: payload.mode,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })) as typeof ChatThread.create;
+    ChatThread.findOneAndUpdate = (async (
+      _filter: Record<string, any>,
+      update: Record<string, any>,
+    ) => {
+      updatedThread = update;
+      return {};
+    }) as typeof ChatThread.findOneAndUpdate;
     (
       evaluationService as unknown as {
         createEvaluationLog: typeof evaluationService.createEvaluationLog;
@@ -132,6 +171,7 @@ describe("chat service persistence controls", () => {
       mode: "basic",
     });
 
+    assert.equal(createdHistory?.threadId, threadId);
     assert.equal(
       createdHistory?.sources?.[0]?.outlineNodeId,
       "outline-1-chapter-1",
@@ -140,6 +180,70 @@ describe("chat service persistence controls", () => {
     assert.equal(createdHistory?.sources?.[0]?.outlineLevel, 2);
     assert.equal(createdHistory?.sources?.[0]?.outlineType, "chapter");
     assert.equal(createdHistory?.sources?.[0]?.chapterOrdinal, "1");
+    assert.deepEqual(updatedThread?.$inc, { messageCount: 1 });
+    assert.equal(updatedThread?.$set?.scope, "library_all");
+  });
+
+  it("appends new questions to an existing chat thread", async () => {
+    let createdHistory: Record<string, any> | undefined;
+    let newThreadCreated = false;
+    const threadId = {
+      toString: () => "thread-existing",
+    };
+
+    (
+      ragService as unknown as {
+        askQuestionWithRag: typeof ragService.askQuestionWithRag;
+      }
+    ).askQuestionWithRag = async () => ({
+      answer: "Follow-up answer",
+      mode: "basic",
+      originalQuestion: "Continue",
+      sources: [],
+      evaluation: {
+        retrievedChunksCount: 0,
+        relevantChunksCount: 0,
+        averageRelevanceScore: 0,
+        correctiveAttempted: false,
+        isGrounded: true,
+        confidenceScore: 0.8,
+        responseTimeMs: 15,
+      },
+    });
+    ChatThread.findOne = (async () => ({
+      _id: threadId,
+      ownerId: "user-1",
+      title: "Existing thread",
+      status: "ACTIVE",
+      lastMessageAt: new Date(),
+      messageCount: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })) as typeof ChatThread.findOne;
+    ChatThread.create = (async () => {
+      newThreadCreated = true;
+      return {};
+    }) as typeof ChatThread.create;
+    ChatThread.findOneAndUpdate = (async () => ({})) as typeof ChatThread.findOneAndUpdate;
+    ChatHistory.create = (async (payload: Record<string, any>) => {
+      createdHistory = payload;
+      return payload;
+    }) as typeof ChatHistory.create;
+    (
+      evaluationService as unknown as {
+        createEvaluationLog: typeof evaluationService.createEvaluationLog;
+      }
+    ).createEvaluationLog = async () => undefined;
+
+    const result = await askQuestion("user-1", {
+      question: "Continue",
+      mode: "basic",
+      threadId: "thread-existing",
+    });
+
+    assert.equal(result.threadId, "thread-existing");
+    assert.equal(newThreadCreated, false);
+    assert.equal(createdHistory?.threadId, threadId);
   });
 
   it("answers document structure count questions without calling RAG retrieval", async () => {

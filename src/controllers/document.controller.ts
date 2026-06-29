@@ -18,6 +18,7 @@ import {
 import { sendResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ActivityLogService } from "../services/activityLog.service";
+import { getIpAddress } from "../utils/getIp";
 
 export const uploadDocument = asyncHandler(async (
   req: Request<unknown, unknown, UploadDocumentRequest>,
@@ -31,7 +32,7 @@ export const uploadDocument = asyncHandler(async (
     entityType: "Document",
     entityId: data._id,
     details: { title: data.title },
-    ipAddress: req.ip,
+    ipAddress: getIpAddress(req),
     userAgent: req.headers["user-agent"],
   });
 
@@ -122,7 +123,7 @@ export const removeDocument = asyncHandler(async (
     action: "DOCUMENT_DELETE",
     entityType: "Document",
     entityId: req.params.id,
-    ipAddress: req.ip,
+    ipAddress: getIpAddress(req),
     userAgent: req.headers["user-agent"],
   });
 

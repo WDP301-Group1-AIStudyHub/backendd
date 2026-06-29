@@ -49,7 +49,7 @@ export const loginUser = async (
   }
 
   if (user.isActive === false) {
-    throw new AppError(`Your account has been banned. Reason: ${user.banReason || 'Contact support'}`, 403);
+    throw new AppError(`Your account has been banned. Reason: ${user.banReason || 'Contact support'}`, 401);
   }
 
   const accessToken = generateAccessToken(user);

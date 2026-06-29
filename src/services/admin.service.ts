@@ -9,8 +9,13 @@ export class AdminService {
   /**
    * Get paginated users for admin management
    */
-  public static async getUsers(search?: string) {
+  public static async getUsers(search?: string, currentUser?: { id: string; role: string }) {
     const query: Record<string, any> = {};
+
+    if (currentUser) {
+      query._id = { $ne: currentUser.id };
+      query.role = { $ne: currentUser.role };
+    }
     if (search) {
       query.$or = [
         { fullName: { $regex: search, $options: "i" } },
@@ -116,63 +121,7 @@ export class AdminService {
       recentActivities,
     };
   }
-  /**
-   * Update document status (e.g., ACTIVE, ARCHIVED, DELETED) and visibility
-   */
-  public static async updateDocumentStatus(
-    documentId: string,
-    updateData: { status?: "ACTIVE" | "ARCHIVED" | "DELETED"; visibility?: "PUBLIC" | "PRIVATE" }
-  ) {
-    const document = await StudyDocument.findByIdAndUpdate(
-      documentId,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    );
 
-    if (!document) {
-      throw new Error("Document not found");
-    }
-
-    return document;
-  }
-
-  /**
-   * Soft delete a document by admin
-   */
-  public static async deleteDocument(documentId: string) {
-    const document = await StudyDocument.findByIdAndUpdate(
-      documentId,
-      {
-        $set: {
-          status: "DELETED",
-          deletedAt: new Date(),
-        },
-      },
-      { new: true }
-    );
-
-    if (!document) {
-      throw new Error("Document not found");
-    }
-
-    return document;
-  }
-  /**
-   * Update user role
-   */
-  public static async updateUserRole(userId: string, role: "user" | "admin") {
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { $set: { role } },
-      { new: true, runValidators: true }
-    );
-
-    if (!user) {
-      throw new Error("User not found");
-    }
-
-    return user;
-  }
 
   /**
    * Ban a user account

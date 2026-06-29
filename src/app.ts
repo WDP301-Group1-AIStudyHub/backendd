@@ -17,6 +17,8 @@ import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
 
 const app = express();
 
+app.set("trust proxy", true); // Enable trusting proxy to get real IP
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(
   cors({

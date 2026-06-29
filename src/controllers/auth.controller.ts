@@ -14,6 +14,7 @@ import {
 import { sendResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ActivityLogService } from "../services/activityLog.service";
+import { getIpAddress } from "../utils/getIp";
 
 export const register = asyncHandler(async (
   req: Request<unknown, unknown, RegisterRequest>,
@@ -27,7 +28,7 @@ export const register = asyncHandler(async (
     entityType: "User",
     entityId: data.user.id,
     details: { email: data.user.email },
-    ipAddress: req.ip,
+    ipAddress: getIpAddress(req),
     userAgent: req.headers["user-agent"],
   });
 
@@ -50,7 +51,7 @@ export const login = asyncHandler(async (
     entityType: "User",
     entityId: data.user.id,
     details: { email: data.user.email },
-    ipAddress: req.ip,
+    ipAddress: getIpAddress(req),
     userAgent: req.headers["user-agent"],
   });
 

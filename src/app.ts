@@ -11,6 +11,7 @@ import documentRoutes from "./routes/document.routes";
 import evaluationRoutes from "./routes/evaluation.routes";
 import subjectRoutes from "./routes/subject.routes";
 import studyMaterialRoutes from "./routes/studyMaterial.routes";
+import adminRoutes from "./routes/admin.routes";
 import { uploadSessionRouter } from "./modules/uploadSessions/uploadSession.routes";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
 
@@ -63,6 +64,7 @@ app.use("/api/evaluation", evaluationRoutes);
 app.use("/api/subjects", subjectRoutes);
 app.use("/api/upload-sessions", uploadSessionRouter);
 app.use("/api/study-materials", studyMaterialRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

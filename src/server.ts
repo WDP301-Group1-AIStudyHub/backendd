@@ -10,13 +10,15 @@ const startServer = async (): Promise<void> => {
   try {
     await connectDatabase();
 
-    const port = process.env.PORT || "5000";
+    const port = Number(process.env.PORT || 5000);
+    const host = process.env.HOST || "0.0.0.0";
     const server = createServer(app);
 
     initializeUploadProgressSocket(server);
 
-    server.listen(port, () => {
-      console.log(`Server running at http://localhost:${port}`);
+    server.listen(port, host, () => {
+      console.log(`Server running at http://${host}:${port}`);
+      console.log(`Local API available at http://localhost:${port}`);
       console.log(`Swagger docs available at http://localhost:${port}/api-docs`);
       console.log(`Socket.IO listening at ws://localhost:${port}`);
     });

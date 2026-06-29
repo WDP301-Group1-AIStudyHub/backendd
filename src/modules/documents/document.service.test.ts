@@ -113,7 +113,7 @@ describe("document service", () => {
     }) as unknown as typeof StudyDocument.find;
     StudyDocument.countDocuments = (async () => 21) as typeof StudyDocument.countDocuments;
 
-    const result = await getDocuments(ownerId.toString(), {
+    const result = await getDocuments(ownerId.toString(), "user", {
       page: "2",
       limit: "10",
       subjectId: subjectId.toString(),

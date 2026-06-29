@@ -1,148 +1,74 @@
-# Generalized RAG Flow
+# DR-RAG Flow
 
-This document describes the current RAG pipeline in AI Study Hub. The project now prioritizes Vietnamese educational document Q&A while keeping retrieval and chunking generic.
+AI Study Hub now uses one RAG pipeline for chat: Dynamic-Relevant RAG
+(DR-RAG), inspired by arXiv:2406.07348. The public `basic` and
+`corrective` modes have been removed.
 
-## Upload and Indexing Flow
-
-```text
-Document Upload (PDF, DOCX, PPTX, XLSX, TXT, MD)
-↓
-Multer receives file
-↓
-Cloudinary stores raw document
-↓
-Format-specific parser extracts plain text
-↓
-Detect headings and split into sections
-↓
-Split oversized sections with overlap
-↓
-Jina embeddings
-↓
-Pinecone upsert
-```
-
-## Heading Detection
-
-The backend no longer uses hard-coded heading keyword sets.
-
-Instead, the chunking pipeline detects likely headings by format:
-
-- short line length
-- uppercase ratio
-- line has no ending punctuation
-- line appears isolated
-- line is followed by content
-
-Heading-based chunking keeps section context attached to each chunk, reduces broken meaning across chunk boundaries, and improves retrieval for study materials with chapters, sections, or slide titles. If no headings are detected, the backend uses fixed-size fallback chunks labeled as `General Content`.
-- numbered heading patterns are allowed as generic structure markers
-
-Examples of generic numbered headings:
+## Upload And Indexing
 
 ```text
-1. Overview
-1.1 REST API
-Chapter 2
-Section 3
+Document upload
+-> Format-specific text extraction
+-> Heading/outline-aware chunking
+-> Jina embeddings
+-> Pinecone upsert with document, subject, section, and outline metadata
 ```
 
-If the system is not confident that a line is a heading, it does not force a section. The chunk remains `UNKNOWN` or general `CONTENT`.
+Indexing still lives in `src/services/rag.service.ts`. That service only
+indexes/reindexes document chunks; answer generation now lives in
+`src/services/drRag.service.ts`.
 
-## Question Answering Flow
+## Question Answering
 
 ```text
-User Question
-↓
-Detect query intent and answer style
-↓
-Generate query embedding
-↓
-Pinecone semantic search
-↓
-Evaluate chunk relevance
-↓
-Select top relevant chunks
-↓
-Groq answer generation
-↓
-Grounding check
-↓
-Save chat history and evaluation log
+User question
+-> Intent and answer-profile detection
+-> Stage 1 retrieval: retrieve static-relevant chunks
+-> Build expanded queries: question + static chunk metadata/content
+-> Stage 2 retrieval: retrieve dynamic-relevant chunks
+-> CFS-style heuristic selection
+-> Groq answer generation from final context
+-> Groq grounding check
+-> Safe fallback if answer is empty or ungrounded
+-> Chat history and RAG evaluation log
 ```
 
-## Basic RAG
+## DR-RAG Mapping
 
-Basic RAG:
+| Paper notation | AI Study Hub implementation |
+|---|---|
+| `q` | User question |
+| `D` | User-scoped Pinecone namespace/filter |
+| `d_stat` | Stage 1 static chunks |
+| `q*` | Expanded query from `question + static chunk` |
+| `d_dyn` | Stage 2 dynamic chunks |
+| `Cnt` | Final context sent to Groq |
+| `C` | V1 CFS heuristic selector, not a trained classifier |
 
-1. Uses the original question.
-2. Searches Pinecone.
-3. Selects top chunks.
-4. Generates answer.
-5. Runs grounding check.
+## Selection Strategy
 
-## Corrective RAG
+The V1 selector is `cfs-heuristic`:
 
-Corrective RAG:
+- Keep the best static chunks from stage 1.
+- For each static chunk, inspect dynamic candidates from the matching expanded
+  query.
+- Select the first candidate that passes relevance thresholds and adds novel
+  information.
+- Dedupe by vector id and avoid redundant same-section context.
+- Fall back to static chunks if no useful dynamic chunk is found.
 
-1. Rewrites the query while preserving intent.
-2. Searches Pinecone.
-3. Evaluates chunk relevance.
-4. Runs second-pass retrieval if relevant chunks are insufficient.
-5. Deduplicates chunks.
-6. Falls back to top semantic matches if needed.
-7. Generates answer with Groq.
-8. Checks grounding.
-9. Regenerates once with stricter grounding if needed.
-10. Logs evaluation metadata.
+## Metrics
 
-## Retrieval Signals
+Each answer records:
 
-The backend relies mainly on:
+- `stageOneChunksCount`
+- `stageTwoChunksCount`
+- `selectedStaticChunksCount`
+- `selectedDynamicChunksCount`
+- `dynamicRetrievalAttempted`
+- `selectionStrategy`
+- `retrievalQueries`
+- standard relevance, grounding, fallback, and latency metrics
 
-- Jina embeddings
-- Pinecone vector similarity
-- Pinecone score
-- relevance score
-- user query intent
-
-It does not rely on document-type-specific retrieval heuristics.
-
-## Reindexing
-
-When chunking or metadata changes, old vectors in Pinecone may contain stale metadata. Reindex with:
-
-```http
-POST /api/documents/:documentId/reindex
-```
-
-The reindex flow:
-
-```text
-MongoDB document
-↓
-Delete old Pinecone vectors
-↓
-Re-run heading-based chunking
-↓
-Re-generate embeddings
-↓
-Upsert new vectors
-```
-
-## Design Decisions
-
-### Vietnamese educational QA focus
-
-Prompts preserve Vietnamese accents and subject-specific terms, answer Vietnamese questions in Vietnamese, and use only retrieved uploaded-document context. Corrective RAG defaults to `RELEVANCE_THRESHOLD=0.55`, which improves precision but can reduce recall. Tune `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and `MIN_RELEVANT_CHUNKS` through environment variables.
-
-### No document-type-specific assumptions
-
-The RAG system must work for lecture slides, notes, exams, technical documents, and research papers.
-
-### Semantic retrieval first
-
-Embedding search is more scalable than keyword or section matching because it compares meaning.
-
-### Heading detection as metadata only
-
-Heading detection helps organize chunks, but it is not the main retrieval mechanism.
+Tune `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and
+`MIN_RELEVANT_CHUNKS` through environment variables.

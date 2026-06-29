@@ -1,17 +1,12 @@
 import mongoose, { Document, Schema, Types } from "mongoose";
 import { BenchmarkEvaluationScore } from "../types/api.types";
 
-export type BenchmarkWinner = "basic" | "corrective" | "tie";
-
 export interface IBenchmarkResult extends Document {
   benchmarkQuestionId: Types.ObjectId;
   question: string;
   expectedAnswer: string;
-  basicAnswer: string;
-  correctiveAnswer: string;
-  basicEvaluation: BenchmarkEvaluationScore;
-  correctiveEvaluation: BenchmarkEvaluationScore;
-  winner: BenchmarkWinner;
+  answer: string;
+  evaluation: BenchmarkEvaluationScore;
   createdBy: Types.ObjectId;
   createdAt: Date;
 }
@@ -44,27 +39,13 @@ const benchmarkResultSchema = new Schema<IBenchmarkResult>(
       type: String,
       required: true,
     },
-    basicAnswer: {
+    answer: {
       type: String,
       required: true,
     },
-    correctiveAnswer: {
-      type: String,
-      required: true,
-    },
-    basicEvaluation: {
+    evaluation: {
       type: benchmarkEvaluationSchema,
       required: true,
-    },
-    correctiveEvaluation: {
-      type: benchmarkEvaluationSchema,
-      required: true,
-    },
-    winner: {
-      type: String,
-      enum: ["basic", "corrective", "tie"],
-      required: true,
-      index: true,
     },
     createdBy: {
       type: Schema.Types.ObjectId,

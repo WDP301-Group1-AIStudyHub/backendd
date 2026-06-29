@@ -10,5 +10,9 @@ export const RAG_CONFIG = {
     process.env.PINECONE_RELEVANCE_THRESHOLD,
     0.3,
   ),
+  outOfScopeThreshold: numberFromEnv(
+    process.env.PINECONE_OUT_OF_SCOPE_THRESHOLD,
+    0.55,
+  ),
   minRelevantChunks: numberFromEnv(process.env.MIN_RELEVANT_CHUNKS, 3),
 };

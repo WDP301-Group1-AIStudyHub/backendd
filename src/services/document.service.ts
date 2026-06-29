@@ -198,7 +198,7 @@ export const createDocument = async (
         ? outlineSummary.detectedSections
         : structure.detectedSections,
     documentOutline,
-    chapterCount: outlineSummary.chapterCount || structure.chapterCount,
+    chapterCount: Math.max(outlineSummary.chapterCount, structure.chapterCount),
     partCount: outlineSummary.partCount || structure.partCount,
     sectionCount: outlineSummary.sectionCount || structure.sectionCount,
   });
@@ -229,7 +229,7 @@ export const createDocument = async (
         ? outlineSummary.detectedSections
         : structure.detectedSections,
     documentOutline,
-    chapterCount: outlineSummary.chapterCount || structure.chapterCount,
+    chapterCount: Math.max(outlineSummary.chapterCount, structure.chapterCount),
     partCount: outlineSummary.partCount || structure.partCount,
     sectionCount: outlineSummary.sectionCount || structure.sectionCount,
     uploadedBy: document.ownerId,

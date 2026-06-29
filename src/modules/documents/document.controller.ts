@@ -29,7 +29,7 @@ export const listDocuments = asyncHandler(async (
   req: Request<unknown, unknown, unknown, ListDocumentQuery>,
   res: Response,
 ): Promise<void> => {
-  const result = await getDocuments(req.authUser!.id, req.query);
+  const result = await getDocuments(req.authUser!.id, req.authUser!.role, req.query);
 
   res.status(200).json(result);
 });
@@ -38,7 +38,7 @@ export const getDocument = asyncHandler(async (
   req: Request<{ id: string }>,
   res: Response,
 ): Promise<void> => {
-  const data = await getDocumentDetail(req.params.id, req.authUser!.id);
+  const data = await getDocumentDetail(req.params.id, req.authUser!.id, req.authUser!.role);
 
   sendResponse(res, 200, {
     success: true,
@@ -54,6 +54,7 @@ export const editDocument = asyncHandler(async (
   const data = await updateDocumentMetadata(
     req.params.id,
     req.authUser!.id,
+    req.authUser!.role,
     req.body,
   );
 
@@ -68,7 +69,7 @@ export const removeDocument = asyncHandler(async (
   req: Request<{ id: string }>,
   res: Response,
 ): Promise<void> => {
-  await softDeleteDocument(req.params.id, req.authUser!.id);
+  await softDeleteDocument(req.params.id, req.authUser!.id, req.authUser!.role);
 
   sendResponse(res, 200, {
     success: true,

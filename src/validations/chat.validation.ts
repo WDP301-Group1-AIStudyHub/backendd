@@ -15,8 +15,7 @@ export const askQuestionSchema = z.object({
     scope: z
       .enum(["single_document", "subject_all", "document_set", "library_all"])
       .optional(),
-    mode: z.enum(["basic", "corrective"]).optional(),
-  }).superRefine((body, ctx) => {
+  }).strict().superRefine((body, ctx) => {
     if (body.documentId && body.documentIds?.length) {
       ctx.addIssue({
         code: "custom",

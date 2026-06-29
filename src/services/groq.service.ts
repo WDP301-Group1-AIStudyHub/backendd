@@ -220,6 +220,7 @@ export const generateAnswerFromContext = async (
     answerProfile?: AnswerProfile;
     subject?: string;
     documentTitle?: string;
+    allowIllustrativeExamples?: boolean;
   } = {},
 ): Promise<string> => {
   const style = detectAnswerStyle(question);
@@ -264,7 +265,9 @@ export const generateAnswerFromContext = async (
     "If the user asks in Vietnamese, answer in Vietnamese.",
     "Preserve Vietnamese accents and subject-specific educational terms.",
     "Do not translate Vietnamese educational terms unnecessarily.",
-    "Answer only using the provided CONTEXT.",
+    options.allowIllustrativeExamples
+      ? "Base all definitions, principles, and conclusions on the provided CONTEXT. You may create simple hypothetical everyday examples that apply those principles, even when the exact example is not stated in CONTEXT. Clearly label them as illustrative examples and never imply that they were copied from the document. Do not invent statistics, quotations, studies, dates, named people, or historical events."
+      : "Answer only using the provided CONTEXT.",
     "Follow the user's requested format exactly.",
     intent === "list" ? "The user wants a list; use a concise list." : "",
     "Give a complete answer based on context, not a fragment.",
@@ -275,7 +278,9 @@ export const generateAnswerFromContext = async (
     "1) Judge relation strictly from CONTEXT.",
     "2) If not related, state clearly that the document is not related to that topic.",
     "3) Then provide a full but concise summary of the document's main content from CONTEXT (key ideas + supporting points).",
-    "Do not add unrelated information.",
+    options.allowIllustrativeExamples
+      ? "Keep every illustrative example directly relevant to the concept retrieved from CONTEXT."
+      : "Do not add unrelated information.",
     "Do not hallucinate. Do not repeat.",
     maxSentencesRule,
     formatRule,

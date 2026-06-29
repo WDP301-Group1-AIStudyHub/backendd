@@ -1,387 +1,31 @@
-# AI Study Hub API
+# AI Study Hub API Documentation
 
-Base URL: `https://backendd-vn1j.onrender.com//api`
+Base URL: `http://localhost:5000/api`
 
-All protected routes require:
-
-```http
-Authorization: Bearer <accessToken>
-```
-
-Standard response:
-
-```json
-{
-  "success": true,
-  "message": "Message",
-  "data": {}
-}
-```
-
-Error response:
-
-```json
-{
-  "success": false,
-  "message": "Validation or server error",
-  "error": "Details in development"
-}
-```
-
-## Setup
-
-```bash
-npm install
-npm run dev
-```
-
-Required environment variables are listed in `.env.example`.
-
-## Architecture Notes
-
-The backend uses a generalized RAG architecture for study documents. It does not rely on document-type-specific sections or fixed heading keyword lists.
-
-Current RAG stack:
-
-- Jina Embeddings create vectors for chunks and questions.
-- Pinecone performs semantic vector search.
-- Groq generates final answers from retrieved context.
-- A grounding check validates whether the answer is supported by retrieved chunks.
-
-Question-answering flow:
-
-```text
-User Question
-↓
-Jina Embeddings
-↓
-Pinecone Semantic Search
-↓
-Relevant Chunks
-↓
-Groq Answer Generation
-↓
-Grounding Check
-```
-
-Generic heading detection uses format signals only:
-
-- short line length
-- uppercase ratio
-- no ending punctuation
-- isolated line detection
-- numbered heading patterns such as `1.1`, `Chapter 1`, `Section 2`
-- fallback to `UNKNOWN` or `CONTENT`
+Most routes require `Authorization: Bearer <accessToken>`.
 
 ## Auth
 
-### POST `/auth/register`
-
-Request:
-
-```json
-{
-  "fullName": "Nguyen Gia Huy",
-  "email": "huy@example.com",
-  "password": "password123",
-  "avatar": "https://example.com/avatar.png"
-}
-```
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Registered successfully",
-  "data": {
-    "user": {
-      "id": "665f1c...",
-      "fullName": "Nguyen Gia Huy",
-      "email": "huy@example.com",
-      "avatar": "https://example.com/avatar.png",
-      "role": "user",
-      "createdAt": "2026-05-23T00:00:00.000Z",
-      "updatedAt": "2026-05-23T00:00:00.000Z"
-    },
-    "accessToken": "jwt-token"
-  }
-}
-```
-
-### POST `/auth/login`
-
-Request:
-
-```json
-{
-  "email": "huy@example.com",
-  "password": "password123"
-}
-```
-
-Response data shape is the same as register.
-
-### POST `/auth/logout`
-
-Protected. The backend is stateless, so the frontend removes the token.
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Logged out successfully. Remove the token on the client."
-}
-```
-
-### GET `/auth/me`
-
-Protected.
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Current user fetched successfully",
-  "data": {
-    "id": "665f1c...",
-    "fullName": "Nguyen Gia Huy",
-    "email": "huy@example.com",
-    "avatar": "",
-    "role": "user",
-    "createdAt": "2026-05-23T00:00:00.000Z",
-    "updatedAt": "2026-05-23T00:00:00.000Z"
-  }
-}
-```
-
-### PUT `/auth/profile`
-
-Protected.
-
-Request:
-
-```json
-{
-  "fullName": "Huy Nguyen",
-  "avatar": "https://example.com/new-avatar.png"
-}
-```
-
-Response data shape is `UserResponse`.
-
-### POST `/auth/forgot-password`
-
-Request:
-
-```json
-{
-  "email": "huy@example.com"
-}
-```
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "If the email exists, password reset instructions will be sent later.",
-  "data": {
-    "email": "huy@example.com"
-  }
-}
-```
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET /auth/me`
+- `PUT /auth/profile`
+- `POST /auth/forgot-password`
 
 ## Documents
 
-### POST `/documents/upload`
+- `POST /documents/upload`: upload and index a document.
+- `GET /documents`: list readable documents.
+- `GET /documents/:id`: get one document.
+- `PUT /documents/:id`: update document metadata.
+- `DELETE /documents/:id`: soft delete a document.
+- `POST /documents/:documentId/reindex`: re-chunk, re-embed, and re-upsert vectors.
+- `GET /debug/documents/:documentId/chunks`: preview chunking output.
 
-Protected. Send `multipart/form-data`.
+Supported RAG file types include PDF, DOCX, PPTX, XLSX, TXT, and MD.
 
-Fields:
-
-- `file`: PDF, DOCX, PPTX, XLSX, TXT, or MD file, max 10MB
-- `title`: required string
-- `description`: optional string
-- `subject`: optional string
-
-Supported MIME types:
-
-- `application/pdf`
-- `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
-- `application/vnd.openxmlformats-officedocument.presentationml.presentation`
-- `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
-- `text/plain`
-- `text/markdown`
-
-Example:
-
-```bash
-curl -X POST http://localhost:5000/api/documents/upload \
-  -H "Authorization: Bearer <accessToken>" \
-  -F "file=@lesson.pdf" \
-  -F "title=Lesson 1" \
-  -F "subject=Math" \
-  -F "description=Algebra notes"
-```
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Document uploaded successfully",
-  "data": {
-    "id": "665f2a...",
-    "title": "Lesson 1",
-    "description": "Algebra notes",
-    "subject": "Math",
-    "fileUrl": "https://res.cloudinary.com/.../lesson.pdf",
-    "filePublicId": "ai-study-hub/documents/...",
-    "fileName": "lesson.pdf",
-    "fileType": "application/pdf",
-    "originalFileName": "lesson.pdf",
-    "storedFileName": "1710000000000-lesson.pdf",
-    "fileExtension": ".pdf",
-    "mimeType": "application/pdf",
-    "fileSize": 123456,
-    "extractedText": "Extracted document text...",
-    "extractionStatus": "COMPLETED",
-    "extractionError": "",
-    "uploadedBy": "665f1c...",
-    "createdAt": "2026-05-23T00:00:00.000Z",
-    "updatedAt": "2026-05-23T00:00:00.000Z"
-  }
-}
-```
-
-### GET `/documents`
-
-Protected. Returns the current user's documents.
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Documents fetched successfully",
-  "data": {
-    "documents": [],
-    "total": 0
-  }
-}
-```
-
-### GET `/documents/:id`
-
-Protected. Returns one document owned by the current user.
-
-### PUT `/documents/:id`
-
-Protected.
-
-Request:
-
-```json
-{
-  "title": "Updated Lesson 1",
-  "description": "Updated notes",
-  "subject": "Physics"
-}
-```
-
-Response data shape is `DocumentResponse`.
-
-### DELETE `/documents/:id`
-
-Protected. Deletes MongoDB metadata and the Cloudinary raw file.
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Document deleted successfully"
-}
-```
-
-### GET `/documents/search?keyword=&subject=`
-
-Protected. Both query parameters are optional.
-
-Example:
-
-```http
-GET /api/documents/search?keyword=algebra&subject=Math
-```
-
-Response data shape is `DocumentListResponse`.
-
-### POST `/documents/:documentId/reindex`
-
-Protected. Rebuilds Pinecone vectors for an existing document. Use this endpoint after changing chunking or metadata logic so old vectors are removed and new vectors are inserted.
-
-Flow:
-
-1. Load the document from MongoDB.
-2. Delete old Pinecone vectors for the document.
-3. Re-run heading-based chunking and generic heading detection.
-4. Re-generate Jina embeddings.
-5. Re-upsert vectors into Pinecone.
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Document reindexed successfully",
-  "data": {
-    "documentId": "665f2a...",
-    "deletedVectorCount": 8,
-    "chunkingStrategy": "heading-based",
-    "chunksCreated": 8,
-    "detectedSections": ["1. Introduction", "2. Practice"],
-    "upsertedVectorCount": 8
-  }
-}
-```
-
-### GET `/debug/documents/:documentId/chunks`
-
-Protected. Generates chunks for one document without writing to Pinecone. Use this to inspect whether heading-based chunking or fixed-size fallback is being used.
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Document chunks generated successfully",
-  "data": {
-    "chunksCount": 2,
-    "chunkingStrategy": "heading-based",
-    "chunks": [
-      {
-        "chunkIndex": 0,
-        "sectionIndex": 0,
-        "heading": "1. Introduction",
-        "sectionTitle": "1. Introduction",
-        "contentLength": 840,
-        "contentPreview": "1. Introduction\nThis lesson explains..."
-      }
-    ]
-  }
-}
-```
-
-Heading-based chunking keeps chapter or section context with each chunk, reduces broken meaning across chunk boundaries, improves retrieval quality, and is better suited to study materials organized by chapters, sections, and slides. If no headings are detected, the backend falls back to fixed-size chunks with `heading = null` and `sectionTitle = "General Content"`.
-
-## Chat RAG
-
-All chat routes are protected and require a bearer token.
-
-Before testing RAG, create a Pinecone index and configure:
+## DR-RAG Configuration
 
 ```env
 JINA_API_KEY=your-jina-api-key
@@ -396,40 +40,31 @@ PINECONE_RELEVANCE_THRESHOLD=0.3
 MIN_RELEVANT_CHUNKS=3
 ```
 
-The Pinecone index dimension must match the Jina embedding model output.
-For `jina-embeddings-v3`, create a dense index with dimension `1024` and cosine metric. Existing `768`-dimension indexes cannot be resized, so create a new `1024`-dimension index and update `PINECONE_INDEX_NAME`.
+For `jina-embeddings-v3`, create a Pinecone dense index with dimension `1024`
+and cosine metric.
 
-### POST `/chat/ask`
+## Chat DR-RAG
 
-Protected. Ask a question against uploaded document chunks.
+### `POST /chat/ask`
 
-Modes:
-
-- `basic`: Phase 2 naive RAG. Uses the original question for retrieval.
-- `corrective`: Phase 3 improved RAG. Rewrites the query, scores chunk relevance, retries retrieval if needed, self-checks grounding, and logs evaluation metrics.
-
-Corrective RAG is generalized. It does not boost document-specific sections. Retrieval relies mainly on embeddings, Pinecone similarity scores, relevance evaluation, and user query intent.
+Ask a question against uploaded document chunks. The request no longer accepts
+a RAG `mode`; every chat request uses DR-RAG.
 
 Request:
 
 ```json
 {
-  "question": "Tài liệu nói gì về phương trình bậc hai?",
-  "documentId": "665f2a...",
-  "mode": "corrective"
+  "question": "Tai lieu noi gi ve phuong trinh bac hai?",
+  "documentId": "665f2a..."
 }
 ```
 
-You can omit `documentId` and use `subject` instead:
+Optional scope fields:
 
-```json
-{
-  "question": "Tóm tắt nội dung chính của tài liệu môn Math",
-  "subject": "Math"
-}
-```
-
-If neither `documentId` nor `subject` is provided, the backend searches all documents uploaded by the current user.
+- `documentId` for one document.
+- `documentIds` with `scope: "document_set"` for a selected set.
+- `subjectId` with `scope: "subject_all"` for a subject.
+- no document or subject field to search the user's library.
 
 Response:
 
@@ -438,77 +73,59 @@ Response:
   "success": true,
   "message": "Question answered successfully",
   "data": {
-    "answer": "Câu trả lời dựa trên nội dung tài liệu đã upload.",
-    "mode": "corrective",
-    "originalQuestion": "Tài liệu nói gì về phương trình bậc hai?",
-    "rewrittenQuery": "Explain the concept of quadratic equations in the uploaded study document.",
+    "answer": "Answer grounded in uploaded documents.",
+    "mode": "dr-rag",
+    "originalQuestion": "Tai lieu noi gi ve phuong trinh bac hai?",
+    "rewrittenQuery": "Tai lieu noi gi ve phuong trinh bac hai?",
     "sources": [
       {
         "documentId": "665f2a...",
         "title": "Lesson 1",
         "chunkIndex": 0,
-        "section": "CONTENT",
-        "contentPreview": "Đoạn nội dung liên quan...",
+        "sectionTitle": "Chapter 2",
+        "contentPreview": "Relevant content preview...",
         "relevanceScore": 0.82
       }
     ],
     "evaluation": {
-      "retrievedChunksCount": 8,
-      "relevantChunksCount": 4,
-      "averageRelevanceScore": 0.72,
-      "correctiveAttempted": true,
+      "retrievedChunksCount": 12,
+      "relevantChunksCount": 8,
+      "averageRelevanceScore": 0.74,
+      "stageOneChunksCount": 4,
+      "stageTwoChunksCount": 8,
+      "selectedStaticChunksCount": 4,
+      "selectedDynamicChunksCount": 2,
+      "dynamicRetrievalAttempted": true,
+      "selectionStrategy": "cfs-heuristic",
+      "retrievalQueries": ["question", "question + static chunk"],
       "isGrounded": true,
       "confidenceScore": 0.88,
       "responseTimeMs": 2450,
-      "usedFallbackChunks": false,
-      "relevanceThreshold": 0.55,
-      "detectedIntent": "qa",
-      "retrievedSections": ["CONTENT", "UNKNOWN"]
+      "fallbackGenerated": false
     }
   }
 }
 ```
 
-If the retrieved context is insufficient, the backend generates a short fallback answer with Groq. The fallback does not answer from outside knowledge; it explains why the uploaded document context was not enough and suggests asking more specifically, selecting the correct document/subject, checking extraction quality, or re-indexing.
+If retrieved context is insufficient or the answer fails grounding, the backend
+returns a safe fallback answer and sets `evaluation.fallbackGenerated = true`.
 
-The RAG prompts prioritize Vietnamese educational document QA. Vietnamese questions should be answered in Vietnamese, preserve accents and subject-specific terms, and use only retrieved context from uploaded documents. Fallback responses set `evaluation.fallbackGenerated = true` and include `evaluation.fallbackReason`.
+### Chat History
 
-### GET `/chat/history`
-
-Protected. Returns the current user's chat history.
-
-Response data shape is `ChatHistoryListResponse`.
-
-### GET `/chat/history/:id`
-
-Protected. Returns one chat history item owned by the current user.
-
-Response data shape is `ChatHistoryResponse`.
-
-### DELETE `/chat/history/:id`
-
-Protected. Deletes one chat history item.
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Chat history deleted successfully"
-}
-```
+- `GET /chat/threads`
+- `GET /chat/threads/:threadId`
+- `PATCH /chat/threads/:threadId`
+- `DELETE /chat/threads/:threadId`
+- `GET /chat/history`
+- `GET /chat/history/:id`
+- `DELETE /chat/history/:id`
 
 ## Evaluation Logs
 
-### GET `/evaluation/logs`
+- `GET /evaluation/logs`: returns DR-RAG evaluation logs.
+- `GET /evaluation/summary`: returns aggregate metrics.
 
-Protected. Returns research logs for comparing basic vs corrective RAG.
-
-### GET `/evaluation/summary`
-
-Protected.
-
-Response:
+Summary response:
 
 ```json
 {
@@ -519,110 +136,25 @@ Response:
     "averageRelevanceScore": 0.71,
     "averageConfidenceScore": 0.84,
     "averageResponseTime": 2200,
-    "basicModeCount": 4,
-    "correctiveModeCount": 6
+    "drRagModeCount": 10
   }
-}
-```
-
-## RAG Test Flow
-
-1. Start MongoDB and the backend, and make sure your Pinecone index exists.
-2. Register or login to get `accessToken`.
-3. Upload a supported document file with `POST /api/documents/upload`.
-4. Confirm Pinecone has chunks by checking the upload request succeeds; the upload flow now indexes chunks after saving the document.
-5. If the document was uploaded before a chunking/metadata change, reindex it with `POST /api/documents/:documentId/reindex`.
-6. Ask a basic question with `POST /api/chat/ask` and `"mode": "basic"`.
-7. Ask the same question with `"mode": "corrective"`.
-8. Compare `data.evaluation` in both responses.
-9. Check saved history with `GET /api/chat/history`.
-10. Check research logs with `GET /api/evaluation/logs`.
-11. Check aggregate metrics with `GET /api/evaluation/summary`.
-
-Example basic request:
-
-```json
-{
-  "question": "Tài liệu nói gì về phương trình bậc hai?",
-  "documentId": "665f2a...",
-  "mode": "basic"
-}
-```
-
-Example corrective request:
-
-```json
-{
-  "question": "cái này dùng để làm gì",
-  "documentId": "665f2a...",
-  "mode": "corrective"
 }
 ```
 
 ## Benchmark
 
-Benchmark APIs compare Basic RAG and Corrective RAG against an expected answer.
-All benchmark routes are protected.
+Benchmark APIs evaluate the single production DR-RAG pipeline against an
+expected answer.
 
-### POST `/benchmark/questions`
+- `POST /benchmark/questions`
+- `GET /benchmark/questions`
+- `GET /benchmark/questions/:id`
+- `PUT /benchmark/questions/:id`
+- `DELETE /benchmark/questions/:id`
+- `POST /benchmark/run/:questionId`
+- `GET /benchmark/summary`
 
-Create one benchmark question.
-
-```json
-{
-  "question": "What is supervised learning used for?",
-  "expectedAnswer": "Supervised learning uses labeled examples to train a model to predict outputs for new inputs.",
-  "subject": "Machine Learning",
-  "documentId": "665f2a...",
-  "difficulty": "medium"
-}
-```
-
-### GET `/benchmark/questions`
-
-Returns all benchmark questions created by the current user.
-
-### GET `/benchmark/questions/:id`
-
-Returns one benchmark question.
-
-### PUT `/benchmark/questions/:id`
-
-Updates one benchmark question.
-
-```json
-{
-  "difficulty": "hard",
-  "expectedAnswer": "Updated expected answer."
-}
-```
-
-### DELETE `/benchmark/questions/:id`
-
-Deletes one benchmark question.
-
-### POST `/benchmark/run/:questionId`
-
-Runs the same question through:
-
-1. `mode = basic`
-2. `mode = corrective`
-
-Then the answer evaluation service evaluates both answers using:
-
-- `answerCorrectness`
-- `faithfulness`
-- `relevance`
-- `completeness`
-- `overallScore`
-
-Winner logic:
-
-- Corrective wins if its score is at least `0.05` higher.
-- Basic wins if its score is at least `0.05` higher.
-- Otherwise result is `tie`.
-
-Example response:
+Benchmark result response:
 
 ```json
 {
@@ -633,32 +165,20 @@ Example response:
     "benchmarkQuestionId": "665...",
     "question": "What is supervised learning used for?",
     "expectedAnswer": "Supervised learning uses labeled examples...",
-    "basicAnswer": "Basic RAG answer...",
-    "correctiveAnswer": "Corrective RAG answer...",
-    "basicEvaluation": {
-      "answerCorrectness": 0.7,
-      "faithfulness": 0.8,
-      "relevance": 0.75,
-      "completeness": 0.65,
-      "overallScore": 0.73,
-      "explanation": "The answer is partially correct."
-    },
-    "correctiveEvaluation": {
+    "answer": "DR-RAG answer...",
+    "evaluation": {
       "answerCorrectness": 0.9,
       "faithfulness": 0.92,
       "relevance": 0.9,
       "completeness": 0.85,
       "overallScore": 0.89,
-      "explanation": "The answer is accurate and complete."
-    },
-    "winner": "corrective"
+      "explanation": "The answer is accurate and grounded."
+    }
   }
 }
 ```
 
-### GET `/benchmark/summary`
-
-Example response:
+Benchmark summary response:
 
 ```json
 {
@@ -666,35 +186,11 @@ Example response:
   "message": "Benchmark summary fetched successfully",
   "data": {
     "totalRuns": 10,
-    "basicAverageScore": 0.72,
-    "correctiveAverageScore": 0.84,
-    "correctiveWinRate": 0.7,
-    "basicWinRate": 0.2,
-    "tieRate": 0.1,
-    "averageFaithfulnessImprovement": 0.11,
-    "averageCorrectnessImprovement": 0.09
+    "averageScore": 0.84,
+    "averageAnswerCorrectness": 0.82,
+    "averageFaithfulness": 0.9,
+    "averageRelevance": 0.86,
+    "averageCompleteness": 0.78
   }
 }
-```
-
-Example benchmark questions:
-
-```json
-[
-  {
-    "question": "What is the main purpose of supervised learning?",
-    "expectedAnswer": "It learns from labeled data to predict outputs for unseen inputs.",
-    "difficulty": "easy"
-  },
-  {
-    "question": "Why is normalization used before training a model?",
-    "expectedAnswer": "Normalization scales features to comparable ranges, helping optimization converge more reliably.",
-    "difficulty": "medium"
-  },
-  {
-    "question": "Compare overfitting and underfitting based on the uploaded document.",
-    "expectedAnswer": "Overfitting performs well on training data but poorly on new data, while underfitting fails to capture the underlying pattern in both training and test data.",
-    "difficulty": "hard"
-  }
-]
 ```

@@ -4,9 +4,9 @@ const MARKDOWN_HEADING_REGEX = /^\s{0,3}#{1,6}\s+(.+)$/;
 const PAGE_MARKER_REGEX = /^-*\s*\d+\s+of\s+\d+\s*-*$/i;
 const NUMERIC_ONLY_HEADING_REGEX = /^\d+$/;
 const NUMBERED_HEADING_REGEX =
-  /^((\d+(\.\d+)+\.?|\d+\.)|((CHAPTER|SECTION|CHUONG|PHAN|BAI|CH\u01af\u01a0NG|PH\u1ea6N|B\u00c0I)\s+\d+(\.\d+)*))(\s+.+)?$/iu;
+  /^(?:\d+(?:\.\d+)+\.?|\d+\.|(?:CHAPTER|SECTION|CHUONG|PHAN|BAI|CH\u01af\u01a0NG|PH\u1ea6N|B\u00c0I)\s+(?:\d+(?:\.\d+)*|[IVXLCDM]+))(?:\s*[:.-]\s*|\s+.+)?$/iu;
 const KEYWORD_HEADING_REGEX =
-  /^(CHAPTER|SECTION|CHUONG|PHAN|BAI|CH\u01af\u01a0NG|PH\u1ea6N|B\u00c0I)(\s+\d+(\.\d+)*)?(\s*[:.-]\s*|\s+).+$/iu;
+  /^(CHAPTER|SECTION|CHUONG|PHAN|BAI|CH\u01af\u01a0NG|PH\u1ea6N|B\u00c0I)(?:\s+(?:\d+(?:\.\d+)*|[IVXLCDM]+)(?:\s*[:.-]\s*|\s+).+|\s*[:.-]\s*.+)$/iu;
 const ENDING_PUNCTUATION_REGEX = /[.!?\u3002\uff01\uff1f]$/;
 
 export const normalizeHeadingCandidate = (text: string): string =>
@@ -84,7 +84,13 @@ export const isLikelyHeading = (
     uppercaseRatio >= 0.65 ||
     (wordCount <= 8 && normalizedText.length <= 80 && startsNewBlock);
 
-  return formatLooksLikeHeading && followedByContent;
+  return (
+    formatLooksLikeHeading &&
+    (followedByContent ||
+      isMarkdownHeading ||
+      isNumberedHeading ||
+      isKeywordHeading)
+  );
 };
 
 export const detectSectionFromHeading = (

@@ -82,6 +82,25 @@ Noi dung chuong hai.
     assert.equal(outline[2].parentId, outline[1].id);
   });
 
+  it("keeps a Roman-numbered chapter title at the end of a PDF", async () => {
+    const text = `
+Chuong XIV
+Quan diem triet hoc Mac - Lenin ve con nguoi
+Noi dung chuong muoi bon.
+
+Muc luc
+Chuong XIV: Quan diem triet hoc Mac - Lenin ve con nguoi`;
+    const chunkingResult = await splitTextForRag(text);
+    const outline = extractDocumentOutline({ text, chunkingResult });
+    const summary = summarizeDocumentOutline(outline);
+
+    assert.equal(summary.chapterCount, 1);
+    assert.equal(
+      summary.chapterSections[0],
+      "Chuong XIV: Quan diem triet hoc Mac - Lenin ve con nguoi",
+    );
+  });
+
   it("adds outline path and chapter ordinal to matching chunks", async () => {
     const text = `
 Chuong 1: Tong quan

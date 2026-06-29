@@ -9,10 +9,16 @@ export interface IRagEvaluationLog extends Document {
   retrievedChunksCount: number;
   relevantChunksCount: number;
   averageRelevanceScore: number;
-  correctiveAttempted: boolean;
   isGrounded: boolean;
   confidenceScore: number;
   responseTimeMs: number;
+  stageOneChunksCount?: number;
+  stageTwoChunksCount?: number;
+  selectedStaticChunksCount?: number;
+  selectedDynamicChunksCount?: number;
+  dynamicRetrievalAttempted?: boolean;
+  selectionStrategy?: string;
+  retrievalQueries?: string[];
   usedFallbackChunks?: boolean;
   relevanceThreshold?: number;
   warning?: string;
@@ -46,7 +52,7 @@ const ragEvaluationLogSchema = new Schema<IRagEvaluationLog>(
     },
     retrievalMode: {
       type: String,
-      enum: ["basic", "corrective"],
+      enum: ["dr-rag"],
       required: true,
       index: true,
     },
@@ -62,10 +68,6 @@ const ragEvaluationLogSchema = new Schema<IRagEvaluationLog>(
       type: Number,
       required: true,
     },
-    correctiveAttempted: {
-      type: Boolean,
-      required: true,
-    },
     isGrounded: {
       type: Boolean,
       required: true,
@@ -77,6 +79,27 @@ const ragEvaluationLogSchema = new Schema<IRagEvaluationLog>(
     responseTimeMs: {
       type: Number,
       required: true,
+    },
+    stageOneChunksCount: {
+      type: Number,
+    },
+    stageTwoChunksCount: {
+      type: Number,
+    },
+    selectedStaticChunksCount: {
+      type: Number,
+    },
+    selectedDynamicChunksCount: {
+      type: Number,
+    },
+    dynamicRetrievalAttempted: {
+      type: Boolean,
+    },
+    selectionStrategy: {
+      type: String,
+    },
+    retrievalQueries: {
+      type: [String],
     },
     usedFallbackChunks: {
       type: Boolean,

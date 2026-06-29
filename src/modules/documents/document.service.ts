@@ -167,12 +167,16 @@ const getSubjectOwnedByUser = async (
 
 const buildReadableDocumentFilter = (
   userId: string,
+  role: string,
   query: ListDocumentQuery,
 ): Record<string, unknown> => {
   const filter: Record<string, unknown> = {
     status: query.status || { $ne: "DELETED" },
-    $or: [{ ownerId: userId }, { visibility: "PUBLIC" }],
   };
+
+  if (role !== "admin") {
+    filter.ownerId = userId;
+  }
 
   if (query.subjectId?.trim()) {
     filter.subjectId = query.subjectId.trim();
@@ -216,10 +220,11 @@ export const createDocumentMetadata = async (
 
 export const getDocuments = async (
   userId: string,
+  role: string = "user",
   query: ListDocumentQuery = {},
 ): Promise<{ data: DocumentResponse[]; pagination: PaginationResponse }> => {
   const { page, limit, skip } = paginate(query);
-  const filters = buildReadableDocumentFilter(userId, query);
+  const filters = buildReadableDocumentFilter(userId, role, query);
 
   const [documents, totalItems] = await Promise.all([
     StudyDocument.find(filters)
@@ -244,12 +249,21 @@ export const getDocuments = async (
 export const getDocumentDetail = async (
   documentId: string,
   userId: string,
+  role: string = "user",
 ): Promise<DocumentResponse> => {
-  const document = await StudyDocument.findOne({
+  const filter: Record<string, any> = {
     _id: documentId,
     status: { $ne: "DELETED" },
-    $or: [{ ownerId: userId }, { visibility: "PUBLIC" }],
-  }).populate("subjectId", "_id name description color code semester");
+  };
+
+  if (role !== "admin") {
+    filter.ownerId = userId;
+  }
+
+  const document = await StudyDocument.findOne(filter).populate(
+    "subjectId",
+    "_id name description color code semester",
+  );
   await document?.populate(
     "currentVersionId",
     "_id processingStatus processingStage processingProgress",
@@ -265,28 +279,31 @@ export const getDocumentDetail = async (
 export const updateDocumentMetadata = async (
   documentId: string,
   ownerId: string,
+  role: string,
   payload: UpdateDocumentRequest,
 ): Promise<DocumentResponse> => {
-  const existingDocument = await StudyDocument.findOne({
+  const filter: Record<string, any> = {
     _id: documentId,
-    ownerId,
     status: { $ne: "DELETED" },
-  });
+  };
+
+  if (role !== "admin") {
+    filter.ownerId = ownerId;
+  }
+
+  const existingDocument = await StudyDocument.findOne(filter);
 
   if (!existingDocument) {
     throw new AppError("Document not found", 404);
   }
 
-  if (payload.subjectId !== undefined) {
-    await getSubjectOwnedByUser(payload.subjectId, ownerId);
+  if (payload.subjectId !== undefined && payload.subjectId !== null && payload.subjectId !== "") {
+    const subjectOwnerId = role === "admin" ? existingDocument.ownerId.toString() : ownerId;
+    await getSubjectOwnedByUser(payload.subjectId, subjectOwnerId);
   }
 
   const document = await StudyDocument.findOneAndUpdate(
-    {
-      _id: documentId,
-      ownerId,
-      status: { $ne: "DELETED" },
-    },
+    filter,
     payload,
     {
       new: true,
@@ -304,13 +321,19 @@ export const updateDocumentMetadata = async (
 export const softDeleteDocument = async (
   documentId: string,
   ownerId: string,
+  role: string = "user",
 ): Promise<void> => {
+  const filter: Record<string, any> = {
+    _id: documentId,
+    status: { $ne: "DELETED" },
+  };
+
+  if (role !== "admin") {
+    filter.ownerId = ownerId;
+  }
+
   const document = await StudyDocument.findOneAndUpdate(
-    {
-      _id: documentId,
-      ownerId,
-      status: { $ne: "DELETED" },
-    },
+    filter,
     {
       status: "DELETED",
       deletedAt: new Date(),

@@ -101,6 +101,12 @@ const SHORT_ANSWER_PATTERN =
 const DETAILED_ANSWER_PATTERN =
   /\b(noi dung|tom tat|tong quan|y chinh|giai thich|trinh bay|phan tich|diem can nho|overview|summary|explain|main ideas?|key points?)\b/i;
 
+const PRACTICAL_APPLICATION_PATTERN =
+  /\b(vi du|minh hoa|lien he|thuc tien|thuc te|doi song|gan gui|ap dung|tinh huong|example|illustrate|practical|real life|apply)\b/i;
+
+export const isPracticalApplicationQuestion = (question: string): boolean =>
+  PRACTICAL_APPLICATION_PATTERN.test(normalizeForQuestionMatching(question));
+
 export const detectAnswerProfile = (
   question: string,
   intent: SemanticQuestionIntent = "unknown",

@@ -33,6 +33,10 @@ const getDeterministicFallback = (language: string, reason: string): string => {
   const isVietnamese = language.toLowerCase().includes("vietnamese");
 
   if (isVietnamese) {
+    if (reason === "out_of_scope") {
+      return "Câu hỏi này không liên quan đến nội dung của tài liệu đã chọn, nên mình không thể trả lời dựa trên tài liệu. Hãy hỏi về nội dung có trong tài liệu hoặc chọn tài liệu phù hợp hơn.";
+    }
+
     if (reason === "no_relevant_chunks_found") {
       return "Hiện tại mình chưa tìm thấy đoạn nội dung liên quan trong tài liệu đã upload để trả lời câu hỏi này. Bạn có thể thử hỏi cụ thể hơn, chọn đúng tài liệu/môn học, hoặc kiểm tra lại file đã được xử lý và re-index chưa.";
     }
@@ -48,6 +52,10 @@ const getDeterministicFallback = (language: string, reason: string): string => {
     return "Hiện tại mình chưa tìm thấy thông tin đủ rõ trong tài liệu đã upload để trả lời câu hỏi này. Bạn có thể thử hỏi cụ thể hơn, chọn đúng tài liệu/môn học, hoặc kiểm tra lại file đã được xử lý và re-index chưa.";
   }
 
+  if (reason === "out_of_scope") {
+    return "This question is not related to the selected document, so I cannot answer it from the document. Please ask about the document content or select a more relevant document.";
+  }
+
   if (reason === "grounding_failed") {
     return "I tried to generate an answer, but it was not well supported by the uploaded document context. Please try asking more specifically, selecting the correct document, or re-indexing the file.";
   }
@@ -59,6 +67,11 @@ export const generateFallbackAnswer = async (
   params: FallbackAnswerParams,
 ): Promise<string> => {
   const reason = getFallbackReason(params);
+
+  if (reason === "out_of_scope") {
+    return getDeterministicFallback(params.language, reason);
+  }
+
   const detailedFallback = params.answerProfile === "detailed";
   const prompt = `
 Generate a ${detailedFallback ? "structured" : "short"} fallback response for a RAG document QA system.

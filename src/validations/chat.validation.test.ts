@@ -13,11 +13,24 @@ describe("chat validation", () => {
         documentIds: [objectId, otherObjectId],
         subjectId: objectId,
         scope: "document_set",
-        mode: "basic",
       },
     });
 
     assert.equal(result.success, true);
+  });
+
+  it("rejects legacy RAG mode input", () => {
+    const result = askQuestionSchema.safeParse({
+      body: {
+        question: "Compare these documents",
+        documentIds: [objectId, otherObjectId],
+        subjectId: objectId,
+        scope: "document_set",
+        mode: "basic",
+      },
+    });
+
+    assert.equal(result.success, false);
   });
 
   it("rejects documentId and documentIds together", () => {

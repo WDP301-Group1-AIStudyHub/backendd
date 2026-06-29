@@ -87,7 +87,7 @@ Prompts prioritize Vietnamese study documents: Vietnamese questions are answered
 
 The fallback explains why the system cannot answer, such as no relevant chunks found, retrieved chunks not being relevant enough, grounding failure, the file needing re-indexing, or text extraction quality. It does not answer the actual question and is capped to a short response so users know what to try next.
 
-Corrective RAG uses `RELEVANCE_THRESHOLD=0.55` by default. This higher threshold improves precision by filtering weaker chunks, but it can reduce recall. Tune `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and `MIN_RELEVANT_CHUNKS` through environment variables.
+DR-RAG uses `RELEVANCE_THRESHOLD=0.55` by default. This threshold improves precision in both static and dynamic retrieval selection, but it can reduce recall. Tune `RELEVANCE_THRESHOLD`, `PINECONE_RELEVANCE_THRESHOLD`, and `MIN_RELEVANT_CHUNKS` through environment variables.
 
 ## Main APIs
 

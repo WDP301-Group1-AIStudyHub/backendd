@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   detectAnswerProfile,
   extractSectionReference,
+  isPracticalApplicationQuestion,
   shouldTreatAsSummaryIntent,
 } from "./answerProfile";
 
@@ -40,5 +41,18 @@ describe("answer profile detection", () => {
     assert.equal(profile.profile, "brief");
     assert.equal(profile.wantsShortAnswer, true);
     assert.equal(profile.wantsDetailedAnswer, false);
+  });
+
+  it("detects requests for practical everyday examples", () => {
+    assert.equal(
+      isPracticalApplicationQuestion(
+        "Dua vi du don gian, gan gui voi doi song ve vat chat quyet dinh y thuc",
+      ),
+      true,
+    );
+    assert.equal(
+      isPracticalApplicationQuestion("Vat chat quyet dinh y thuc la gi?"),
+      false,
+    );
   });
 });

@@ -33,3 +33,19 @@ export const authMiddleware = (
 
   return next();
 };
+
+export const isAdminMiddleware = (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void => {
+  if (!req.authUser) {
+    return next(new AppError("Not authenticated", 401));
+  }
+
+  if (req.authUser.role !== "admin") {
+    return next(new AppError("Forbidden: Admin access required", 403));
+  }
+
+  return next();
+};

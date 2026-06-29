@@ -9,6 +9,8 @@ export interface IUser extends Document {
   password: string;
   avatar?: string;
   role: UserRole;
+  isActive: boolean;
+  banReason?: string;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -44,6 +46,14 @@ const userSchema = new Schema<IUser>(
       type: String,
       enum: ["user", "admin"],
       default: "user",
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    banReason: {
+      type: String,
+      trim: true,
     },
   },
   {

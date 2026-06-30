@@ -10,9 +10,8 @@ import {
   ChatThreadResponse,
 } from "../types/api.types";
 import { AppError } from "../middlewares/error.middleware";
-import { askQuestionWithCorrectiveRag } from "./correctiveRag.service";
 import { createEvaluationLog } from "./evaluation.service";
-import { askQuestionWithRag } from "./rag.service";
+import { askQuestionWithDrRag } from "./drRag.service";
 import { answerDocumentStructureQuestion } from "./documentStructureAnswer.service";
 import { resolveChatScope } from "./chatScope.service";
 
@@ -86,7 +85,7 @@ const getOrCreateThread = async (
     subjectId: payload.subjectId,
     documentId: payload.documentId,
     documentIds: payload.documentIds,
-    mode: payload.mode || "basic",
+    mode: "dr-rag",
   });
 };
 
@@ -96,15 +95,13 @@ export const askQuestion = async (
   options: { persistHistory?: boolean } = {},
 ): Promise<AskQuestionResponse> => {
   const persistHistory = options.persistHistory ?? true;
-  const mode = payload.mode || "basic";
   const chatScope = await resolveChatScope(userId, payload);
 
   const structuralResult = await answerDocumentStructureQuestion(userId, payload);
   const result =
     structuralResult ||
-    (mode === "corrective"
-      ? await askQuestionWithCorrectiveRag(userId, payload)
-      : await askQuestionWithRag(userId, payload));
+    (await askQuestionWithDrRag(userId, payload));
+  const evaluation = result.evaluation;
 
   let threadId: string | undefined;
 
@@ -125,7 +122,7 @@ export const askQuestion = async (
       subjectId: chatScope.subjectId,
       scope: payload.scope || chatScope.scope,
       mode: result.mode,
-      evaluation: result.evaluation,
+      evaluation,
     });
 
     await ChatThread.findOneAndUpdate(
@@ -148,25 +145,31 @@ export const askQuestion = async (
       userId,
       question: result.originalQuestion,
       rewrittenQuery: result.rewrittenQuery,
-      retrievalMode: result.mode || "basic",
-      retrievedChunksCount: result.evaluation?.retrievedChunksCount || 0,
-      relevantChunksCount: result.evaluation?.relevantChunksCount || 0,
-      averageRelevanceScore: result.evaluation?.averageRelevanceScore || 0,
-      correctiveAttempted: result.evaluation?.correctiveAttempted || false,
-      isGrounded: result.evaluation?.isGrounded ?? true,
-      confidenceScore: result.evaluation?.confidenceScore || 0,
-      responseTimeMs: result.evaluation?.responseTimeMs || 0,
-      usedFallbackChunks: result.evaluation?.usedFallbackChunks,
-      relevanceThreshold: result.evaluation?.relevanceThreshold,
-      warning: result.evaluation?.warning,
-      fallbackGenerated: result.evaluation?.fallbackGenerated,
-      fallbackReason: result.evaluation?.fallbackReason,
-      detectedIntent: result.evaluation?.detectedIntent,
-      retrievedSections: result.evaluation?.retrievedSections,
-      answerProfile: result.evaluation?.answerProfile,
-      usedSectionExpansion: result.evaluation?.usedSectionExpansion,
-      selectedSectionTitle: result.evaluation?.selectedSectionTitle,
-      contextChunksUsed: result.evaluation?.contextChunksUsed,
+      retrievalMode: result.mode,
+      retrievedChunksCount: evaluation.retrievedChunksCount,
+      relevantChunksCount: evaluation.relevantChunksCount,
+      averageRelevanceScore: evaluation.averageRelevanceScore,
+      isGrounded: evaluation.isGrounded,
+      confidenceScore: evaluation.confidenceScore,
+      responseTimeMs: evaluation.responseTimeMs,
+      stageOneChunksCount: evaluation.stageOneChunksCount,
+      stageTwoChunksCount: evaluation.stageTwoChunksCount,
+      selectedStaticChunksCount: evaluation.selectedStaticChunksCount,
+      selectedDynamicChunksCount: evaluation.selectedDynamicChunksCount,
+      dynamicRetrievalAttempted: evaluation.dynamicRetrievalAttempted,
+      selectionStrategy: evaluation.selectionStrategy,
+      retrievalQueries: evaluation.retrievalQueries,
+      usedFallbackChunks: evaluation.usedFallbackChunks,
+      relevanceThreshold: evaluation.relevanceThreshold,
+      warning: evaluation.warning,
+      fallbackGenerated: evaluation.fallbackGenerated,
+      fallbackReason: evaluation.fallbackReason,
+      detectedIntent: evaluation.detectedIntent,
+      retrievedSections: evaluation.retrievedSections,
+      answerProfile: evaluation.answerProfile,
+      usedSectionExpansion: evaluation.usedSectionExpansion,
+      selectedSectionTitle: evaluation.selectedSectionTitle,
+      contextChunksUsed: evaluation.contextChunksUsed,
     });
   }
 

@@ -8,12 +8,14 @@ import {
 import { generateAccessToken } from "../utils/generateToken";
 import { AppError } from "../middlewares/error.middleware";
 
-export const toUserResponse = (user: IUser): UserResponse => ({
+export const toUserResponse = (user: IUser): UserResponse & { isActive?: boolean; banReason?: string } => ({
   id: user._id.toString(),
   fullName: user.fullName,
   email: user.email,
   avatar: user.avatar,
   role: user.role,
+  isActive: user.isActive,
+  banReason: user.banReason,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
 });
@@ -44,6 +46,10 @@ export const loginUser = async (
 
   if (!user || !(await user.comparePassword(password))) {
     throw new AppError("Invalid email or password", 401);
+  }
+
+  if (user.isActive === false) {
+    throw new AppError(`Your account has been banned. Reason: ${user.banReason || 'Contact support'}`, 401);
   }
 
   const accessToken = generateAccessToken(user);

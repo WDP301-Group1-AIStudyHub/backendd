@@ -17,12 +17,24 @@ import {
 } from "../services/document.service";
 import { sendResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
+import { ActivityLogService } from "../services/activityLog.service";
+import { getIpAddress } from "../utils/getIp";
 
 export const uploadDocument = asyncHandler(async (
   req: Request<unknown, unknown, UploadDocumentRequest>,
   res: Response,
 ): Promise<void> => {
   const data = await createDocument(req.body, req.file, req.authUser!.id);
+
+  await ActivityLogService.log({
+    userId: req.authUser!.id,
+    action: "DOCUMENT_UPLOAD",
+    entityType: "Document",
+    entityId: data._id,
+    details: { title: data.title },
+    ipAddress: getIpAddress(req),
+    userAgent: req.headers["user-agent"],
+  });
 
   sendResponse(res, 201, {
     success: true,
@@ -105,6 +117,15 @@ export const removeDocument = asyncHandler(async (
   res: Response,
 ): Promise<void> => {
   await deleteDocument(req.params.id, req.authUser!.id);
+
+  await ActivityLogService.log({
+    userId: req.authUser!.id,
+    action: "DOCUMENT_DELETE",
+    entityType: "Document",
+    entityId: req.params.id,
+    ipAddress: getIpAddress(req),
+    userAgent: req.headers["user-agent"],
+  });
 
   sendResponse(res, 200, {
     success: true,

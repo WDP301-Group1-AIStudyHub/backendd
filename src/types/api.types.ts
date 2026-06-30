@@ -238,7 +238,6 @@ export interface AskQuestionRequest {
   subject?: string;
   subjectId?: string;
   scope?: "single_document" | "subject_all" | "document_set" | "library_all";
-  mode?: RagMode;
 }
 
 export interface ChatSource {
@@ -322,7 +321,6 @@ export interface ChatThreadListResponse {
 }
 
 export type BenchmarkDifficulty = "easy" | "medium" | "hard";
-export type BenchmarkWinner = "basic" | "corrective" | "tie";
 
 export interface BenchmarkQuestionRequest {
   question: string;
@@ -358,22 +356,17 @@ export interface BenchmarkResultResponse {
   benchmarkQuestionId: string | Types.ObjectId;
   question: string;
   expectedAnswer: string;
-  basicAnswer: string;
-  correctiveAnswer: string;
-  basicEvaluation: BenchmarkEvaluationScore;
-  correctiveEvaluation: BenchmarkEvaluationScore;
-  winner: BenchmarkWinner;
+  answer: string;
+  evaluation: BenchmarkEvaluationScore;
   createdBy: string | Types.ObjectId;
   createdAt: Date;
 }
 
 export interface BenchmarkSummaryResponse {
   totalRuns: number;
-  basicAverageScore: number;
-  correctiveAverageScore: number;
-  correctiveWinRate: number;
-  basicWinRate: number;
-  tieRate: number;
-  averageFaithfulnessImprovement: number;
-  averageCorrectnessImprovement: number;
+  averageScore: number;
+  averageAnswerCorrectness: number;
+  averageFaithfulness: number;
+  averageRelevance: number;
+  averageCompleteness: number;
 }

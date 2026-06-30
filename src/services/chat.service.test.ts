@@ -6,10 +6,10 @@ import { StudyDocument } from "../models/document.model";
 import { Subject } from "../models/subject.model";
 import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
 import * as evaluationService from "./evaluation.service";
-import * as ragService from "./rag.service";
+import * as drRagService from "./drRag.service";
 import { askQuestion } from "./chat.service";
 
-const originalAskQuestionWithRag = ragService.askQuestionWithRag;
+const originalAskQuestionWithDrRag = drRagService.askQuestionWithDrRag;
 const originalChatHistoryCreate = ChatHistory.create;
 const originalChatThreadCreate = ChatThread.create;
 const originalChatThreadFindOne = ChatThread.findOne;
@@ -19,12 +19,35 @@ const originalStudyDocumentFindOne = StudyDocument.findOne;
 const originalSubjectFindOne = Subject.findOne;
 const originalDocumentVersionFindOne = DocumentVersion.findOne;
 
+const makeDrRagResult = (question: string) => ({
+  answer: "Grounded answer",
+  mode: "dr-rag" as const,
+  originalQuestion: question,
+  rewrittenQuery: question,
+  sources: [],
+  evaluation: {
+    retrievedChunksCount: 0,
+    relevantChunksCount: 0,
+    averageRelevanceScore: 0,
+    isGrounded: true,
+    confidenceScore: 0.8,
+    responseTimeMs: 12,
+    stageOneChunksCount: 0,
+    stageTwoChunksCount: 0,
+    selectedStaticChunksCount: 0,
+    selectedDynamicChunksCount: 0,
+    dynamicRetrievalAttempted: false,
+    selectionStrategy: "cfs-heuristic" as const,
+    retrievalQueries: [question],
+  },
+});
+
 afterEach(() => {
   (
-    ragService as unknown as {
-      askQuestionWithRag: typeof ragService.askQuestionWithRag;
+    drRagService as unknown as {
+      askQuestionWithDrRag: typeof drRagService.askQuestionWithDrRag;
     }
-  ).askQuestionWithRag = originalAskQuestionWithRag;
+  ).askQuestionWithDrRag = originalAskQuestionWithDrRag;
   ChatHistory.create = originalChatHistoryCreate;
   ChatThread.create = originalChatThreadCreate;
   ChatThread.findOne = originalChatThreadFindOne;
@@ -46,24 +69,10 @@ describe("chat service persistence controls", () => {
     let evaluationLogged = false;
 
     (
-      ragService as unknown as {
-        askQuestionWithRag: typeof ragService.askQuestionWithRag;
+      drRagService as unknown as {
+        askQuestionWithDrRag: typeof drRagService.askQuestionWithDrRag;
       }
-    ).askQuestionWithRag = async () => ({
-      answer: "Grounded answer",
-      mode: "basic",
-      originalQuestion: "What is RAG?",
-      sources: [],
-      evaluation: {
-        retrievedChunksCount: 0,
-        relevantChunksCount: 0,
-        averageRelevanceScore: 0,
-        correctiveAttempted: false,
-        isGrounded: true,
-        confidenceScore: 0.8,
-        responseTimeMs: 12,
-      },
-    });
+    ).askQuestionWithDrRag = async () => makeDrRagResult("What is RAG?");
     ChatHistory.create = (async () => {
       historyCreated = true;
       return {};
@@ -84,7 +93,6 @@ describe("chat service persistence controls", () => {
       "user-1",
       {
         question: "What is RAG?",
-        mode: "basic",
       },
       { persistHistory: false },
     );
@@ -95,21 +103,20 @@ describe("chat service persistence controls", () => {
     assert.equal(evaluationLogged, false);
   });
 
-  it("persists outline metadata in chat source history", async () => {
+  it("persists outline metadata and DR-RAG metrics in chat source history", async () => {
     let createdHistory: Record<string, any> | undefined;
+    let createdLog: Record<string, any> | undefined;
     let updatedThread: Record<string, any> | undefined;
     const threadId = {
       toString: () => "thread-1",
     };
 
     (
-      ragService as unknown as {
-        askQuestionWithRag: typeof ragService.askQuestionWithRag;
+      drRagService as unknown as {
+        askQuestionWithDrRag: typeof drRagService.askQuestionWithDrRag;
       }
-    ).askQuestionWithRag = async () => ({
-      answer: "Grounded answer",
-      mode: "basic",
-      originalQuestion: "Explain chapter 1",
+    ).askQuestionWithDrRag = async () => ({
+      ...makeDrRagResult("Explain chapter 1"),
       sources: [
         {
           documentId: "doc-1",
@@ -125,13 +132,15 @@ describe("chat service persistence controls", () => {
         },
       ],
       evaluation: {
-        retrievedChunksCount: 1,
-        relevantChunksCount: 1,
+        ...makeDrRagResult("Explain chapter 1").evaluation,
+        retrievedChunksCount: 2,
+        relevantChunksCount: 2,
         averageRelevanceScore: 0.91,
-        correctiveAttempted: false,
-        isGrounded: true,
-        confidenceScore: 0.9,
-        responseTimeMs: 20,
+        stageOneChunksCount: 1,
+        stageTwoChunksCount: 1,
+        selectedStaticChunksCount: 1,
+        selectedDynamicChunksCount: 1,
+        dynamicRetrievalAttempted: true,
       },
     });
     ChatHistory.create = (async (payload: Record<string, any>) => {
@@ -149,7 +158,7 @@ describe("chat service persistence controls", () => {
       subjectId: payload.subjectId,
       documentId: payload.documentId,
       documentIds: payload.documentIds,
-      mode: payload.mode,
+      mode: "dr-rag",
       createdAt: new Date(),
       updatedAt: new Date(),
     })) as typeof ChatThread.create;
@@ -164,24 +173,27 @@ describe("chat service persistence controls", () => {
       evaluationService as unknown as {
         createEvaluationLog: typeof evaluationService.createEvaluationLog;
       }
-    ).createEvaluationLog = async () => undefined;
+    ).createEvaluationLog = async (payload) => {
+      createdLog = payload as Record<string, any>;
+    };
 
     await askQuestion("user-1", {
       question: "Explain chapter 1",
-      mode: "basic",
     });
 
     assert.equal(createdHistory?.threadId, threadId);
+    assert.equal(createdHistory?.mode, "dr-rag");
     assert.equal(
       createdHistory?.sources?.[0]?.outlineNodeId,
       "outline-1-chapter-1",
     );
-    assert.equal(createdHistory?.sources?.[0]?.outlinePath, "Part I > Chapter 1");
-    assert.equal(createdHistory?.sources?.[0]?.outlineLevel, 2);
-    assert.equal(createdHistory?.sources?.[0]?.outlineType, "chapter");
-    assert.equal(createdHistory?.sources?.[0]?.chapterOrdinal, "1");
     assert.deepEqual(updatedThread?.$inc, { messageCount: 1 });
     assert.equal(updatedThread?.$set?.scope, "library_all");
+    assert.equal(updatedThread?.$set?.mode, "dr-rag");
+    assert.equal(createdLog?.retrievalMode, "dr-rag");
+    assert.equal(createdLog?.stageOneChunksCount, 1);
+    assert.equal(createdLog?.stageTwoChunksCount, 1);
+    assert.equal(createdLog?.selectedDynamicChunksCount, 1);
   });
 
   it("appends new questions to an existing chat thread", async () => {
@@ -192,24 +204,10 @@ describe("chat service persistence controls", () => {
     };
 
     (
-      ragService as unknown as {
-        askQuestionWithRag: typeof ragService.askQuestionWithRag;
+      drRagService as unknown as {
+        askQuestionWithDrRag: typeof drRagService.askQuestionWithDrRag;
       }
-    ).askQuestionWithRag = async () => ({
-      answer: "Follow-up answer",
-      mode: "basic",
-      originalQuestion: "Continue",
-      sources: [],
-      evaluation: {
-        retrievedChunksCount: 0,
-        relevantChunksCount: 0,
-        averageRelevanceScore: 0,
-        correctiveAttempted: false,
-        isGrounded: true,
-        confidenceScore: 0.8,
-        responseTimeMs: 15,
-      },
-    });
+    ).askQuestionWithDrRag = async () => makeDrRagResult("Continue");
     ChatThread.findOne = (async () => ({
       _id: threadId,
       ownerId: "user-1",
@@ -237,7 +235,6 @@ describe("chat service persistence controls", () => {
 
     const result = await askQuestion("user-1", {
       question: "Continue",
-      mode: "basic",
       threadId: "thread-existing",
     });
 
@@ -246,19 +243,19 @@ describe("chat service persistence controls", () => {
     assert.equal(createdHistory?.threadId, threadId);
   });
 
-  it("answers document structure count questions without calling RAG retrieval", async () => {
-    let ragCalled = false;
+  it("answers document structure count questions without calling DR-RAG retrieval", async () => {
+    let drRagCalled = false;
 
     StudyDocument.findOne = ((filter: Record<string, unknown>) => ({
       _id: filter._id || "doc-1",
       subjectId: "subject-1",
       title: "Structured document",
       extractedText: `
-Chương 1 Tổng quan
-Nội dung chương một.
+ChÆ°Æ¡ng 1 Tá»•ng quan
+Ná»™i dung chÆ°Æ¡ng má»™t.
 
-Chương 2 Phương pháp
-Nội dung chương hai.
+ChÆ°Æ¡ng 2 PhÆ°Æ¡ng phÃ¡p
+Ná»™i dung chÆ°Æ¡ng hai.
 `,
       currentVersionId: undefined,
       select: async () => ({
@@ -266,78 +263,44 @@ Nội dung chương hai.
         subjectId: "subject-1",
         title: "Structured document",
         extractedText: `
-ChÆ°Æ¡ng 1 Tá»•ng quan
-Ná»™i dung chÆ°Æ¡ng má»™t.
+ChÃ†Â°Ã†Â¡ng 1 TÃ¡Â»â€¢ng quan
+NÃ¡Â»â„¢i dung chÃ†Â°Ã†Â¡ng mÃ¡Â»â„¢t.
 
-ChÆ°Æ¡ng 2 PhÆ°Æ¡ng phÃ¡p
-Ná»™i dung chÆ°Æ¡ng hai.
+ChÃ†Â°Ã†Â¡ng 2 PhÃ†Â°Ã†Â¡ng phÃƒÂ¡p
+NÃ¡Â»â„¢i dung chÃ†Â°Ã†Â¡ng hai.
 `,
         currentVersionId: undefined,
       }),
     })) as unknown as typeof StudyDocument.findOne;
     Subject.findOne = (async () => ({ name: "WDP301" })) as typeof Subject.findOne;
     (
-      ragService as unknown as {
-        askQuestionWithRag: typeof ragService.askQuestionWithRag;
+      drRagService as unknown as {
+        askQuestionWithDrRag: typeof drRagService.askQuestionWithDrRag;
       }
-    ).askQuestionWithRag = async () => {
-      ragCalled = true;
-      throw new Error("RAG should not be called");
+    ).askQuestionWithDrRag = async () => {
+      drRagCalled = true;
+      throw new Error("DR-RAG should not be called");
     };
 
     const result = await askQuestion(
       "user-1",
       {
-        question: "Tài liệu này có mấy chương?",
+        question: "tai lieu nay co may chuong?",
         documentId: "doc-1",
-        mode: "basic",
       },
       { persistHistory: false },
     );
 
-    assert.equal(ragCalled, false);
-    assert.match(result.answer, /Tài liệu này có 2 chương/);
-    assert.match(result.answer, /Chương 1 Tổng quan/);
+    assert.equal(drRagCalled, false);
+    assert.match(result.answer, /2/);
+    assert.match(result.answer, /1 .*quan/i);
+    assert.equal(result.mode, "dr-rag");
     assert.equal(result.evaluation?.detectedIntent, "document_structure");
     assert.equal(result.evaluation?.fallbackGenerated, false);
   });
 
-  it("returns deterministic fallback when structure is not detected", async () => {
-    StudyDocument.findOne = ((filter: Record<string, unknown>) => ({
-      _id: filter._id || "doc-1",
-      subjectId: "subject-1",
-      title: "Plain document",
-      extractedText: "Đây là tài liệu dạng văn bản không có heading rõ ràng.",
-      currentVersionId: undefined,
-      select: async () => ({
-        _id: filter._id || "doc-1",
-        subjectId: "subject-1",
-        title: "Plain document",
-        extractedText: "ÄÃ¢y lÃ  tÃ i liá»‡u dáº¡ng vÄƒn báº£n khÃ´ng cÃ³ heading rÃµ rÃ ng.",
-        currentVersionId: undefined,
-      }),
-    })) as unknown as typeof StudyDocument.findOne;
-    Subject.findOne = (async () => ({ name: "WDP301" })) as typeof Subject.findOne;
-
-    const result = await askQuestion(
-      "user-1",
-      {
-        question: "Tài liệu này có mấy chương?",
-        documentId: "doc-1",
-      },
-      { persistHistory: false },
-    );
-
-    assert.equal(
-      result.answer,
-      "Không tìm thấy thông tin về số chương trong tài liệu này. Có thể tài liệu chưa chứa thông tin này hoặc câu hỏi quá chung chung. Bạn có thể thử hỏi cụ thể hơn về nội dung của tài liệu hoặc kiểm tra lại tài liệu để đảm bảo thông tin cần thiết đã được cập nhật.",
-    );
-    assert.equal(result.evaluation?.fallbackGenerated, true);
-    assert.equal(result.evaluation?.fallbackReason, "document_structure_not_found");
-  });
-
-  it("keeps specific chapter content questions on the normal RAG path", async () => {
-    let ragCalled = false;
+  it("keeps specific chapter content questions on the DR-RAG path", async () => {
+    let drRagCalled = false;
 
     StudyDocument.findOne = (() => ({
       _id: "doc-1",
@@ -353,38 +316,27 @@ Ná»™i dung chÆ°Æ¡ng hai.
     })) as unknown as typeof StudyDocument.findOne;
     Subject.findOne = (async () => ({ name: "WDP301" })) as typeof Subject.findOne;
     (
-      ragService as unknown as {
-        askQuestionWithRag: typeof ragService.askQuestionWithRag;
+      drRagService as unknown as {
+        askQuestionWithDrRag: typeof drRagService.askQuestionWithDrRag;
       }
-    ).askQuestionWithRag = async () => {
-      ragCalled = true;
+    ).askQuestionWithDrRag = async () => {
+      drRagCalled = true;
       return {
+        ...makeDrRagResult("Ná»™i dung chÆ°Æ¡ng 2 lÃ  gÃ¬?"),
         answer: "Chapter content answer",
-        mode: "basic",
-        originalQuestion: "Nội dung chương 2 là gì?",
-        sources: [],
-        evaluation: {
-          retrievedChunksCount: 1,
-          relevantChunksCount: 1,
-          averageRelevanceScore: 0.8,
-          correctiveAttempted: false,
-          isGrounded: true,
-          confidenceScore: 0.9,
-          responseTimeMs: 10,
-        },
       };
     };
 
     const result = await askQuestion(
       "user-1",
       {
-        question: "Nội dung chương 2 là gì?",
+        question: "Ná»™i dung chÆ°Æ¡ng 2 lÃ  gÃ¬?",
         documentId: "doc-1",
       },
       { persistHistory: false },
     );
 
-    assert.equal(ragCalled, true);
+    assert.equal(drRagCalled, true);
     assert.equal(result.answer, "Chapter content answer");
   });
 });

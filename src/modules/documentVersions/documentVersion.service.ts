@@ -365,7 +365,10 @@ const processVersionSynchronously = async (
         ? outlineSummary.detectedSections
         : structure.detectedSections;
     version.documentOutline = documentOutline;
-    version.chapterCount = outlineSummary.chapterCount || structure.chapterCount;
+    version.chapterCount = Math.max(
+      outlineSummary.chapterCount,
+      structure.chapterCount,
+    );
     version.partCount = outlineSummary.partCount || structure.partCount;
     version.sectionCount = outlineSummary.sectionCount || structure.sectionCount;
     await version.save();
@@ -453,7 +456,10 @@ const processVersionSynchronously = async (
         ? outlineSummary.detectedSections
         : structure.detectedSections;
     version.documentOutline = documentOutline;
-    version.chapterCount = outlineSummary.chapterCount || structure.chapterCount;
+    version.chapterCount = Math.max(
+      outlineSummary.chapterCount,
+      structure.chapterCount,
+    );
     version.partCount = outlineSummary.partCount || structure.partCount;
     version.sectionCount = outlineSummary.sectionCount || structure.sectionCount;
     version.processingStatus = "INDEXED";
@@ -848,7 +854,10 @@ export const reindexDocumentVersion = async (
         ? outlineSummary.detectedSections
         : structure.detectedSections;
     version.documentOutline = documentOutline;
-    version.chapterCount = outlineSummary.chapterCount || structure.chapterCount;
+    version.chapterCount = Math.max(
+      outlineSummary.chapterCount,
+      structure.chapterCount,
+    );
     version.partCount = outlineSummary.partCount || structure.partCount;
     version.sectionCount = outlineSummary.sectionCount || structure.sectionCount;
     await version.save();
@@ -937,7 +946,10 @@ export const reindexDocumentVersion = async (
         ? outlineSummary.detectedSections
         : structure.detectedSections;
     version.documentOutline = documentOutline;
-    version.chapterCount = outlineSummary.chapterCount || structure.chapterCount;
+    version.chapterCount = Math.max(
+      outlineSummary.chapterCount,
+      structure.chapterCount,
+    );
     version.partCount = outlineSummary.partCount || structure.partCount;
     version.sectionCount = outlineSummary.sectionCount || structure.sectionCount;
     await version.save();

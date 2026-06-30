@@ -75,8 +75,8 @@ const chatThreadSchema = new Schema<IChatThread>(
     },
     mode: {
       type: String,
-      enum: ["basic", "corrective"],
-      default: "basic",
+      enum: ["dr-rag"],
+      default: "dr-rag",
     },
   },
   {

@@ -2,10 +2,12 @@ import { isValidObjectId } from "mongoose";
 import { StudyDocument } from "../models/document.model";
 import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
 import { AskQuestionRequest } from "../types/api.types";
-import { RagAnswerResult, RagMode } from "../types/rag.types";
+import { RagAnswerResult } from "../types/rag.types";
 import {
+  analyzeDocumentStructure,
   detectStructuralQuestion,
   formatStructureCountAnswer,
+  getSectionsForUnit,
   getStructureNotFoundAnswer,
 } from "../utils/documentStructure";
 import { splitTextForRag } from "../utils/textSplitter";
@@ -59,10 +61,16 @@ const buildEvaluation = ({
   retrievedChunksCount: 0,
   relevantChunksCount: 0,
   averageRelevanceScore: 0,
-  correctiveAttempted: false,
   isGrounded,
   confidenceScore: isGrounded ? 1 : 0,
   responseTimeMs,
+  stageOneChunksCount: 0,
+  stageTwoChunksCount: 0,
+  selectedStaticChunksCount: 0,
+  selectedDynamicChunksCount: 0,
+  dynamicRetrievalAttempted: false,
+  selectionStrategy: "cfs-heuristic" as const,
+  retrievalQueries: [],
   fallbackGenerated,
   fallbackReason,
   detectedIntent: "document_structure",
@@ -73,7 +81,6 @@ const buildEvaluation = ({
 
 const buildResult = ({
   answer,
-  mode,
   originalQuestion,
   responseTimeMs,
   fallbackGenerated = false,
@@ -81,7 +88,6 @@ const buildResult = ({
   isGrounded = true,
 }: {
   answer: string;
-  mode: RagMode;
   originalQuestion: string;
   responseTimeMs: number;
   fallbackGenerated?: boolean;
@@ -89,7 +95,7 @@ const buildResult = ({
   isGrounded?: boolean;
 }): RagAnswerResult => ({
   answer,
-  mode,
+  mode: "dr-rag",
   originalQuestion,
   sources: [],
   evaluation: buildEvaluation({
@@ -129,13 +135,11 @@ export const answerDocumentStructureQuestion = async (
   }
 
   const startedAt = Date.now();
-  const mode = payload.mode || "basic";
 
   if (payload.documentIds?.length || payload.scope === "subject_all") {
     return buildResult({
       answer:
         "Vui lòng chọn một tài liệu cụ thể để mình có thể kiểm tra số chương, phần hoặc section của tài liệu đó. Mình không cộng gộp cấu trúc khi bạn đang chọn nhiều tài liệu hoặc toàn bộ môn học.",
-      mode,
       originalQuestion: payload.question,
       responseTimeMs: Date.now() - startedAt,
       fallbackGenerated: true,
@@ -148,7 +152,6 @@ export const answerDocumentStructureQuestion = async (
     return buildResult({
       answer:
         "Vui lòng chọn một tài liệu cụ thể để mình có thể kiểm tra số chương, phần hoặc section của tài liệu đó.",
-      mode,
       originalQuestion: payload.question,
       responseTimeMs: Date.now() - startedAt,
       fallbackGenerated: true,
@@ -170,7 +173,6 @@ export const answerDocumentStructureQuestion = async (
   if (!document.extractedText?.trim()) {
     return buildResult({
       answer: getStructureNotFoundAnswer(structuralQuestion.unit),
-      mode,
       originalQuestion: payload.question,
       responseTimeMs: Date.now() - startedAt,
       fallbackGenerated: true,
@@ -191,7 +193,6 @@ export const answerDocumentStructureQuestion = async (
   if (!isActiveVersionReadyForChat(activeVersion)) {
     return buildResult({
       answer: DOCUMENT_PROCESSING_MESSAGE,
-      mode,
       originalQuestion: payload.question,
       responseTimeMs: Date.now() - startedAt,
       fallbackGenerated: true,
@@ -204,9 +205,12 @@ export const answerDocumentStructureQuestion = async (
     activeVersion?.documentOutline?.length
       ? activeVersion.documentOutline
       : document.documentOutline || [];
+  let chunkingResult:
+    | Awaited<ReturnType<typeof splitTextForRag>>
+    | undefined;
 
   if (documentOutline.length === 0) {
-    const chunkingResult = await splitTextForRag(document.extractedText);
+    chunkingResult = await splitTextForRag(document.extractedText);
     documentOutline = extractDocumentOutline({
       text: document.extractedText,
       chunkingResult,
@@ -250,12 +254,27 @@ export const answerDocumentStructureQuestion = async (
     }
   }
 
-  const sections = getSectionsFromOutline(documentOutline, structuralQuestion.unit);
+  const outlineSections = getSectionsFromOutline(
+    documentOutline,
+    structuralQuestion.unit,
+  );
+  let sections = outlineSections;
+
+  if (structuralQuestion.unit !== "section") {
+    chunkingResult ??= await splitTextForRag(document.extractedText);
+    const fallbackSections = getSectionsForUnit(
+      analyzeDocumentStructure(chunkingResult),
+      structuralQuestion.unit,
+    );
+
+    if (fallbackSections.length > outlineSections.length) {
+      sections = fallbackSections;
+    }
+  }
 
   if (sections.length === 0) {
     return buildResult({
       answer: getStructureNotFoundAnswer(structuralQuestion.unit),
-      mode,
       originalQuestion: payload.question,
       responseTimeMs: Date.now() - startedAt,
       fallbackGenerated: true,
@@ -266,7 +285,6 @@ export const answerDocumentStructureQuestion = async (
 
   return buildResult({
     answer: formatStructureCountAnswer(structuralQuestion.unit, sections),
-    mode,
     originalQuestion: payload.question,
     responseTimeMs: Date.now() - startedAt,
   });

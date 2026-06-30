@@ -11,18 +11,38 @@ import documentRoutes from "./routes/document.routes";
 import evaluationRoutes from "./routes/evaluation.routes";
 import subjectRoutes from "./routes/subject.routes";
 import studyMaterialRoutes from "./routes/studyMaterial.routes";
+import adminRoutes from "./routes/admin.routes";
 import { uploadSessionRouter } from "./modules/uploadSessions/uploadSession.routes";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
 
 const app = express();
 
+app.set("trust proxy", true); // Enable trusting proxy to get real IP
+
+const allowedOrigins = new Set(
+  [
+    process.env.CLIENT_URL,
+    process.env.FRONTEND_URL,
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+    "http://localhost:19006",
+    "http://127.0.0.1:19006",
+  ].filter(Boolean),
+);
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(
   cors({
-    origin:
-      process.env.CLIENT_URL ||
-      process.env.FRONTEND_URL ||
-      "http://localhost:5173",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked origin: ${origin}`));
+    },
     credentials: true,
   }),
 );
@@ -63,6 +83,7 @@ app.use("/api/evaluation", evaluationRoutes);
 app.use("/api/subjects", subjectRoutes);
 app.use("/api/upload-sessions", uploadSessionRouter);
 app.use("/api/study-materials", studyMaterialRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

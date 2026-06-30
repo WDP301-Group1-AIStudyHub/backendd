@@ -16,10 +16,16 @@ const toEvaluationLogResponse = (
   retrievedChunksCount: log.retrievedChunksCount,
   relevantChunksCount: log.relevantChunksCount,
   averageRelevanceScore: log.averageRelevanceScore,
-  correctiveAttempted: log.correctiveAttempted,
   isGrounded: log.isGrounded,
   confidenceScore: log.confidenceScore,
   responseTimeMs: log.responseTimeMs,
+  stageOneChunksCount: log.stageOneChunksCount,
+  stageTwoChunksCount: log.stageTwoChunksCount,
+  selectedStaticChunksCount: log.selectedStaticChunksCount,
+  selectedDynamicChunksCount: log.selectedDynamicChunksCount,
+  dynamicRetrievalAttempted: log.dynamicRetrievalAttempted,
+  selectionStrategy: log.selectionStrategy as RagEvaluationLogResponse["selectionStrategy"],
+  retrievalQueries: log.retrievalQueries,
   usedFallbackChunks: log.usedFallbackChunks,
   relevanceThreshold: log.relevanceThreshold,
   warning: log.warning,
@@ -59,8 +65,7 @@ export const getEvaluationSummary = async (
       averageRelevanceScore: 0,
       averageConfidenceScore: 0,
       averageResponseTime: 0,
-      basicModeCount: 0,
-      correctiveModeCount: 0,
+      drRagModeCount: 0,
     };
   }
 
@@ -70,15 +75,13 @@ export const getEvaluationSummary = async (
       relevance: acc.relevance + log.averageRelevanceScore,
       confidence: acc.confidence + log.confidenceScore,
       responseTime: acc.responseTime + log.responseTimeMs,
-      basic: acc.basic + (log.retrievalMode === "basic" ? 1 : 0),
-      corrective: acc.corrective + (log.retrievalMode === "corrective" ? 1 : 0),
+      drRag: acc.drRag + (log.retrievalMode === "dr-rag" ? 1 : 0),
     }),
     {
       relevance: 0,
       confidence: 0,
       responseTime: 0,
-      basic: 0,
-      corrective: 0,
+      drRag: 0,
     },
   );
 
@@ -87,7 +90,6 @@ export const getEvaluationSummary = async (
     averageRelevanceScore: Number((sum.relevance / total).toFixed(2)),
     averageConfidenceScore: Number((sum.confidence / total).toFixed(2)),
     averageResponseTime: Number((sum.responseTime / total).toFixed(0)),
-    basicModeCount: sum.basic,
-    correctiveModeCount: sum.corrective,
+    drRagModeCount: sum.drRag,
   };
 };

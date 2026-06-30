@@ -18,7 +18,11 @@ const parseJsonObject = <T>(text: string): T | null => {
 export const checkAnswerGrounding = async (
   answer: string,
   context: string,
-  options: { intent?: string; isMultiDocument?: boolean } = {},
+  options: {
+    intent?: string;
+    isMultiDocument?: boolean;
+    allowIllustrativeExamples?: boolean;
+  } = {},
 ): Promise<AnswerGroundingCheck> => {
   const isSummaryLike =
     options.intent === "summary" ||
@@ -31,9 +35,16 @@ export const checkAnswerGrounding = async (
         "For multi-document contexts, the answer may organise information by document, which is acceptable.",
       ].join("\n")
     : "";
+  const illustrativeExampleRules = options.allowIllustrativeExamples
+    ? [
+        "The user explicitly requested practical examples or real-life application.",
+        "Allow simple hypothetical or common-sense illustrative scenarios that correctly apply a principle supported by context, even if the exact scenario is not written in context.",
+        "Theoretical claims must still be supported by context, and invented statistics, quotations, studies, dates, named people, or historical events are not allowed.",
+      ].join("\n")
+    : "";
 
   const prompt = `
-You are evaluating whether an answer for Vietnamese educational document QA is grounded only in the provided context.
+  You are evaluating whether an answer for Vietnamese educational document QA is grounded in the provided context.
 Return valid JSON only. Do not wrap it in markdown.
 Expected JSON:
 {
@@ -43,14 +54,15 @@ Expected JSON:
 }
 
 Rules:
-- isGrounded must be false if the answer contains claims not supported by context.
+  - isGrounded must be false if the answer contains unsupported factual or theoretical claims.
 - confidenceScore must be from 0 to 1.
 - Vietnamese answers must preserve the meaning and terms found in the context.
 - Do not require translation of Vietnamese educational terms.
 - If the context is insufficient, isGrounded must be false so the backend can generate a safe fallback response.
-${paraphraseRules ? `\n${paraphraseRules}` : ""}
+  ${paraphraseRules ? `\n${paraphraseRules}` : ""}
+  ${illustrativeExampleRules ? `\n${illustrativeExampleRules}` : ""}
 
-Context:
+  Context:
 ${context}
 
 Answer:
@@ -78,7 +90,12 @@ ${answer}
     Math.min(1, Number(parsed.confidenceScore) || 0),
   );
 
-  const threshold = isSummaryLike || options.isMultiDocument ? 0.25 : 0.4;
+  const threshold =
+    isSummaryLike ||
+    options.isMultiDocument ||
+    options.allowIllustrativeExamples
+      ? 0.25
+      : 0.4;
 
   return {
     isGrounded: Boolean(parsed.isGrounded) && confidenceScore >= threshold,

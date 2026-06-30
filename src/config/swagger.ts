@@ -11,7 +11,7 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
-        url: "http://localhost:5000",
+        url: process.env.API_URL || `http://localhost:${process.env.PORT || 4000}`,
         description: "Local development server",
       },
     ],
@@ -417,10 +417,24 @@ const options: swaggerJsdoc.Options = {
             retrievedChunksCount: { type: "number", example: 8 },
             relevantChunksCount: { type: "number", example: 4 },
             averageRelevanceScore: { type: "number", example: 0.72 },
-            correctiveAttempted: { type: "boolean", example: true },
             isGrounded: { type: "boolean", example: true },
             confidenceScore: { type: "number", example: 0.88 },
             responseTimeMs: { type: "number", example: 2450 },
+            stageOneChunksCount: { type: "number", example: 4 },
+            stageTwoChunksCount: { type: "number", example: 8 },
+            selectedStaticChunksCount: { type: "number", example: 3 },
+            selectedDynamicChunksCount: { type: "number", example: 2 },
+            dynamicRetrievalAttempted: { type: "boolean", example: true },
+            selectionStrategy: {
+              type: "string",
+              enum: ["cfs-heuristic"],
+              example: "cfs-heuristic",
+            },
+            retrievalQueries: {
+              type: "array",
+              items: { type: "string" },
+              example: ["original question", "question + static chunk"],
+            },
             usedFallbackChunks: { type: "boolean", example: false },
             relevanceThreshold: { type: "number", example: 0.55 },
             warning: {
@@ -456,7 +470,7 @@ const options: swaggerJsdoc.Options = {
               type: "string",
               example: "The answer based on uploaded documents.",
             },
-            mode: { type: "string", enum: ["basic", "corrective"] },
+            mode: { type: "string", enum: ["dr-rag"], example: "dr-rag" },
             originalQuestion: {
               type: "string",
               example: "cái này dùng để làm gì",
@@ -762,7 +776,7 @@ const options: swaggerJsdoc.Options = {
       "/api/benchmark/run/{questionId}": {
         post: {
           tags: ["Benchmark"],
-          summary: "Run basic vs corrective benchmark for one question",
+          summary: "Run DR-RAG benchmark for one question",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -811,11 +825,6 @@ const options: swaggerJsdoc.Options = {
                     subjectId: {
                       type: "string",
                       example: "665f2a9d2a5b6f0012a67891",
-                    },
-                    mode: {
-                      type: "string",
-                      enum: ["basic", "corrective"],
-                      example: "corrective",
                     },
                   },
                 },

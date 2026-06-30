@@ -13,12 +13,24 @@ import {
 } from "../services/auth.service";
 import { sendResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
+import { ActivityLogService } from "../services/activityLog.service";
+import { getIpAddress } from "../utils/getIp";
 
 export const register = asyncHandler(async (
   req: Request<unknown, unknown, RegisterRequest>,
   res: Response,
 ): Promise<void> => {
   const data = await registerUser(req.body);
+
+  await ActivityLogService.log({
+    userId: data.user.id,
+    action: "USER_REGISTER",
+    entityType: "User",
+    entityId: data.user.id,
+    details: { email: data.user.email },
+    ipAddress: getIpAddress(req),
+    userAgent: req.headers["user-agent"],
+  });
 
   sendResponse(res, 201, {
     success: true,
@@ -32,6 +44,16 @@ export const login = asyncHandler(async (
   res: Response,
 ): Promise<void> => {
   const data = await loginUser(req.body.email, req.body.password);
+
+  await ActivityLogService.log({
+    userId: data.user.id,
+    action: "USER_LOGIN",
+    entityType: "User",
+    entityId: data.user.id,
+    details: { email: data.user.email },
+    ipAddress: getIpAddress(req),
+    userAgent: req.headers["user-agent"],
+  });
 
   sendResponse(res, 200, {
     success: true,

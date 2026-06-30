@@ -2,7 +2,8 @@ import { Types } from "mongoose";
 import { ChatSource } from "./api.types";
 import type { AnswerProfile } from "../utils/answerProfile";
 
-export type RagMode = "basic" | "corrective";
+export type RagMode = "dr-rag";
+export type DrRagSelectionStrategy = "cfs-heuristic";
 
 export interface EvaluatedChunk {
   id: string;
@@ -44,10 +45,16 @@ export interface RagEvaluation {
   retrievedChunksCount: number;
   relevantChunksCount: number;
   averageRelevanceScore: number;
-  correctiveAttempted: boolean;
   isGrounded: boolean;
   confidenceScore: number;
   responseTimeMs: number;
+  stageOneChunksCount?: number;
+  stageTwoChunksCount?: number;
+  selectedStaticChunksCount?: number;
+  selectedDynamicChunksCount?: number;
+  dynamicRetrievalAttempted?: boolean;
+  selectionStrategy?: DrRagSelectionStrategy;
+  retrievalQueries?: string[];
   usedFallbackChunks?: boolean;
   relevanceThreshold?: number;
   warning?: string;
@@ -78,10 +85,16 @@ export interface CreateRagEvaluationLogInput {
   retrievedChunksCount: number;
   relevantChunksCount: number;
   averageRelevanceScore: number;
-  correctiveAttempted: boolean;
   isGrounded: boolean;
   confidenceScore: number;
   responseTimeMs: number;
+  stageOneChunksCount?: number;
+  stageTwoChunksCount?: number;
+  selectedStaticChunksCount?: number;
+  selectedDynamicChunksCount?: number;
+  dynamicRetrievalAttempted?: boolean;
+  selectionStrategy?: DrRagSelectionStrategy;
+  retrievalQueries?: string[];
   usedFallbackChunks?: boolean;
   relevanceThreshold?: number;
   warning?: string;
@@ -105,6 +118,5 @@ export interface RagEvaluationSummaryResponse {
   averageRelevanceScore: number;
   averageConfidenceScore: number;
   averageResponseTime: number;
-  basicModeCount: number;
-  correctiveModeCount: number;
+  drRagModeCount: number;
 }

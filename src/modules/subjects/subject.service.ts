@@ -266,6 +266,7 @@ export const deleteSubject = async (
     {
       status: "DELETED",
       deletedAt: new Date(),
+      deletedBy: new Types.ObjectId(ownerId),
     },
     {
       runValidators: true,

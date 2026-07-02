@@ -111,6 +111,9 @@ export interface DocumentResponse {
   sectionCount?: number;
   currentVersionId?: string | Types.ObjectId;
   deletedAt?: Date | null;
+  deletedBy?: string | Types.ObjectId | null;
+  trashExpiresAt?: Date | null;
+  trashDaysRemaining?: number | null;
   fileUrl?: string;
   filePublicId?: string;
   fileName?: string;
@@ -135,6 +138,8 @@ export interface DocumentResponse {
   };
   personalSubjectId?: string | Types.ObjectId | SubjectSummaryResponse;
   personalSubject?: SubjectSummaryResponse | null;
+  isStarred?: boolean;
+  starredAt?: Date | null;
 }
 
 export interface CreateSubjectRequest {
@@ -188,6 +193,9 @@ export interface DocumentListItemResponse {
   subject?: SubjectSummaryResponse | null;
   visibility?: DocumentVisibility;
   status?: DocumentStatus;
+  deletedAt?: Date | null;
+  trashExpiresAt?: Date | null;
+  trashDaysRemaining?: number | null;
   fileUrl?: string;
   fileName?: string;
   fileType?: string;
@@ -197,6 +205,8 @@ export interface DocumentListItemResponse {
   updatedAt: Date;
   accessRole?: DocumentAccessRole;
   isShared?: boolean;
+  isStarred?: boolean;
+  starredAt?: Date | null;
 }
 
 export interface PaginationResponse {

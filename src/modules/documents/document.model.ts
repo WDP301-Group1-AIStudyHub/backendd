@@ -26,6 +26,7 @@ export interface IDocument extends Document {
   sectionCount?: number;
   lastIndexedAt?: Date | null;
   deletedAt?: Date | null;
+  deletedBy?: Types.ObjectId | null;
   fileUrl?: string;
   filePublicId?: string;
   fileName?: string;
@@ -139,6 +140,12 @@ const documentSchema = new Schema<IDocument>(
     },
     deletedAt: {
       type: Date,
+      default: null,
+      index: true,
+    },
+    deletedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
       default: null,
       index: true,
     },

@@ -4,11 +4,17 @@ import { sendResponse } from "../../utils/apiResponse";
 import {
   createDocumentMetadata,
   CreateDocumentRequest,
+  emptyTrashDocuments,
   getDocumentDetail,
   getDocuments,
   getDocumentDownloadUrl,
+  getStarredDocuments,
   getSharedDocumentsWithUser,
+  getTrashDocuments,
   ListDocumentQuery,
+  permanentlyDeleteDocument,
+  restoreDocumentFromTrash,
+  setDocumentStar,
   softDeleteDocument,
   updateSharedDocumentProfile,
   updateDocumentMetadata,
@@ -42,6 +48,28 @@ export const listSharedWithMe = asyncHandler(async (
   res: Response,
 ): Promise<void> => {
   const result = await getSharedDocumentsWithUser(req.authUser!.id, req.query);
+
+  res.status(200).json(result);
+});
+
+export const listTrash = asyncHandler(async (
+  req: Request<unknown, unknown, unknown, ListDocumentQuery>,
+  res: Response,
+): Promise<void> => {
+  const result = await getTrashDocuments(req.authUser!.id, req.query);
+
+  res.status(200).json(result);
+});
+
+export const listStarred = asyncHandler(async (
+  req: Request<unknown, unknown, unknown, ListDocumentQuery>,
+  res: Response,
+): Promise<void> => {
+  const result = await getStarredDocuments(
+    req.authUser!.id,
+    req.authUser!.role,
+    req.query,
+  );
 
   res.status(200).json(result);
 });
@@ -107,6 +135,72 @@ export const editSharedDocumentProfile = asyncHandler(async (
   sendResponse(res, 200, {
     success: true,
     message: "Shared document profile updated successfully",
+    data,
+  });
+});
+
+export const restoreDocument = asyncHandler(async (
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> => {
+  const data = await restoreDocumentFromTrash(
+    req.params.id,
+    req.authUser!.id,
+    req.authUser!.role,
+  );
+
+  sendResponse(res, 200, {
+    success: true,
+    message: "Document restored successfully",
+    data,
+  });
+});
+
+export const deleteDocumentPermanently = asyncHandler(async (
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> => {
+  await permanentlyDeleteDocument(
+    req.params.id,
+    req.authUser!.id,
+    req.authUser!.role,
+  );
+
+  sendResponse(res, 200, {
+    success: true,
+    message: "Document permanently deleted successfully",
+  });
+});
+
+export const emptyTrash = asyncHandler(async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const data = await emptyTrashDocuments(req.authUser!.id);
+
+  sendResponse(res, 200, {
+    success: true,
+    message: "Trash emptied successfully",
+    data,
+  });
+});
+
+export const updateDocumentStar = asyncHandler(async (
+  req: Request<{ id: string }, unknown, { starred: boolean }>,
+  res: Response,
+): Promise<void> => {
+  const data = await setDocumentStar(
+    req.params.id,
+    req.authUser!.id,
+    req.authUser!.role,
+    req.body.starred,
+  );
+
+  sendResponse(res, 200, {
+    success: true,
+    message: req.body.starred
+      ? "Document starred successfully"
+      : "Document unstarred successfully",
     data,
   });
 });

@@ -26,7 +26,10 @@ export const runMaterialGenerationWorker = async (
     await StudyMaterial.findByIdAndUpdate(materialId, { status: "GENERATING" });
 
     // 2. Fetch the document text
-    const document = await StudyDocument.findById(documentId);
+    const document = await StudyDocument.findOne({
+      _id: documentId,
+      status: { $ne: "DELETED" },
+    });
     if (!document || !document.extractedText || document.extractedText.trim().length === 0) {
       throw new Error("Source document text context is empty or unavailable");
     }

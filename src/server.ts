@@ -3,11 +3,13 @@ import { createServer } from "node:http";
 import app from "./app";
 import { connectDatabase } from "./config/db";
 import { initializeUploadProgressSocket } from "./services/uploadProgress.socket";
+import { validateProductionPublicUrls } from "./services/publicAppUrl.service";
 
 dotenv.config();
 
 const startServer = async (): Promise<void> => {
   try {
+    validateProductionPublicUrls();
     await connectDatabase();
 
     const port = Number(process.env.PORT || 5000);

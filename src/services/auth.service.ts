@@ -7,6 +7,10 @@ import {
 } from "../types/api.types";
 import { generateAccessToken } from "../utils/generateToken";
 import { AppError } from "../middlewares/error.middleware";
+import {
+  claimDocumentShareInvitations,
+  validateDocumentShareInvitation,
+} from "../modules/documentShares/documentShareInvitation.service";
 
 export const toUserResponse = (user: IUser): UserResponse & { isActive?: boolean; banReason?: string } => ({
   id: user._id.toString(),
@@ -29,12 +33,25 @@ export const registerUser = async (
     throw new AppError("Email is already registered", 409);
   }
 
-  const user = await User.create(payload);
+  if (payload.inviteToken) {
+    await validateDocumentShareInvitation(payload.email, payload.inviteToken);
+  }
+
+  const { inviteToken, ...userPayload } = payload;
+  const user = await User.create(userPayload);
   const accessToken = generateAccessToken(user);
+  const redirectDocumentId = inviteToken
+    ? await claimDocumentShareInvitations(
+        user.email,
+        user._id.toString(),
+        inviteToken,
+      )
+    : undefined;
 
   return {
     user: toUserResponse(user),
     accessToken,
+    redirectDocumentId,
   };
 };
 

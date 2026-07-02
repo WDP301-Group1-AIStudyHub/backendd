@@ -4,6 +4,7 @@ import { ChatHistory } from "../models/chatHistory.model";
 import { ChatThread } from "../models/chatThread.model";
 import { StudyDocument } from "../models/document.model";
 import { Subject } from "../models/subject.model";
+import { DocumentShare } from "../modules/documentShares/documentShare.model";
 import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
 import * as evaluationService from "./evaluation.service";
 import * as drRagService from "./drRag.service";
@@ -18,6 +19,7 @@ const originalCreateEvaluationLog = evaluationService.createEvaluationLog;
 const originalStudyDocumentFindOne = StudyDocument.findOne;
 const originalSubjectFindOne = Subject.findOne;
 const originalDocumentVersionFindOne = DocumentVersion.findOne;
+const originalDocumentShareFindOne = DocumentShare.findOne;
 
 const makeDrRagResult = (question: string) => ({
   answer: "Grounded answer",
@@ -60,6 +62,7 @@ afterEach(() => {
   StudyDocument.findOne = originalStudyDocumentFindOne;
   Subject.findOne = originalSubjectFindOne;
   DocumentVersion.findOne = originalDocumentVersionFindOne;
+  DocumentShare.findOne = originalDocumentShareFindOne;
 });
 
 describe("chat service persistence controls", () => {
@@ -248,6 +251,8 @@ describe("chat service persistence controls", () => {
 
     StudyDocument.findOne = ((filter: Record<string, unknown>) => ({
       _id: filter._id || "doc-1",
+      ownerId: "user-1",
+      visibility: "PRIVATE",
       subjectId: "subject-1",
       title: "Structured document",
       extractedText: `
@@ -260,6 +265,8 @@ Ná»™i dung chÆ°Æ¡ng hai.
       currentVersionId: undefined,
       select: async () => ({
         _id: filter._id || "doc-1",
+        ownerId: "user-1",
+        visibility: "PRIVATE",
         subjectId: "subject-1",
         title: "Structured document",
         extractedText: `
@@ -299,16 +306,130 @@ NÃ¡Â»â„¢i dung chÃ†Â°Ã†Â¡ng hai.
     assert.equal(result.evaluation?.fallbackGenerated, false);
   });
 
+  it("answers document structure questions for shared viewers", async () => {
+    let drRagCalled = false;
+    let shareLookups = 0;
+    const sharedDocument = {
+      _id: "doc-shared",
+      ownerId: "owner-1",
+      visibility: "PRIVATE",
+      subjectId: "owner-subject-1",
+      title: "Shared structured document",
+      extractedText: `
+Chapter 1 Overview
+Introduction content.
+
+Chapter 2 Methods
+Method content.
+`,
+      currentVersionId: undefined,
+      select: async () => ({
+        _id: "doc-shared",
+        ownerId: "owner-1",
+        visibility: "PRIVATE",
+        subjectId: "owner-subject-1",
+        title: "Shared structured document",
+        currentVersionId: undefined,
+      }),
+    };
+
+    StudyDocument.findOne = (() => sharedDocument) as unknown as typeof StudyDocument.findOne;
+    DocumentShare.findOne = (() => ({
+      select: (selection: string) => {
+        shareLookups += 1;
+
+        if (selection === "permission") {
+          return Promise.resolve({ permission: "VIEW" });
+        }
+
+        return {
+          populate: async () => ({
+            documentId: "doc-shared",
+            personalSubjectId: {
+              _id: "viewer-subject-1",
+              name: "Viewer subject",
+            },
+          }),
+        };
+      },
+    })) as unknown as typeof DocumentShare.findOne;
+    (
+      drRagService as unknown as {
+        askQuestionWithDrRag: typeof drRagService.askQuestionWithDrRag;
+      }
+    ).askQuestionWithDrRag = async () => {
+      drRagCalled = true;
+      throw new Error("DR-RAG should not be called");
+    };
+
+    const result = await askQuestion(
+      "viewer-1",
+      {
+        question: "how many chapters does this document have?",
+        documentId: "doc-shared",
+      },
+      { persistHistory: false },
+    );
+
+    assert.equal(drRagCalled, false);
+    assert.equal(shareLookups, 3);
+    assert.match(result.answer, /2/);
+    assert.equal(result.evaluation?.detectedIntent, "document_structure");
+    assert.equal(result.evaluation?.fallbackGenerated, false);
+  });
+
+  it("blocks document structure questions after shared access is revoked", async () => {
+    const sharedDocument = {
+      _id: "doc-shared",
+      ownerId: "owner-1",
+      visibility: "PRIVATE",
+      subjectId: "owner-subject-1",
+      title: "Shared structured document",
+      extractedText: "Chapter 1 Overview\nContent.",
+      currentVersionId: undefined,
+      select: async () => ({
+        _id: "doc-shared",
+        ownerId: "owner-1",
+        visibility: "PRIVATE",
+        subjectId: "owner-subject-1",
+        title: "Shared structured document",
+        currentVersionId: undefined,
+      }),
+    };
+
+    StudyDocument.findOne = (() => sharedDocument) as unknown as typeof StudyDocument.findOne;
+    DocumentShare.findOne = (() => ({
+      select: async () => null,
+    })) as unknown as typeof DocumentShare.findOne;
+
+    await assert.rejects(
+      () =>
+        askQuestion(
+          "viewer-1",
+          {
+            question: "how many chapters does this document have?",
+            documentId: "doc-shared",
+          },
+          { persistHistory: false },
+        ),
+      /Document not found/,
+    );
+  });
+
   it("keeps specific chapter content questions on the DR-RAG path", async () => {
     let drRagCalled = false;
 
     StudyDocument.findOne = (() => ({
       _id: "doc-1",
+      ownerId: "user-1",
+      visibility: "PRIVATE",
       subjectId: "subject-1",
       title: "Document",
       currentVersionId: undefined,
       select: async () => ({
         _id: "doc-1",
+        ownerId: "user-1",
+        visibility: "PRIVATE",
         subjectId: "subject-1",
         title: "Document",
         currentVersionId: undefined,

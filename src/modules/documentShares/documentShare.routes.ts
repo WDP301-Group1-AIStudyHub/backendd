@@ -10,6 +10,7 @@ import {
 import {
   deleteDocumentShare,
   getDocumentShares,
+  resendShareEmail,
   shareDocument,
   updateDocumentShare,
 } from "./documentShare.controller";
@@ -20,6 +21,11 @@ router.use(authMiddleware);
 
 router.post("/", validateRequest(createDocumentShareSchema), shareDocument);
 router.get("/", validateRequest(documentShareParamsSchema), getDocumentShares);
+router.post(
+  "/:shareId/resend-email",
+  validateRequest(revokeDocumentShareSchema),
+  resendShareEmail,
+);
 router.patch(
   "/:shareId",
   validateRequest(updateDocumentShareSchema),

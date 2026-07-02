@@ -332,6 +332,7 @@ export const getDocumentSubjectsByUser = async (
   const subjectIds = await StudyDocument.distinct("subjectId", {
     ownerId: userId,
     subjectId: { $nin: [null, ""] },
+    status: { $ne: "DELETED" },
   });
   const subjects = await Subject.find({
     _id: { $in: subjectIds },
@@ -505,6 +506,7 @@ export const deleteDocument = async (
     {
       status: "DELETED",
       deletedAt: new Date(),
+      deletedBy: userId,
     },
   );
 

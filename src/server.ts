@@ -4,12 +4,17 @@ import app from "./app";
 import { connectDatabase } from "./config/db";
 import { initializeUploadProgressSocket } from "./services/uploadProgress.socket";
 import { validateProductionPublicUrls } from "./services/publicAppUrl.service";
+import {
+  validateEmailConfiguration,
+  verifySmtpConnection,
+} from "./services/email.service";
 
 dotenv.config();
 
 const startServer = async (): Promise<void> => {
   try {
     validateProductionPublicUrls();
+    validateEmailConfiguration();
     await connectDatabase();
 
     const port = Number(process.env.PORT || 5000);
@@ -23,6 +28,7 @@ const startServer = async (): Promise<void> => {
       console.log(`Local API available at http://localhost:${port}`);
       console.log(`Swagger docs available at http://localhost:${port}/api-docs`);
       console.log(`Socket.IO listening at ws://localhost:${port}`);
+      void verifySmtpConnection();
     });
   } catch (error) {
     console.error("Failed to start server:", error);

@@ -7,6 +7,9 @@ export interface IDocumentShareInvitation extends Document {
   permission: DocumentSharePermission;
   sharedBy: Types.ObjectId;
   tokenHash: string;
+  tokenCiphertext?: string;
+  tokenIv?: string;
+  tokenAuthTag?: string;
   expiresAt: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -41,6 +44,18 @@ const documentShareInvitationSchema = new Schema<IDocumentShareInvitation>(
       type: String,
       required: true,
       unique: true,
+    },
+    tokenCiphertext: {
+      type: String,
+      select: false,
+    },
+    tokenIv: {
+      type: String,
+      select: false,
+    },
+    tokenAuthTag: {
+      type: String,
+      select: false,
     },
     expiresAt: {
       type: Date,

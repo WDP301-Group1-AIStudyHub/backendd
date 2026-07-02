@@ -4,10 +4,32 @@ import { sendResponse } from "../../utils/apiResponse";
 import {
   createOrUpdateDocumentShare,
   listDocumentShares,
+  resendDocumentShareEmail,
   revokeDocumentShare,
   updateDocumentSharePermission,
 } from "./documentShare.service";
 import { DocumentSharePermission } from "./documentShare.model";
+
+const getShareResponseMessage = (
+  status: "ACTIVE" | "PENDING",
+  notificationStatus?: "ACCEPTED" | "FAILED" | "SKIPPED",
+): string => {
+  if (notificationStatus === "FAILED") {
+    return status === "PENDING"
+      ? "Invitation created, but the notification email could not be sent"
+      : "Document shared, but the notification email could not be sent";
+  }
+
+  if (notificationStatus === "SKIPPED") {
+    return status === "PENDING"
+      ? "Invitation already exists; use resend email to notify the recipient"
+      : "Document access already exists; use resend email to notify the recipient";
+  }
+
+  return status === "PENDING"
+    ? "Invitation sent. Access will activate after registration."
+    : "Document shared successfully";
+};
 
 export const shareDocument = asyncHandler(async (
   req: Request<{ id: string }, unknown, { email: string; permission: DocumentSharePermission }>,
@@ -21,10 +43,7 @@ export const shareDocument = asyncHandler(async (
 
   sendResponse(res, 200, {
     success: true,
-    message:
-      data.status === "PENDING"
-        ? "Invitation sent. Access will activate after registration."
-        : "Document shared successfully",
+    message: getShareResponseMessage(data.status, data.notificationStatus),
     data,
   });
 });
@@ -55,7 +74,27 @@ export const updateDocumentShare = asyncHandler(async (
 
   sendResponse(res, 200, {
     success: true,
-    message: "Document share updated successfully",
+    message: getShareResponseMessage(data.status, data.notificationStatus),
+    data,
+  });
+});
+
+export const resendShareEmail = asyncHandler(async (
+  req: Request<{ id: string; shareId: string }>,
+  res: Response,
+): Promise<void> => {
+  const data = await resendDocumentShareEmail(
+    req.params.id,
+    req.params.shareId,
+    req.authUser!.id,
+  );
+
+  sendResponse(res, 200, {
+    success: true,
+    message:
+      data.notificationStatus === "ACCEPTED"
+        ? "Share notification email accepted for delivery"
+        : "Share notification email could not be sent",
     data,
   });
 });

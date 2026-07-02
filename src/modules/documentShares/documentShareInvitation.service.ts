@@ -1,7 +1,16 @@
-import { createHash, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from "node:crypto";
 import { Types } from "mongoose";
 import { AppError } from "../../middlewares/error.middleware";
-import { sendDocumentShareEmail } from "../../services/email.service";
+import {
+  EmailDeliveryResult,
+  EmailDeliveryStatus,
+  sendDocumentShareEmail,
+} from "../../services/email.service";
 import { DocumentShare, DocumentSharePermission } from "./documentShare.model";
 import {
   DocumentShareInvitation,
@@ -28,7 +37,67 @@ type InvitationDocument = {
 const hashToken = (token: string): string =>
   createHash("sha256").update(token).digest("hex");
 
-export const toPendingShareResponse = (invitation: IDocumentShareInvitation) => ({
+const getInvitationEncryptionKey = (): Buffer => {
+  const secret =
+    process.env.INVITATION_TOKEN_SECRET ||
+    process.env.JWT_SECRET ||
+    (process.env.NODE_ENV === "production" ? "" : "development-only-secret");
+
+  if (!secret) {
+    throw new Error(
+      "INVITATION_TOKEN_SECRET or JWT_SECRET is required in production",
+    );
+  }
+
+  return createHash("sha256").update(secret).digest();
+};
+
+const encryptInvitationToken = (token: string) => {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", getInvitationEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(token, "utf8"),
+    cipher.final(),
+  ]);
+
+  return {
+    tokenCiphertext: ciphertext.toString("base64"),
+    tokenIv: iv.toString("base64"),
+    tokenAuthTag: cipher.getAuthTag().toString("base64"),
+  };
+};
+
+const decryptInvitationToken = (
+  invitation: Pick<
+    IDocumentShareInvitation,
+    "tokenCiphertext" | "tokenIv" | "tokenAuthTag"
+  >,
+): string | null => {
+  if (
+    !invitation.tokenCiphertext ||
+    !invitation.tokenIv ||
+    !invitation.tokenAuthTag
+  ) {
+    return null;
+  }
+
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    getInvitationEncryptionKey(),
+    Buffer.from(invitation.tokenIv, "base64"),
+  );
+  decipher.setAuthTag(Buffer.from(invitation.tokenAuthTag, "base64"));
+
+  return Buffer.concat([
+    decipher.update(Buffer.from(invitation.tokenCiphertext, "base64")),
+    decipher.final(),
+  ]).toString("utf8");
+};
+
+export const toPendingShareResponse = (
+  invitation: IDocumentShareInvitation,
+  notificationStatus?: EmailDeliveryStatus,
+) => ({
   id: invitation._id.toString(),
   documentId: invitation.documentId.toString(),
   sharedWithUser: {
@@ -42,7 +111,32 @@ export const toPendingShareResponse = (invitation: IDocumentShareInvitation) => 
   expiresAt: invitation.expiresAt,
   createdAt: invitation.createdAt,
   updatedAt: invitation.updatedAt,
+  ...(notificationStatus ? { notificationStatus } : {}),
 });
+
+const deliverInvitationEmail = async ({
+  document,
+  email,
+  permission,
+  sender,
+  token,
+}: {
+  document: InvitationDocument;
+  email: string;
+  permission: DocumentSharePermission;
+  sender: InvitationPerson;
+  token: string;
+}): Promise<EmailDeliveryResult> =>
+  sendDocumentShareEmail({
+    to: email,
+    recipientName: "",
+    senderName: sender.fullName,
+    documentTitle: document.title,
+    permission,
+    documentUrl: buildWebRegistrationUrl(token, email),
+    mobileUrl: buildMobileRegistrationUrl(token, email),
+    isInvitation: true,
+  });
 
 export const createOrUpdateInvitation = async ({
   document,
@@ -62,6 +156,7 @@ export const createOrUpdateInvitation = async ({
     Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000,
   );
   const normalizedEmail = email.trim().toLowerCase();
+  const encryptedToken = encryptInvitationToken(token);
 
   const invitation = await DocumentShareInvitation.findOneAndUpdate(
     { documentId: document._id, email: normalizedEmail },
@@ -71,37 +166,50 @@ export const createOrUpdateInvitation = async ({
       permission,
       sharedBy: new Types.ObjectId(sharedBy),
       tokenHash: hashToken(token),
+      ...encryptedToken,
       expiresAt,
     },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
   );
 
-  const registrationUrl = buildWebRegistrationUrl(token, normalizedEmail);
-  const mobileRegistrationUrl = buildMobileRegistrationUrl(
+  const delivery = await deliverInvitationEmail({
+    document,
+    email: normalizedEmail,
+    permission,
+    sender,
     token,
-    normalizedEmail,
-  );
+  });
 
-  try {
-    await sendDocumentShareEmail({
-      to: normalizedEmail,
-      recipientName: "",
-      senderName: sender.fullName,
-      documentTitle: document.title,
-      permission,
-      documentUrl: registrationUrl,
-      mobileUrl: mobileRegistrationUrl,
-      isInvitation: true,
-    });
-  } catch (error) {
-    console.warn("[document-share] Failed to send invitation email", {
-      documentId: document._id.toString(),
-      recipient: normalizedEmail,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  return { invitation, notificationStatus: delivery.status };
+};
+
+export const resendDocumentShareInvitation = async ({
+  document,
+  invitation,
+  sender,
+}: {
+  document: InvitationDocument;
+  invitation: IDocumentShareInvitation;
+  sender: InvitationPerson;
+}): Promise<EmailDeliveryResult> => {
+  let token = decryptInvitationToken(invitation);
+
+  if (!token) {
+    token = randomBytes(32).toString("hex");
+    const encryptedToken = encryptInvitationToken(token);
+    await DocumentShareInvitation.updateOne(
+      { _id: invitation._id },
+      { tokenHash: hashToken(token), ...encryptedToken },
+    );
   }
 
-  return invitation;
+  return deliverInvitationEmail({
+    document,
+    email: invitation.email,
+    permission: invitation.permission,
+    sender,
+    token,
+  });
 };
 
 export const claimDocumentShareInvitations = async (

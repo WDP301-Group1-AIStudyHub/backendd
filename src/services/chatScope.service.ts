@@ -2,6 +2,8 @@ import { Types } from "mongoose";
 import { StudyDocument } from "../models/document.model";
 import { Subject } from "../models/subject.model";
 import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
+import { DocumentShare } from "../modules/documentShares/documentShare.model";
+import { getDocumentAccessRole } from "../modules/documentShares/documentShare.service";
 import { AskQuestionRequest } from "../types/api.types";
 import { AppError } from "../middlewares/error.middleware";
 import { VectorSearchFilters } from "./vector.service";
@@ -70,6 +72,99 @@ const getSubjectNameForUser = async (
   return subject.name;
 };
 
+const getSubjectNameById = async (
+  subjectId: string | undefined,
+): Promise<string | undefined> => {
+  if (!subjectId) {
+    return undefined;
+  }
+
+  const subject = await Subject.findById(subjectId).select("name");
+
+  return subject?.name;
+};
+
+type SharePersonalSubject = {
+  _id?: Types.ObjectId;
+  name?: string;
+};
+
+type ShareWithPersonalSubject = {
+  documentId: Types.ObjectId;
+  personalSubjectId?: Types.ObjectId | SharePersonalSubject | null;
+};
+
+const getPersonalSubjectId = (
+  share: ShareWithPersonalSubject | undefined,
+): string | undefined => {
+  const value = share?.personalSubjectId;
+
+  if (!value) {
+    return undefined;
+  }
+
+  if (value instanceof Types.ObjectId) {
+    return value.toString();
+  }
+
+  if (typeof value === "object" && "_id" in value && value._id) {
+    return value._id.toString();
+  }
+
+  return undefined;
+};
+
+const getPersonalSubjectName = (
+  share: ShareWithPersonalSubject | undefined,
+): string | undefined => {
+  const value = share?.personalSubjectId;
+
+  if (value && typeof value === "object" && !(value instanceof Types.ObjectId)) {
+    return value.name;
+  }
+
+  return undefined;
+};
+
+const getShareMapForDocuments = async (
+  userId: string,
+  documentIds: Types.ObjectId[],
+): Promise<Map<string, ShareWithPersonalSubject>> => {
+  if (documentIds.length === 0 || !Types.ObjectId.isValid(userId)) {
+    return new Map();
+  }
+
+  const shares = await DocumentShare.find({
+    documentId: { $in: documentIds },
+    sharedWithUserId: userId,
+  })
+    .select("documentId personalSubjectId")
+    .populate("personalSubjectId", "_id name");
+
+  return new Map(
+    shares.map((share) => [
+      share.documentId.toString(),
+      share as unknown as ShareWithPersonalSubject,
+    ]),
+  );
+};
+
+const getSharedDocumentIds = async (
+  userId: string,
+  personalSubjectId?: string,
+): Promise<string[]> => {
+  if (!Types.ObjectId.isValid(userId)) {
+    return [];
+  }
+
+  return (await DocumentShare.distinct("documentId", {
+    sharedWithUserId: userId,
+    ...(personalSubjectId ? { personalSubjectId } : {}),
+  })).map(
+    (id) => id.toString(),
+  );
+};
+
 const areAllActiveVersionsReady = async (
   documents: Array<{ _id: Types.ObjectId; currentVersionId?: Types.ObjectId | null }>,
 ): Promise<boolean> => {
@@ -104,16 +199,39 @@ export const resolveChatScope = async (
   if (payload.documentId) {
     const document = await StudyDocument.findOne({
       _id: payload.documentId,
-      ownerId: userId,
       status: { $ne: "DELETED" },
-    }).select("_id title subjectId currentVersionId");
+    }).select("_id ownerId visibility title subjectId currentVersionId");
 
     if (!document) {
       throw new AppError("Document not found", 404);
     }
 
-    const subjectId = document.subjectId?.toString();
-    const subject = (await getSubjectNameForUser(subjectId, userId)) || payload.subject;
+    const accessRole = await getDocumentAccessRole(document, userId);
+
+    if (!accessRole) {
+      throw new AppError("Document not found", 404);
+    }
+
+    const isOwner = document.ownerId.toString() === userId;
+    const share = accessRole === "OWNER"
+      ? undefined
+      : (
+          await DocumentShare.findOne({
+            documentId: document._id,
+            sharedWithUserId: userId,
+          })
+            .select("documentId personalSubjectId")
+            .populate("personalSubjectId", "_id name")
+        ) as unknown as ShareWithPersonalSubject | undefined;
+    const subjectId = accessRole === "OWNER"
+      ? document.subjectId?.toString()
+      : getPersonalSubjectId(share);
+    const subject =
+      (accessRole === "OWNER"
+        ? isOwner
+          ? await getSubjectNameForUser(subjectId, userId)
+          : await getSubjectNameById(subjectId)
+        : getPersonalSubjectName(share)) || payload.subject;
     const hasProcessingDocument = !(await areAllActiveVersionsReady([document]));
 
     return {
@@ -125,7 +243,6 @@ export const resolveChatScope = async (
       hasProcessingDocument,
       isMultiDocumentScope: false,
       vectorFilters: {
-        userId,
         documentId: document._id.toString(),
       },
     };
@@ -134,25 +251,43 @@ export const resolveChatScope = async (
   if (documentIds?.length) {
     const documents = await StudyDocument.find({
       _id: { $in: documentIds },
-      ownerId: userId,
       status: { $ne: "DELETED" },
-    }).select("_id title subjectId currentVersionId");
+    }).select("_id ownerId visibility title subjectId currentVersionId");
 
     if (documents.length !== documentIds.length) {
       throw new AppError("One or more selected documents were not found", 404);
     }
 
+    const accessRoles = await Promise.all(
+      documents.map((document) => getDocumentAccessRole(document, userId)),
+    );
+
+    if (accessRoles.some((role) => !role)) {
+      throw new AppError("One or more selected documents were not found", 404);
+    }
+
+    const sharedDocumentIds = documents
+      .filter((_document, index) => accessRoles[index] !== "OWNER")
+      .map((document) => document._id);
+    const shareMap = await getShareMapForDocuments(userId, sharedDocumentIds);
     const foundIds = new Set(documents.map((document) => document._id.toString()));
     const orderedDocumentIds = documentIds.filter((id) => foundIds.has(id));
+    const effectiveSubjectIdsByDocument = documents.map((document, index) =>
+      accessRoles[index] === "OWNER"
+        ? document.subjectId?.toString()
+        : getPersonalSubjectId(shareMap.get(document._id.toString())),
+    );
     const subjectIds = [
       ...new Set(
-        documents
-          .map((document) => document.subjectId?.toString())
+        effectiveSubjectIdsByDocument
           .filter((subjectId): subjectId is string => Boolean(subjectId)),
       ),
     ];
 
-    if (payload.subjectId && subjectIds.some((subjectId) => subjectId !== payload.subjectId)) {
+    if (
+      payload.subjectId &&
+      (effectiveSubjectIdsByDocument.some((subjectId) => subjectId !== payload.subjectId))
+    ) {
       throw new AppError("Selected documents do not belong to the requested subject", 400);
     }
 
@@ -161,7 +296,9 @@ export const resolveChatScope = async (
     }
 
     const subjectId = payload.subjectId || subjectIds[0];
-    const subject = (await getSubjectNameForUser(subjectId, userId)) || payload.subject;
+    const subject = subjectId
+      ? (await getSubjectNameForUser(subjectId, userId)) || payload.subject
+      : payload.subject;
     const hasProcessingDocument = !(await areAllActiveVersionsReady(documents));
 
     return {
@@ -172,7 +309,6 @@ export const resolveChatScope = async (
       hasProcessingDocument,
       isMultiDocumentScope: true,
       vectorFilters: {
-        userId,
         documentIds: orderedDocumentIds,
       },
     };
@@ -183,10 +319,13 @@ export const resolveChatScope = async (
   }
 
   if (payload.subjectId) {
-    const subject = await getSubjectNameForUser(payload.subjectId, userId);
+    const subject = (await getSubjectNameForUser(payload.subjectId, userId)) || payload.subject;
+    const sharedDocumentIds = await getSharedDocumentIds(userId, payload.subjectId);
     const documents = await StudyDocument.find({
-      subjectId: payload.subjectId,
-      ownerId: userId,
+      $or: [
+        { ownerId: userId, subjectId: payload.subjectId },
+        { _id: { $in: sharedDocumentIds } },
+      ],
       status: { $ne: "DELETED" },
     }).select("_id title subjectId currentVersionId");
 
@@ -204,20 +343,37 @@ export const resolveChatScope = async (
       isMultiDocumentScope: true,
       documentIds,
       vectorFilters: {
-        userId,
         documentIds: documentIds.length > 0 ? documentIds : undefined,
+        userId: documentIds.length === 0 ? userId : undefined,
         subjectId: documentIds.length === 0 ? payload.subjectId : undefined,
       },
     };
   }
 
+  const canQueryLibraryDocuments = Types.ObjectId.isValid(userId);
+  const sharedDocumentIds = canQueryLibraryDocuments
+    ? await getSharedDocumentIds(userId)
+    : [];
+  const accessibleDocuments = canQueryLibraryDocuments
+    ? await StudyDocument.find({
+        $or: [{ ownerId: userId }, { _id: { $in: sharedDocumentIds } }],
+        status: { $ne: "DELETED" },
+      }).select("_id currentVersionId")
+    : [];
+  const accessibleDocumentIds = accessibleDocuments.map((document) =>
+    document._id.toString(),
+  );
+
   return {
     scope: "library_all",
     subject: payload.subject,
-    hasProcessingDocument: false,
+    hasProcessingDocument: accessibleDocuments.length > 0
+      ? !(await areAllActiveVersionsReady(accessibleDocuments))
+      : false,
     isMultiDocumentScope: true,
     vectorFilters: {
-      userId,
+      documentIds: accessibleDocumentIds.length > 0 ? accessibleDocumentIds : undefined,
+      userId: accessibleDocumentIds.length === 0 ? userId : undefined,
       subject: payload.subject,
     },
   };

@@ -16,6 +16,7 @@ export interface RegisterRequest {
   email: string;
   password: string;
   avatar?: string;
+  inviteToken?: string;
 }
 
 export interface LoginRequest {
@@ -45,6 +46,7 @@ export interface UserResponse {
 export interface AuthResponse {
   user: UserResponse;
   accessToken: string;
+  redirectDocumentId?: string;
 }
 
 export interface UploadDocumentRequest {
@@ -86,6 +88,7 @@ export interface ListDocumentQuery {
 
 export type DocumentVisibility = "PUBLIC" | "PRIVATE";
 export type DocumentStatus = "ACTIVE" | "ARCHIVED" | "DELETED";
+export type DocumentAccessRole = "OWNER" | "EDITOR" | "VIEWER";
 
 export interface DocumentResponse {
   _id?: string;
@@ -123,6 +126,15 @@ export interface DocumentResponse {
   uploadedBy: string | Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
+  accessRole?: DocumentAccessRole;
+  isShared?: boolean;
+  sharedBy?: {
+    id: string;
+    fullName: string;
+    email: string;
+  };
+  personalSubjectId?: string | Types.ObjectId | SubjectSummaryResponse;
+  personalSubject?: SubjectSummaryResponse | null;
 }
 
 export interface CreateSubjectRequest {
@@ -183,6 +195,8 @@ export interface DocumentListItemResponse {
   totalChunks?: number;
   createdAt: Date;
   updatedAt: Date;
+  accessRole?: DocumentAccessRole;
+  isShared?: boolean;
 }
 
 export interface PaginationResponse {

@@ -4,11 +4,15 @@ import { authMiddleware } from "../../middlewares/auth.middleware";
 import { validateRequest } from "../../middlewares/validate.middleware";
 import {
   createDocument,
+  downloadDocument,
+  editSharedDocumentProfile,
   editDocument,
   getDocument,
+  listSharedWithMe,
   listDocuments,
   removeDocument,
 } from "./document.controller";
+import documentShareRoutes from "../documentShares/documentShare.routes";
 
 const objectIdSchema = z.string().trim().regex(/^[0-9a-fA-F]{24}$/, {
   message: "Invalid ObjectId",
@@ -49,6 +53,19 @@ const documentIdSchema = z.object({
   }),
 });
 
+const updateSharedProfileSchema = z.object({
+  params: z.object({
+    id: objectIdSchema,
+  }),
+  body: z
+    .object({
+      subjectId: objectIdSchema.nullable().optional(),
+    })
+    .refine((data) => Object.keys(data).length > 0, {
+      message: "At least one field is required",
+    }),
+});
+
 const listDocumentSchema = z.object({
   query: z.object({
     page: z.string().trim().optional(),
@@ -66,6 +83,14 @@ router.use(authMiddleware);
 
 router.post("/", validateRequest(createDocumentSchema), createDocument);
 router.get("/", validateRequest(listDocumentSchema), listDocuments);
+router.get("/shared-with-me", validateRequest(listDocumentSchema), listSharedWithMe);
+router.get("/:id/download", validateRequest(documentIdSchema), downloadDocument);
+router.patch(
+  "/:id/shared-profile",
+  validateRequest(updateSharedProfileSchema),
+  editSharedDocumentProfile,
+);
+router.use("/:id/share", documentShareRoutes);
 router.get("/:id", validateRequest(documentIdSchema), getDocument);
 router.put("/:id", validateRequest(updateDocumentSchema), editDocument);
 router.delete("/:id", validateRequest(documentIdSchema), removeDocument);

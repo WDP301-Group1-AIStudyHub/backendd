@@ -6,8 +6,11 @@ import {
   CreateDocumentRequest,
   getDocumentDetail,
   getDocuments,
+  getDocumentDownloadUrl,
+  getSharedDocumentsWithUser,
   ListDocumentQuery,
   softDeleteDocument,
+  updateSharedDocumentProfile,
   updateDocumentMetadata,
   UpdateDocumentRequest,
 } from "./document.service";
@@ -34,6 +37,15 @@ export const listDocuments = asyncHandler(async (
   res.status(200).json(result);
 });
 
+export const listSharedWithMe = asyncHandler(async (
+  req: Request<unknown, unknown, unknown, ListDocumentQuery>,
+  res: Response,
+): Promise<void> => {
+  const result = await getSharedDocumentsWithUser(req.authUser!.id, req.query);
+
+  res.status(200).json(result);
+});
+
 export const getDocument = asyncHandler(async (
   req: Request<{ id: string }>,
   res: Response,
@@ -43,6 +55,23 @@ export const getDocument = asyncHandler(async (
   sendResponse(res, 200, {
     success: true,
     message: "Document fetched successfully",
+    data,
+  });
+});
+
+export const downloadDocument = asyncHandler(async (
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> => {
+  const data = await getDocumentDownloadUrl(
+    req.params.id,
+    req.authUser!.id,
+    req.authUser!.role,
+  );
+
+  sendResponse(res, 200, {
+    success: true,
+    message: "Document download URL fetched successfully",
     data,
   });
 });
@@ -61,6 +90,23 @@ export const editDocument = asyncHandler(async (
   sendResponse(res, 200, {
     success: true,
     message: "Document updated successfully",
+    data,
+  });
+});
+
+export const editSharedDocumentProfile = asyncHandler(async (
+  req: Request<{ id: string }, unknown, { subjectId?: string | null }>,
+  res: Response,
+): Promise<void> => {
+  const data = await updateSharedDocumentProfile(
+    req.params.id,
+    req.authUser!.id,
+    req.body,
+  );
+
+  sendResponse(res, 200, {
+    success: true,
+    message: "Shared document profile updated successfully",
     data,
   });
 });

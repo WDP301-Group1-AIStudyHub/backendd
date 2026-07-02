@@ -6,6 +6,13 @@ import {
   PaginationResponse,
 } from "../../common/utils/pagination.util";
 import { ISubject, Subject } from "../subjects/subject.model";
+import { DocumentShare, IDocumentShare } from "../documentShares/documentShare.model";
+import {
+  assertRoleHasAccess,
+  DocumentAccessRole,
+  getDocumentAccessRole,
+  permissionToAccessRole,
+} from "../documentShares/documentShare.service";
 import {
   DocumentStatus,
   DocumentVisibility,
@@ -50,7 +57,7 @@ export interface DocumentResponse {
   _id: string;
   id: string;
   ownerId: string | Types.ObjectId;
-  subjectId: string | Types.ObjectId | SubjectSummaryResponse;
+  subjectId?: string | Types.ObjectId | SubjectSummaryResponse;
   subject?: SubjectSummaryResponse | null;
   title: string;
   description?: string;
@@ -80,6 +87,15 @@ export interface DocumentResponse {
   extractionError?: string;
   createdAt: Date;
   updatedAt: Date;
+  accessRole?: DocumentAccessRole;
+  isShared?: boolean;
+  sharedBy?: {
+    id: string;
+    fullName: string;
+    email: string;
+  };
+  personalSubjectId?: string | Types.ObjectId | SubjectSummaryResponse;
+  personalSubject?: SubjectSummaryResponse | null;
 }
 
 const toSubjectSummary = (subject: unknown): SubjectSummaryResponse | null => {
@@ -99,8 +115,35 @@ const toSubjectSummary = (subject: unknown): SubjectSummaryResponse | null => {
   };
 };
 
-export const toDocumentResponse = (document: IDocument): DocumentResponse => {
-  const subject = toSubjectSummary(document.subjectId);
+interface DocumentResponseOptions {
+  accessRole?: DocumentAccessRole;
+  isShared?: boolean;
+  sharedBy?: {
+    id: string;
+    fullName: string;
+    email: string;
+  };
+  subjectOverride?: SubjectSummaryResponse | null;
+  personalSubject?: SubjectSummaryResponse | null;
+}
+
+export const toDocumentResponse = (
+  document: IDocument,
+  options: DocumentResponseOptions = {},
+): DocumentResponse => {
+  const ownerSubject = toSubjectSummary(document.subjectId);
+  const hasSubjectOverride = Object.prototype.hasOwnProperty.call(
+    options,
+    "subjectOverride",
+  );
+  const subject = hasSubjectOverride
+    ? options.subjectOverride ?? null
+    : ownerSubject;
+  const personalSubject = options.personalSubject !== undefined
+    ? options.personalSubject
+    : hasSubjectOverride
+      ? subject
+      : undefined;
   const currentVersion =
     document.currentVersionId &&
     typeof document.currentVersionId === "object" &&
@@ -116,7 +159,9 @@ export const toDocumentResponse = (document: IDocument): DocumentResponse => {
     _id: document._id.toString(),
     id: document._id.toString(),
     ownerId: document.ownerId,
-    subjectId: subject || document.subjectId,
+    subjectId: hasSubjectOverride
+      ? subject?._id
+      : subject || document.subjectId,
     subject,
     title: document.title,
     description: document.description,
@@ -146,6 +191,11 @@ export const toDocumentResponse = (document: IDocument): DocumentResponse => {
     extractionError: document.extractionError || "",
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
+    accessRole: options.accessRole,
+    isShared: options.isShared,
+    sharedBy: options.sharedBy,
+    personalSubjectId: personalSubject?._id,
+    personalSubject,
   };
 };
 
@@ -169,17 +219,27 @@ const buildReadableDocumentFilter = (
   userId: string,
   role: string,
   query: ListDocumentQuery,
+  sharedDocumentIds: string[] = [],
 ): Record<string, unknown> => {
+  const subjectId = query.subjectId?.trim();
   const filter: Record<string, unknown> = {
     status: query.status || { $ne: "DELETED" },
   };
 
   if (role !== "admin") {
-    filter.ownerId = userId;
+    filter.$or = subjectId
+      ? [
+          { ownerId: userId, subjectId },
+          { _id: { $in: sharedDocumentIds } },
+        ]
+      : [
+          { ownerId: userId },
+          { _id: { $in: sharedDocumentIds } },
+        ];
   }
 
-  if (query.subjectId?.trim()) {
-    filter.subjectId = query.subjectId.trim();
+  if (role === "admin" && subjectId) {
+    filter.subjectId = subjectId;
   }
 
   if (query.visibility) {
@@ -196,6 +256,77 @@ const buildReadableDocumentFilter = (
   }
 
   return filter;
+};
+
+interface DocumentAccessContext {
+  accessRole: DocumentAccessRole;
+  personalSubject?: SubjectSummaryResponse | null;
+}
+
+const toPersonalSubjectSummary = (
+  share: Pick<IDocumentShare, "personalSubjectId">,
+): SubjectSummaryResponse | null =>
+  toSubjectSummary(share.personalSubjectId);
+
+const toSharedBySummary = (
+  value: unknown,
+): DocumentResponseOptions["sharedBy"] | undefined => {
+  if (!value || typeof value !== "object" || !("_id" in value)) {
+    return undefined;
+  }
+
+  const user = value as {
+    _id: Types.ObjectId;
+    fullName?: string;
+    email?: string;
+  };
+
+  return {
+    id: user._id.toString(),
+    fullName: user.fullName || "",
+    email: user.email || "",
+  };
+};
+
+const buildAccessContextMap = async (
+  documents: IDocument[],
+  userId: string,
+  role: string,
+): Promise<Map<string, DocumentAccessContext>> => {
+  const accessMap = new Map<string, DocumentAccessContext>();
+
+  for (const document of documents) {
+    if (role === "admin" || document.ownerId.toString() === userId) {
+      accessMap.set(document._id.toString(), { accessRole: "OWNER" });
+    }
+  }
+
+  const sharedDocumentIds = documents
+    .filter((document) => !accessMap.has(document._id.toString()))
+    .map((document) => document._id);
+
+  if (sharedDocumentIds.length === 0) {
+    return accessMap;
+  }
+
+  const shares = await DocumentShare.find({
+    documentId: { $in: sharedDocumentIds },
+    sharedWithUserId: userId,
+  })
+    .select("documentId permission personalSubjectId")
+    .populate("personalSubjectId", "_id name description color code semester");
+
+  for (const share of shares) {
+    accessMap.set(
+      share.documentId.toString(),
+      {
+        accessRole: permissionToAccessRole(share.permission),
+        personalSubject: toPersonalSubjectSummary(share),
+      },
+    );
+  }
+
+  return accessMap;
 };
 
 export const createDocumentMetadata = async (
@@ -224,7 +355,15 @@ export const getDocuments = async (
   query: ListDocumentQuery = {},
 ): Promise<{ data: DocumentResponse[]; pagination: PaginationResponse }> => {
   const { page, limit, skip } = paginate(query);
-  const filters = buildReadableDocumentFilter(userId, role, query);
+  const requestedSubjectId = query.subjectId?.trim();
+  const sharedDocumentIds =
+    role === "admin"
+      ? []
+      : (await DocumentShare.distinct("documentId", {
+          sharedWithUserId: userId,
+          ...(requestedSubjectId ? { personalSubjectId: requestedSubjectId } : {}),
+        })).map((id) => id.toString());
+  const filters = buildReadableDocumentFilter(userId, role, query, sharedDocumentIds);
 
   const [documents, totalItems] = await Promise.all([
     StudyDocument.find(filters)
@@ -239,9 +378,25 @@ export const getDocuments = async (
       .limit(limit),
     StudyDocument.countDocuments(filters),
   ]);
+  const accessMap = await buildAccessContextMap(documents, userId, role);
 
   return {
-    data: documents.map(toDocumentResponse),
+    data: documents.map((document) => {
+      const accessContext = accessMap.get(document._id.toString());
+      const isShared =
+        accessContext?.accessRole !== "OWNER" && document.ownerId.toString() !== userId;
+      const responseOptions: DocumentResponseOptions = {
+        accessRole: accessContext?.accessRole,
+        isShared,
+      };
+
+      if (isShared) {
+        responseOptions.subjectOverride = accessContext?.personalSubject ?? null;
+        responseOptions.personalSubject = accessContext?.personalSubject ?? null;
+      }
+
+      return toDocumentResponse(document, responseOptions);
+    }),
     pagination: buildPaginationResponse(page, limit, totalItems),
   };
 };
@@ -256,10 +411,6 @@ export const getDocumentDetail = async (
     status: { $ne: "DELETED" },
   };
 
-  if (role !== "admin") {
-    filter.ownerId = userId;
-  }
-
   const document = await StudyDocument.findOne(filter).populate(
     "subjectId",
     "_id name description color code semester",
@@ -273,7 +424,35 @@ export const getDocumentDetail = async (
     throw new AppError("Document not found", 404);
   }
 
-  return toDocumentResponse(document);
+  const accessRole = await getDocumentAccessRole(document, userId, role);
+
+  if (!accessRole) {
+    throw new AppError("Document not found", 404);
+  }
+
+  const isShared =
+    accessRole !== "OWNER" && document.ownerId.toString() !== userId;
+  const share = isShared
+    ? await DocumentShare.findOne({
+        documentId,
+        sharedWithUserId: userId,
+      })
+        .populate("personalSubjectId", "_id name description color code semester")
+        .populate("sharedBy", "_id fullName email")
+    : null;
+  const responseOptions: DocumentResponseOptions = {
+    accessRole,
+    isShared,
+  };
+
+  if (isShared) {
+    const personalSubject = share ? toPersonalSubjectSummary(share) : null;
+    responseOptions.subjectOverride = personalSubject;
+    responseOptions.personalSubject = personalSubject;
+    responseOptions.sharedBy = toSharedBySummary(share?.sharedBy);
+  }
+
+  return toDocumentResponse(document, responseOptions);
 };
 
 export const updateDocumentMetadata = async (
@@ -287,18 +466,34 @@ export const updateDocumentMetadata = async (
     status: { $ne: "DELETED" },
   };
 
-  if (role !== "admin") {
-    filter.ownerId = ownerId;
-  }
-
   const existingDocument = await StudyDocument.findOne(filter);
 
   if (!existingDocument) {
     throw new AppError("Document not found", 404);
   }
 
+  const accessRole = await getDocumentAccessRole(existingDocument, ownerId, role);
+
+  if (!accessRole) {
+    throw new AppError("Document not found", 404);
+  }
+
+  assertRoleHasAccess(accessRole, "EDIT");
+
+  const hasOwnerOnlyMetadataChange =
+    (payload.subjectId !== undefined && payload.subjectId !== null && payload.subjectId !== "") ||
+    payload.visibility !== undefined ||
+    payload.status !== undefined;
+
+  if (accessRole !== "OWNER" && hasOwnerOnlyMetadataChange) {
+    throw new AppError(
+      "Only the document owner can update document organization and visibility",
+      403,
+    );
+  }
+
   if (payload.subjectId !== undefined && payload.subjectId !== null && payload.subjectId !== "") {
-    const subjectOwnerId = role === "admin" ? existingDocument.ownerId.toString() : ownerId;
+    const subjectOwnerId = existingDocument.ownerId.toString();
     await getSubjectOwnedByUser(payload.subjectId, subjectOwnerId);
   }
 
@@ -315,7 +510,10 @@ export const updateDocumentMetadata = async (
     throw new AppError("Document not found", 404);
   }
 
-  return toDocumentResponse(document);
+  return toDocumentResponse(document, {
+    accessRole,
+    isShared: document.ownerId.toString() !== ownerId,
+  });
 };
 
 export const softDeleteDocument = async (
@@ -328,12 +526,22 @@ export const softDeleteDocument = async (
     status: { $ne: "DELETED" },
   };
 
-  if (role !== "admin") {
-    filter.ownerId = ownerId;
+  const existingDocument = await StudyDocument.findOne(filter);
+
+  if (!existingDocument) {
+    throw new AppError("Document not found", 404);
   }
 
+  const accessRole = await getDocumentAccessRole(existingDocument, ownerId, role);
+
+  if (!accessRole) {
+    throw new AppError("Document not found", 404);
+  }
+
+  assertRoleHasAccess(accessRole, "OWNER");
+
   const document = await StudyDocument.findOneAndUpdate(
-    filter,
+    { _id: documentId, status: { $ne: "DELETED" } },
     {
       status: "DELETED",
       deletedAt: new Date(),
@@ -347,4 +555,150 @@ export const softDeleteDocument = async (
   if (!document) {
     throw new AppError("Document not found", 404);
   }
+};
+
+export const getDocumentDownloadUrl = async (
+  documentId: string,
+  userId: string,
+  role: string = "user",
+): Promise<{ downloadUrl: string; fileName?: string }> => {
+  const data = await getDocumentDetail(documentId, userId, role);
+
+  if (!data.fileUrl) {
+    throw new AppError("Document file not found", 404);
+  }
+
+  return {
+    downloadUrl: data.fileUrl,
+    fileName: data.fileName,
+  };
+};
+
+export const getSharedDocumentsWithUser = async (
+  userId: string,
+  query: ListDocumentQuery = {},
+): Promise<{ data: DocumentResponse[]; pagination: PaginationResponse }> => {
+  const { page, limit, skip } = paginate(query);
+  const requestedSubjectId = query.subjectId?.trim();
+  const shares = await DocumentShare.find({
+    sharedWithUserId: userId,
+    ...(requestedSubjectId ? { personalSubjectId: requestedSubjectId } : {}),
+  })
+    .populate({
+      path: "documentId",
+      match: { status: { $ne: "DELETED" } },
+      populate: [
+        {
+          path: "subjectId",
+          select: "_id name description color code semester",
+        },
+        {
+          path: "currentVersionId",
+          select: "_id processingStatus processingStage processingProgress",
+        },
+      ],
+    })
+    .populate("personalSubjectId", "_id name description color code semester")
+    .populate("sharedBy", "_id fullName email")
+    .sort({ createdAt: -1 });
+
+  const keyword = query.keyword?.trim().toLowerCase();
+  const activeShares = shares
+    .filter((share) => Boolean(share.documentId))
+    .filter((share) => {
+      if (!keyword) {
+        return true;
+      }
+
+      const document = share.documentId as unknown as IDocument;
+      const personalSubject = toPersonalSubjectSummary(share);
+      const sharedBy = toSharedBySummary(share.sharedBy);
+      const searchable = [
+        document.title,
+        document.description,
+        document.fileName,
+        personalSubject?.name,
+        personalSubject?.code,
+        sharedBy?.fullName,
+        sharedBy?.email,
+      ];
+
+      return searchable
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(keyword));
+    });
+  const totalItems = activeShares.length;
+  const pageItems = activeShares.slice(skip, skip + limit);
+
+  return {
+    data: pageItems.map((share) => {
+      const sharedBy = share.sharedBy as unknown as {
+        _id: Types.ObjectId;
+        fullName: string;
+        email: string;
+      };
+      const personalSubject = toPersonalSubjectSummary(share);
+
+      return toDocumentResponse(share.documentId as unknown as IDocument, {
+        accessRole: permissionToAccessRole(share.permission),
+        isShared: true,
+        subjectOverride: personalSubject,
+        personalSubject,
+        sharedBy: {
+          id: sharedBy._id.toString(),
+          fullName: sharedBy.fullName,
+          email: sharedBy.email,
+        },
+      });
+    }),
+    pagination: buildPaginationResponse(page, limit, totalItems),
+  };
+};
+
+export const updateSharedDocumentProfile = async (
+  documentId: string,
+  userId: string,
+  payload: { subjectId?: string | null },
+): Promise<DocumentResponse> => {
+  const [document, share] = await Promise.all([
+    StudyDocument.findOne({
+      _id: documentId,
+      status: { $ne: "DELETED" },
+    }).populate(
+      "currentVersionId",
+      "_id processingStatus processingStage processingProgress",
+    ),
+    DocumentShare.findOne({
+      documentId,
+      sharedWithUserId: userId,
+    })
+      .populate("personalSubjectId", "_id name description color code semester")
+      .populate("sharedBy", "_id fullName email"),
+  ]);
+
+  if (!document || !share) {
+    throw new AppError("Document not found", 404);
+  }
+
+  const nextSubjectId = payload.subjectId?.trim();
+
+  if (nextSubjectId) {
+    const subject = await getSubjectOwnedByUser(nextSubjectId, userId);
+    share.personalSubjectId = subject._id;
+  } else {
+    share.personalSubjectId = null;
+  }
+
+  await share.save();
+  await share.populate("personalSubjectId", "_id name description color code semester");
+
+  const personalSubject = toPersonalSubjectSummary(share);
+
+  return toDocumentResponse(document, {
+    accessRole: permissionToAccessRole(share.permission),
+    isShared: true,
+    subjectOverride: personalSubject,
+    personalSubject,
+    sharedBy: toSharedBySummary(share.sharedBy),
+  });
 };

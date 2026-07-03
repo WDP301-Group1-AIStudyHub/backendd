@@ -64,6 +64,7 @@ export const generateGroqText = async (
   options: {
     temperature?: number;
     maxTokens?: number;
+    retries?: number;
   } = {},
 ): Promise<string> => {
   try {
@@ -76,7 +77,7 @@ export const generateGroqText = async (
           max_tokens: options.maxTokens ?? 900,
         }),
       {
-        retries: 3,
+        retries: options.retries ?? 3,
         baseDelayMs: 1_000,
         maxDelayMs: 8_000,
         shouldRetry: isRetryableGroqError,

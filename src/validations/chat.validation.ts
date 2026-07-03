@@ -15,6 +15,10 @@ export const askQuestionSchema = z.object({
     scope: z
       .enum(["single_document", "subject_all", "document_set", "library_all"])
       .optional(),
+    // Clients may pick the documented product modes only; internal engines
+    // (e.g. "dr-rag") are selected server-side via RAG_ENGINE or by
+    // internal callers and stay rejected here.
+    mode: z.enum(["basic", "corrective"]).optional(),
   }).strict().superRefine((body, ctx) => {
     if (body.documentId && body.documentIds?.length) {
       ctx.addIssue({

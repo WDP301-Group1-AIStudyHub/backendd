@@ -3,7 +3,7 @@ import type { AIMessage, BaseMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 
 export type BoundAgentModel = {
-  invoke: (messages: BaseMessage[]) => Promise<AIMessage>;
+  invoke: (messages: BaseMessage[], options?: { signal?: AbortSignal }) => Promise<AIMessage>;
 };
 
 export type AgentChatModel = {

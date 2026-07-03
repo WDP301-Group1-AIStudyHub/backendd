@@ -1,5 +1,6 @@
 import { ChatHistory, IChatHistory } from "../models/chatHistory.model";
 import { ChatThread, IChatThread } from "../models/chatThread.model";
+import { StudyDocument } from "../models/document.model";
 import {
   AskQuestionRequest,
   AskQuestionResponse,
@@ -11,9 +12,11 @@ import {
 } from "../types/api.types";
 import { AppError } from "../middlewares/error.middleware";
 import { createEvaluationLog } from "./evaluation.service";
-import { askQuestionWithDrRag } from "./drRag.service";
-import { answerDocumentStructureQuestion } from "./documentStructureAnswer.service";
+import { compileStudyAgentGraph } from "./langgraph.service";
+import { askQuestionWithDrRagGraph } from "./drRagGraph.service";
+import { calculateAverageRelevance } from "./relevance.service";
 import { resolveChatScope } from "./chatScope.service";
+import { RAG_CONFIG } from "../config/rag.config";
 
 const toChatHistoryResponse = (
   history: IChatHistory,
@@ -89,23 +92,16 @@ const getOrCreateThread = async (
   });
 };
 
-export const askQuestion = async (
+export const persistAndRespond = async (
   userId: string,
   payload: AskQuestionRequest,
-  options: { persistHistory?: boolean } = {},
+  chatScope: Awaited<ReturnType<typeof resolveChatScope>>,
+  result: AskQuestionResponse,
+  options: { persistHistory: boolean },
 ): Promise<AskQuestionResponse> => {
-  const persistHistory = options.persistHistory ?? true;
-  const chatScope = await resolveChatScope(userId, payload);
-
-  const structuralResult = await answerDocumentStructureQuestion(userId, payload);
-  const result =
-    structuralResult ||
-    (await askQuestionWithDrRag(userId, payload));
-  const evaluation = result.evaluation;
-
   let threadId: string | undefined;
 
-  if (persistHistory) {
+  if (options.persistHistory) {
     const thread = await getOrCreateThread(userId, payload);
     threadId = thread._id.toString();
 
@@ -113,7 +109,7 @@ export const askQuestion = async (
       userId,
       threadId: thread._id,
       question: payload.question,
-      originalQuestion: result.originalQuestion,
+      originalQuestion: result.originalQuestion || payload.question,
       rewrittenQuery: result.rewrittenQuery,
       answer: result.answer,
       sources: result.sources,
@@ -122,7 +118,7 @@ export const askQuestion = async (
       subjectId: chatScope.subjectId,
       scope: payload.scope || chatScope.scope,
       mode: result.mode,
-      evaluation,
+      evaluation: result.evaluation,
     });
 
     await ChatThread.findOneAndUpdate(
@@ -143,33 +139,34 @@ export const askQuestion = async (
 
     await createEvaluationLog({
       userId,
-      question: result.originalQuestion,
+      question: result.originalQuestion || payload.question,
       rewrittenQuery: result.rewrittenQuery,
-      retrievalMode: result.mode,
-      retrievedChunksCount: evaluation.retrievedChunksCount,
-      relevantChunksCount: evaluation.relevantChunksCount,
-      averageRelevanceScore: evaluation.averageRelevanceScore,
-      isGrounded: evaluation.isGrounded,
-      confidenceScore: evaluation.confidenceScore,
-      responseTimeMs: evaluation.responseTimeMs,
-      stageOneChunksCount: evaluation.stageOneChunksCount,
-      stageTwoChunksCount: evaluation.stageTwoChunksCount,
-      selectedStaticChunksCount: evaluation.selectedStaticChunksCount,
-      selectedDynamicChunksCount: evaluation.selectedDynamicChunksCount,
-      dynamicRetrievalAttempted: evaluation.dynamicRetrievalAttempted,
-      selectionStrategy: evaluation.selectionStrategy,
-      retrievalQueries: evaluation.retrievalQueries,
-      usedFallbackChunks: evaluation.usedFallbackChunks,
-      relevanceThreshold: evaluation.relevanceThreshold,
-      warning: evaluation.warning,
-      fallbackGenerated: evaluation.fallbackGenerated,
-      fallbackReason: evaluation.fallbackReason,
-      detectedIntent: evaluation.detectedIntent,
-      retrievedSections: evaluation.retrievedSections,
-      answerProfile: evaluation.answerProfile,
-      usedSectionExpansion: evaluation.usedSectionExpansion,
-      selectedSectionTitle: evaluation.selectedSectionTitle,
-      contextChunksUsed: evaluation.contextChunksUsed,
+      retrievalMode: result.mode || "basic",
+      retrievedChunksCount: result.evaluation?.retrievedChunksCount || 0,
+      relevantChunksCount: result.evaluation?.relevantChunksCount || 0,
+      averageRelevanceScore: result.evaluation?.averageRelevanceScore || 0,
+      correctiveAttempted: result.evaluation?.correctiveAttempted || false,
+      isGrounded: result.evaluation?.isGrounded ?? true,
+      confidenceScore: result.evaluation?.confidenceScore || 0,
+      responseTimeMs: result.evaluation?.responseTimeMs || 0,
+      usedFallbackChunks: result.evaluation?.usedFallbackChunks,
+      relevanceThreshold: result.evaluation?.relevanceThreshold,
+      warning: result.evaluation?.warning,
+      fallbackGenerated: result.evaluation?.fallbackGenerated,
+      fallbackReason: result.evaluation?.fallbackReason,
+      detectedIntent: result.evaluation?.detectedIntent,
+      retrievedSections: result.evaluation?.retrievedSections,
+      answerProfile: result.evaluation?.answerProfile,
+      usedSectionExpansion: result.evaluation?.usedSectionExpansion,
+      selectedSectionTitle: result.evaluation?.selectedSectionTitle,
+      contextChunksUsed: result.evaluation?.contextChunksUsed,
+      stageOneChunksCount: result.evaluation?.stageOneChunksCount,
+      stageTwoChunksCount: result.evaluation?.stageTwoChunksCount,
+      selectedStaticChunksCount: result.evaluation?.selectedStaticChunksCount,
+      selectedDynamicChunksCount: result.evaluation?.selectedDynamicChunksCount,
+      dynamicRetrievalAttempted: result.evaluation?.dynamicRetrievalAttempted,
+      selectionStrategy: result.evaluation?.selectionStrategy,
+      retrievalQueries: result.evaluation?.retrievalQueries,
     });
   }
 
@@ -177,6 +174,91 @@ export const askQuestion = async (
     ...result,
     threadId,
   };
+};
+
+export const askQuestion = async (
+  userId: string,
+  payload: AskQuestionRequest,
+  options: { persistHistory?: boolean } = {},
+): Promise<AskQuestionResponse> => {
+  const persistHistory = options.persistHistory ?? true;
+  const startedAt = Date.now();
+  const chatScope = await resolveChatScope(userId, payload);
+
+  // Engine dispatch: internal callers (benchmarks, tests) opt in per request
+  // via payload.mode; RAG_ENGINE=dr-rag flips the server-wide default. The
+  // HTTP schema still rejects client-supplied mode, so this stays internal.
+  const useDrRagEngine =
+    payload.mode === "dr-rag" ||
+    (!payload.mode && RAG_CONFIG.engine === "dr-rag");
+
+  if (useDrRagEngine) {
+    const drRagResult = await askQuestionWithDrRagGraph(userId, payload);
+
+    return persistAndRespond(userId, payload, chatScope, drRagResult, {
+      persistHistory,
+    });
+  }
+
+  const mode = (payload.mode === "corrective" ? "corrective" : "basic") as "basic" | "corrective";
+
+  // Compile and execute local LangGraph flow
+  const graph = compileStudyAgentGraph();
+  const graphState = await graph.invoke({
+    userId,
+    payload,
+    mode,
+    startedAt,
+  });
+
+  const result: AskQuestionResponse = {
+    answer: graphState.answer,
+    mode: graphState.mode || mode,
+    originalQuestion: payload.question,
+    rewrittenQuery: graphState.rewrittenQuery,
+    sources: graphState.sources || [],
+    evaluation: {
+      retrievedChunksCount: graphState.retrievedChunks?.length || 0,
+      relevantChunksCount: graphState.relevantChunks?.length || 0,
+      averageRelevanceScore: calculateAverageRelevance(graphState.retrievedChunks || []),
+      correctiveAttempted: graphState.correctiveAttempted || false,
+      isGrounded: graphState.grounded ?? true,
+      confidenceScore: graphState.confidenceScore || 0,
+      responseTimeMs: Date.now() - startedAt,
+      fallbackGenerated: graphState.fallbackGenerated || false,
+      fallbackReason: graphState.fallbackReason,
+      detectedIntent: graphState.intent,
+      warning: graphState.evaluationWarning,
+      answerProfile: graphState.answerProfile?.profile,
+      usedSectionExpansion: graphState.usedSectionExpansion,
+      selectedSectionTitle: graphState.selectedSectionTitle,
+      contextChunksUsed: graphState.answerChunks?.length || 0,
+      stageOneChunksCount: graphState.stageOneChunksCount,
+      stageTwoChunksCount: graphState.stageTwoChunksCount,
+      selectedStaticChunksCount: graphState.selectedStaticChunksCount,
+      selectedDynamicChunksCount: graphState.selectedDynamicChunksCount,
+      dynamicRetrievalAttempted: graphState.dynamicRetrievalAttempted,
+      selectionStrategy: graphState.selectionStrategy,
+      retrievalQueries: graphState.retrievalQueries,
+      retrievedSections: graphState.retrievedChunks ? [
+        ...new Set(
+          graphState.retrievedChunks
+            .map(
+              (chunk) =>
+                chunk.metadata?.sectionTitle ||
+                chunk.metadata?.inferredSection ||
+                chunk.metadata?.section ||
+                "",
+            )
+            .filter(Boolean),
+        ),
+      ] : [],
+    },
+  };
+
+  return persistAndRespond(userId, payload, chatScope, result, {
+    persistHistory,
+  });
 };
 
 export const getChatThreads = async (

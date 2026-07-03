@@ -263,4 +263,59 @@ describe("agentic RAG loop", () => {
     // nothing retrieved → nothing to ground against → no fallback
     assert.equal(result.evaluation?.fallbackGenerated, false);
   });
+
+  it("emits streaming progress events in sequence", async () => {
+    mockScope();
+    const chunk = makeChunk(
+      "doc-1:0",
+      "Vật chất quyết định ý thức trong triết học Mác-Lênin.",
+    );
+    mockRetrieval(chunk);
+    mockGrounding({ isGrounded: true, confidenceScore: 0.9 });
+    mockAgentModel([
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "call_1",
+            name: "search_documents",
+            args: { query: "vật chất quyết định ý thức" },
+          },
+        ],
+      }),
+      new AIMessage(
+        "Theo Triết học Mác-Lênin (Chương 2), vật chất quyết định ý thức.",
+      ),
+    ]);
+
+    const events: any[] = [];
+    const result = await askQuestionWithAgent(
+      "user-1",
+      { question: "vật chất với ý thức cái nào có trước?" },
+      {
+        persistHistory: false,
+        onEvent: (event) => {
+          events.push(event);
+        },
+      },
+    );
+
+    assert.equal(result.mode, "agentic");
+    assert.deepEqual(events.map(e => e.type), [
+      "agent_step",
+      "tool_start",
+      "tool_end",
+      "agent_step",
+      "grounding_check",
+      "final",
+    ]);
+
+    assert.equal(events[0].step, 1);
+    assert.equal(events[1].tool, "search_documents");
+    assert.equal(events[2].tool, "search_documents");
+    assert.match(events[2].resultSummary, /1 passages/);
+    assert.equal(events[3].step, 2);
+    assert.equal(events[5].data.answer, result.answer);
+  });
 });
+

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { ChatHistory } from "../models/chatHistory.model";
 import { ChatThread } from "../models/chatThread.model";
 import { StudyDocument } from "../models/document.model";
@@ -7,9 +7,12 @@ import { Subject } from "../models/subject.model";
 import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
 import * as evaluationService from "./evaluation.service";
 import * as drRagService from "./drRag.service";
+import * as langgraphService from "./langgraph.service";
+import * as documentStructureAnswerService from "./documentStructureAnswer.service";
 import { askQuestion } from "./chat.service";
 
 const originalAskQuestionWithDrRag = drRagService.askQuestionWithDrRag;
+const originalCompileStudyAgentGraph = langgraphService.compileStudyAgentGraph;
 const originalChatHistoryCreate = ChatHistory.create;
 const originalChatThreadCreate = ChatThread.create;
 const originalChatThreadFindOne = ChatThread.findOne;
@@ -42,12 +45,70 @@ const makeDrRagResult = (question: string) => ({
   },
 });
 
+beforeEach(() => {
+  // Mock LangGraph globally for all tests in this file before each runs
+  Object.defineProperty(langgraphService, "compileStudyAgentGraph", {
+    get: () => () => ({
+      invoke: async (state: any) => {
+        const structuralResult = await documentStructureAnswerService.answerDocumentStructureQuestion(
+          state.userId,
+          state.payload,
+        );
+        if (structuralResult) {
+          return {
+            answer: structuralResult.answer,
+            mode: structuralResult.mode,
+            rewrittenQuery: structuralResult.rewrittenQuery,
+            sources: structuralResult.sources,
+            retrievedChunks: [],
+            relevantChunks: [],
+            grounded: true,
+            confidenceScore: 1,
+            intent: "document_structure",
+            answerProfile: { profile: "standard" },
+            fallbackGenerated: false,
+          };
+        }
+        const mockResult = await drRagService.askQuestionWithDrRag(state.userId, state.payload);
+        return {
+          answer: mockResult.answer,
+          mode: mockResult.mode,
+          rewrittenQuery: mockResult.rewrittenQuery,
+          sources: mockResult.sources,
+          retrievedChunks: mockResult.evaluation?.retrievedChunksCount ? new Array(mockResult.evaluation.retrievedChunksCount).fill({}) : [],
+          relevantChunks: mockResult.evaluation?.relevantChunksCount ? new Array(mockResult.evaluation.relevantChunksCount).fill({}) : [],
+          grounded: mockResult.evaluation?.isGrounded ?? true,
+          confidenceScore: mockResult.evaluation?.confidenceScore || 0,
+          intent: mockResult.evaluation?.detectedIntent || "qa",
+          answerProfile: mockResult.evaluation?.answerProfile ? { profile: mockResult.evaluation.answerProfile } : { profile: "standard" },
+          correctiveAttempted: mockResult.evaluation?.correctiveAttempted,
+          fallbackGenerated: mockResult.evaluation?.fallbackGenerated,
+          fallbackReason: mockResult.evaluation?.fallbackReason,
+          evaluationWarning: mockResult.evaluation?.warning,
+          stageOneChunksCount: mockResult.evaluation?.stageOneChunksCount,
+          stageTwoChunksCount: mockResult.evaluation?.stageTwoChunksCount,
+          selectedStaticChunksCount: mockResult.evaluation?.selectedStaticChunksCount,
+          selectedDynamicChunksCount: mockResult.evaluation?.selectedDynamicChunksCount,
+          dynamicRetrievalAttempted: mockResult.evaluation?.dynamicRetrievalAttempted,
+          selectionStrategy: mockResult.evaluation?.selectionStrategy,
+          retrievalQueries: mockResult.evaluation?.retrievalQueries,
+        };
+      },
+    }),
+    configurable: true,
+  });
+});
+
 afterEach(() => {
   (
     drRagService as unknown as {
       askQuestionWithDrRag: typeof drRagService.askQuestionWithDrRag;
     }
   ).askQuestionWithDrRag = originalAskQuestionWithDrRag;
+  Object.defineProperty(langgraphService, "compileStudyAgentGraph", {
+    get: () => originalCompileStudyAgentGraph,
+    configurable: true,
+  });
   ChatHistory.create = originalChatHistoryCreate;
   ChatThread.create = originalChatThreadCreate;
   ChatThread.findOne = originalChatThreadFindOne;

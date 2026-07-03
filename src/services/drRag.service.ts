@@ -29,22 +29,23 @@ import {
   SemanticQuestionIntent,
 } from "./intentClassifier.service";
 import { generateFallbackAnswer } from "./fallbackAnswer.service";
+import { buildCapabilityAnswer } from "./metaAnswer.service";
 
-const DR_RAG_MODE = "dr-rag" as const;
-const SELECTION_STRATEGY = "cfs-heuristic" as const;
+export const DR_RAG_MODE = "dr-rag" as const;
+export const SELECTION_STRATEGY = "cfs-heuristic" as const;
 const DEFAULT_STATIC_CHUNK_LIMIT = 4;
 const DETAILED_STATIC_CHUNK_LIMIT = 6;
 const MULTI_DOCUMENT_STATIC_CHUNK_LIMIT = 6;
-const DEFAULT_DYNAMIC_TOP_K_PER_STATIC_CHUNK = 4;
-const MAX_DYNAMIC_QUERIES = 4;
+export const DEFAULT_DYNAMIC_TOP_K_PER_STATIC_CHUNK = 4;
+export const MAX_DYNAMIC_QUERIES = 4;
 const DEFAULT_CONTEXT_CHUNK_LIMIT = 8;
 const FOCUSED_CONTEXT_CHUNK_LIMIT = 4;
 const DETAILED_CONTEXT_CHUNK_LIMIT = 16;
 const EXPANDED_QUERY_CONTENT_LIMIT = 700;
-const DOCUMENT_PROCESSING_MESSAGE =
+export const DOCUMENT_PROCESSING_MESSAGE =
   "Tài liệu đang được xử lý, vui lòng thử lại sau.";
 
-type DynamicCandidateGroup = {
+export type DynamicCandidateGroup = {
   seed: EvaluatedChunk;
   query: string;
   candidates: EvaluatedChunk[];
@@ -70,7 +71,10 @@ const sectionKey = (chunk: EvaluatedChunk | RetrievedChunk): string =>
       "",
   ].join(":");
 
-const dedupeChunks = <T extends RetrievedChunk>(chunks: T[]): T[] => {
+const chunkContentKey = (chunk: RetrievedChunk): string =>
+  chunk.content.toLowerCase().replace(/\s+/g, " ").trim();
+
+export const dedupeChunks = <T extends RetrievedChunk>(chunks: T[]): T[] => {
   const byId = new Map<string, T>();
 
   chunks.forEach((chunk) => {
@@ -83,7 +87,23 @@ const dedupeChunks = <T extends RetrievedChunk>(chunks: T[]): T[] => {
     }
   });
 
-  return [...byId.values()];
+  // Also collapse identical passages that exist under different chunk ids
+  // (the same document uploaded multiple times), so duplicated uploads
+  // cannot fill the context window with copies of one passage.
+  const byContent = new Map<string, T>();
+
+  byId.forEach((chunk) => {
+    const key = chunkContentKey(chunk);
+    const existing = byContent.get(key);
+    const chunkScore = chunk.pineconeScore ?? 0;
+    const existingScore = existing?.pineconeScore ?? 0;
+
+    if (!existing || chunkScore > existingScore) {
+      byContent.set(key, chunk);
+    }
+  });
+
+  return [...byContent.values()];
 };
 
 const rankChunks = (chunks: EvaluatedChunk[]): EvaluatedChunk[] =>
@@ -124,12 +144,11 @@ export const hasSufficientStageOneEvidence = (
   );
 
   return (
-    hasLexicalTopicOverlap ||
-    topPineconeScore >= RAG_CONFIG.outOfScopeThreshold
+    hasLexicalTopicOverlap || topPineconeScore >= RAG_CONFIG.outOfScopeThreshold
   );
 };
 
-const selectStaticChunks = (
+export const selectStaticChunks = (
   chunks: EvaluatedChunk[],
   options: {
     wantsDetailedAnswer: boolean;
@@ -140,10 +159,10 @@ const selectStaticChunks = (
   const maxChunks = options.wantsShortAnswer
     ? FOCUSED_CONTEXT_CHUNK_LIMIT
     : options.wantsDetailedAnswer
-    ? DETAILED_STATIC_CHUNK_LIMIT
-    : options.isMultiDocumentScope
-    ? MULTI_DOCUMENT_STATIC_CHUNK_LIMIT
-    : DEFAULT_STATIC_CHUNK_LIMIT;
+      ? DETAILED_STATIC_CHUNK_LIMIT
+      : options.isMultiDocumentScope
+        ? MULTI_DOCUMENT_STATIC_CHUNK_LIMIT
+        : DEFAULT_STATIC_CHUNK_LIMIT;
   const relevant = chunks.filter(
     (chunk) =>
       chunk.isRelevant ||
@@ -204,7 +223,9 @@ const hasNovelInformation = (
   const selectedTerms = normalizeTerms(
     selected.map((chunk) => chunk.content).join("\n"),
   );
-  const novelTerms = [...candidateTerms].filter((term) => !selectedTerms.has(term));
+  const novelTerms = [...candidateTerms].filter(
+    (term) => !selectedTerms.has(term),
+  );
   const noveltyRatio = novelTerms.length / candidateTerms.size;
 
   return noveltyRatio >= 0.18;
@@ -221,7 +242,7 @@ const isDynamicCandidateUseful = (
   return passesRelevance && hasNovelInformation(candidate, selected);
 };
 
-const selectDynamicChunksCfs = (
+export const selectDynamicChunksCfs = (
   staticChunks: EvaluatedChunk[],
   dynamicGroups: DynamicCandidateGroup[],
 ): EvaluatedChunk[] => {
@@ -244,7 +265,7 @@ const selectDynamicChunksCfs = (
   return selectedDynamicChunks;
 };
 
-const interleaveStaticAndDynamicChunks = (
+export const interleaveStaticAndDynamicChunks = (
   staticChunks: EvaluatedChunk[],
   dynamicChunks: EvaluatedChunk[],
   maxChunks: number,
@@ -261,10 +282,13 @@ const interleaveStaticAndDynamicChunks = (
   for (const staticChunk of staticChunks) {
     selected.push(staticChunk);
 
-    const sameSectionDynamics = dynamicBySection.get(sectionKey(staticChunk)) || [];
+    const sameSectionDynamics =
+      dynamicBySection.get(sectionKey(staticChunk)) || [];
     const dynamic =
       sameSectionDynamics[0] ||
-      dynamicChunks.find((chunk) => !selected.some((item) => item.id === chunk.id));
+      dynamicChunks.find(
+        (chunk) => !selected.some((item) => item.id === chunk.id),
+      );
 
     if (dynamic) {
       selected.push(dynamic);
@@ -274,7 +298,7 @@ const interleaveStaticAndDynamicChunks = (
   return dedupeChunks(selected).slice(0, maxChunks);
 };
 
-const buildContext = (chunks: EvaluatedChunk[]): string =>
+export const buildContext = (chunks: EvaluatedChunk[]): string =>
   chunks
     .map(
       (chunk, index) =>
@@ -286,7 +310,7 @@ const buildContext = (chunks: EvaluatedChunk[]): string =>
     )
     .join("\n\n");
 
-const toSources = (chunks: EvaluatedChunk[]): ChatSource[] =>
+export const toSources = (chunks: EvaluatedChunk[]): ChatSource[] =>
   chunks.map((chunk) => ({
     documentId: chunk.metadata.documentId,
     title: chunk.metadata.title,
@@ -309,7 +333,7 @@ const toSources = (chunks: EvaluatedChunk[]): ChatSource[] =>
     relevanceScore: chunk.relevanceScore,
   }));
 
-const getRetrievedSections = (chunks: EvaluatedChunk[]): string[] => [
+export const getRetrievedSections = (chunks: EvaluatedChunk[]): string[] => [
   ...new Set(
     chunks
       .map(
@@ -353,7 +377,7 @@ const buildProcessingResult = (
   },
 });
 
-const selectContextLimit = (
+export const selectContextLimit = (
   intent: SemanticQuestionIntent,
   wantsShortAnswer: boolean,
   wantsDetailedAnswer: boolean,
@@ -362,10 +386,12 @@ const selectContextLimit = (
     return FOCUSED_CONTEXT_CHUNK_LIMIT;
   }
 
-  return wantsDetailedAnswer ? DETAILED_CONTEXT_CHUNK_LIMIT : DEFAULT_CONTEXT_CHUNK_LIMIT;
+  return wantsDetailedAnswer
+    ? DETAILED_CONTEXT_CHUNK_LIMIT
+    : DEFAULT_CONTEXT_CHUNK_LIMIT;
 };
 
-const retrieveStageOneChunks = async (
+export const retrieveStageOneChunks = async (
   query: string,
   filters: Parameters<typeof searchRelevantChunks>[1],
   options: {
@@ -389,6 +415,99 @@ const retrieveStageOneChunks = async (
   );
 };
 
+export type DrRagRetrievalResult = {
+  chunks: EvaluatedChunk[];
+  sources: ChatSource[];
+  stageOneCount: number;
+  stageTwoCount: number;
+  retrievalQueries: string[];
+};
+
+// Retrieval-only DR-RAG (stage one + QDC fan-out + CFS selection) with no LLM
+// calls, for callers that synthesize the answer themselves — e.g. the agent
+// loop, where the model supplies an already-focused query per tool call.
+export const retrieveDrRagContext = async (
+  query: string,
+  filters: Parameters<typeof searchRelevantChunks>[1],
+  options: { contextLimit?: number } = {},
+): Promise<DrRagRetrievalResult> => {
+  const contextLimit = options.contextLimit ?? DEFAULT_CONTEXT_CHUNK_LIMIT;
+  const stageOneRaw = await searchRelevantChunks(
+    query,
+    filters,
+    DEFAULT_STATIC_CHUNK_LIMIT,
+  );
+
+  const stageOneChunks = evaluateRetrievedChunks(
+    query,
+    dedupeChunks(stageOneRaw),
+    RAG_CONFIG.relevanceThreshold,
+  );
+
+  const staticChunks = selectStaticChunks(stageOneChunks, {
+    wantsDetailedAnswer: false,
+    isMultiDocumentScope: false,
+    wantsShortAnswer: false,
+  });
+
+  if (
+    staticChunks.length === 0 ||
+    !hasSufficientStageOneEvidence(query, stageOneChunks)
+  ) {
+    return {
+      chunks: [],
+      sources: [],
+      stageOneCount: stageOneChunks.length,
+      stageTwoCount: 0,
+      retrievalQueries: [query],
+    };
+  }
+
+  const seeds = staticChunks.slice(0, MAX_DYNAMIC_QUERIES);
+
+  const expandedQueries = seeds.map((seed) =>
+    buildExpandedRetrievalQuery(query, seed),
+  );
+
+  const stageTwoResults = await Promise.all(
+    expandedQueries.map((expandedQuery) =>
+      searchRelevantChunks(
+        expandedQuery,
+        filters,
+        DEFAULT_DYNAMIC_TOP_K_PER_STATIC_CHUNK,
+      ),
+    ),
+  );
+
+  const dynamicGroups = seeds.map((seed, index) => ({
+    seed,
+    query: expandedQueries[index],
+    candidates: evaluateRetrievedChunks(
+      `${query} ${expandedQueries[index]}`,
+      dedupeChunks(stageTwoResults[index] || []).filter(
+        (chunk) => chunk.id !== seed.id,
+      ),
+      RAG_CONFIG.relevanceThreshold,
+    ),
+  }));
+  const dynamicChunks = selectDynamicChunksCfs(staticChunks, dynamicGroups);
+  const selected = interleaveStaticAndDynamicChunks(
+    staticChunks,
+    dynamicChunks,
+    contextLimit,
+  );
+
+  return {
+    chunks: selected,
+    sources: toSources(selected),
+    stageOneCount: stageOneChunks.length,
+    stageTwoCount: dedupeChunks(
+      dynamicGroups.flatMap((group) => group.candidates),
+    ).length,
+    retrievalQueries: [query, ...expandedQueries],
+  };
+};
+
 export const askQuestionWithDrRag = async (
   userId: string,
   payload: AskQuestionRequest,
@@ -408,22 +527,49 @@ export const askQuestionWithDrRag = async (
     allowIllustrativeExamples && intentClassification.intent === "extraction"
       ? "qa"
       : intentClassification.intent;
-  const answerProfile = detectAnswerProfile(
-    payload.question,
-    classifiedIntent,
-  );
-  const intent = shouldTreatAsSummaryIntent(
-    classifiedIntent,
-    answerProfile,
-  )
+  const answerProfile = detectAnswerProfile(payload.question, classifiedIntent);
+  const intent = shouldTreatAsSummaryIntent(classifiedIntent, answerProfile)
     ? "summary"
     : classifiedIntent;
   const answerStyle = detectAnswerStyle(payload.question);
   const wantsDetailedAnswer = answerProfile.wantsDetailedAnswer;
+
+  // Meta questions are about the assistant, not the documents: retrieval can
+  // only return the nearest-embedding passage, never the right answer.
+  if (intent === "meta") {
+    return {
+      answer: buildCapabilityAnswer(answerStyle.language),
+      mode: DR_RAG_MODE,
+      originalQuestion: payload.question,
+      sources: [],
+      evaluation: {
+        retrievedChunksCount: 0,
+        relevantChunksCount: 0,
+        averageRelevanceScore: 0,
+        isGrounded: true,
+        confidenceScore: 1,
+        responseTimeMs: Date.now() - startedAt,
+        stageOneChunksCount: 0,
+        stageTwoChunksCount: 0,
+        selectedStaticChunksCount: 0,
+        selectedDynamicChunksCount: 0,
+        dynamicRetrievalAttempted: false,
+        selectionStrategy: SELECTION_STRATEGY,
+        retrievalQueries: [],
+        fallbackGenerated: false,
+        detectedIntent: intent,
+        answerProfile: answerProfile.profile,
+        retrievedSections: [],
+        usedSectionExpansion: false,
+        contextChunksUsed: 0,
+      },
+    };
+  }
+
   const rewrittenQuery =
     intent === "extraction"
       ? payload.question
-      : await rewriteAcademicQuery(payload.question);
+      : await rewriteAcademicQuery(payload.question, { intent });
   const stageOneQuery = rewrittenQuery || payload.question;
   const stageOneRawChunks = await retrieveStageOneChunks(
     stageOneQuery,
@@ -455,11 +601,8 @@ export const askQuestionWithDrRag = async (
     staticChunks.length === 0
   ) {
     const fallbackReason =
-      stageOneChunks.length === 0
-        ? "no_relevant_chunks_found"
-        : "out_of_scope";
-    const averageRelevanceScore =
-      calculateAverageRelevance(stageOneChunks);
+      stageOneChunks.length === 0 ? "no_relevant_chunks_found" : "out_of_scope";
+    const averageRelevanceScore = calculateAverageRelevance(stageOneChunks);
     const fallbackAnswer = await generateFallbackAnswer({
       question: payload.question,
       language: answerStyle.language,
@@ -542,18 +685,17 @@ export const askQuestionWithDrRag = async (
     dynamicChunks,
     contextLimit,
   );
-  const contextSelection =
-    wantsDetailedAnswer
-      ? await selectContextChunksForQuestion(
-          payload.question,
-          selectedBeforeExpansion,
-          { maxChunks: contextLimit },
-        )
-      : {
-          chunks: selectedBeforeExpansion,
-          usedSectionExpansion: false,
-          selectedSectionTitle: undefined,
-        };
+  const contextSelection = wantsDetailedAnswer
+    ? await selectContextChunksForQuestion(
+        payload.question,
+        selectedBeforeExpansion,
+        { maxChunks: contextLimit },
+      )
+    : {
+        chunks: selectedBeforeExpansion,
+        usedSectionExpansion: false,
+        selectedSectionTitle: undefined,
+      };
   const answerChunks = evaluateRetrievedChunks(
     `${payload.question} ${stageOneQuery}`,
     contextSelection.chunks,

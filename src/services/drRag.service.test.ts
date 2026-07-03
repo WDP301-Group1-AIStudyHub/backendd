@@ -9,6 +9,7 @@ import * as vectorService from "./vector.service";
 import {
   askQuestionWithDrRag,
   buildExpandedRetrievalQuery,
+  dedupeChunks,
   hasSufficientStageOneEvidence,
 } from "./drRag.service";
 import type { EvaluatedChunk } from "../types/rag.types";
@@ -74,6 +75,36 @@ afterEach(() => {
       checkAnswerGrounding: typeof answerCheckService.checkAnswerGrounding;
     }
   ).checkAnswerGrounding = originalCheckAnswerGrounding;
+});
+
+describe("chunk dedupe", () => {
+  it("collapses identical passages from duplicated document uploads", () => {
+    const original = makeEvaluatedChunk(
+      "doc-1:0",
+      "Vật chất quyết định ý thức.",
+    );
+    const duplicateFromOtherUpload = {
+      ...makeEvaluatedChunk("doc-2:0", "Vật chất   quyết định ý thức.", {
+        documentId: "doc-2",
+      }),
+      pineconeScore: 0.95,
+    };
+    const distinct = makeEvaluatedChunk(
+      "doc-1:1",
+      "Ý thức tác động trở lại vật chất.",
+    );
+
+    const deduped = dedupeChunks([
+      original,
+      duplicateFromOtherUpload,
+      distinct,
+    ]);
+
+    assert.equal(deduped.length, 2);
+    // The higher-scored copy of the duplicated passage survives
+    assert.ok(deduped.some((chunk) => chunk.id === "doc-2:0"));
+    assert.ok(deduped.some((chunk) => chunk.id === "doc-1:1"));
+  });
 });
 
 describe("DR-RAG retrieval", () => {

@@ -85,10 +85,10 @@ export const extractDocumentText = async (
 
     switch (extractorName) {
       case "pdf":
-        extractedDocument = await extractPdfDocument(buffer);
+        extractedDocument = await extractPdfDocument(buffer, fileName);
         break;
       case "docx":
-        extractedDocument = await extractDocxDocument(buffer);
+        extractedDocument = await extractDocxDocument(buffer, fileName);
         break;
       case "pptx":
         extractedDocument = await extractPptxDocument(buffer);

@@ -11,6 +11,7 @@ import {
   assertRoleHasAccess,
   createOrUpdateDocumentShare,
   permissionToAccessRole,
+  resendDocumentShareEmail,
   revokeDocumentShare,
   updateDocumentSharePermission,
 } from "./documentShare.service";
@@ -22,6 +23,7 @@ const originalShareFindOne = DocumentShare.findOne;
 const originalShareDeleteOne = DocumentShare.deleteOne;
 const originalInvitationFindOneAndUpdate = DocumentShareInvitation.findOneAndUpdate;
 const originalInvitationFindOne = DocumentShareInvitation.findOne;
+const originalInvitationUpdateOne = DocumentShareInvitation.updateOne;
 const originalInvitationDeleteOne = DocumentShareInvitation.deleteOne;
 const originalSendDocumentShareEmail = emailService.sendDocumentShareEmail;
 
@@ -33,6 +35,7 @@ afterEach(() => {
   DocumentShare.deleteOne = originalShareDeleteOne;
   DocumentShareInvitation.findOneAndUpdate = originalInvitationFindOneAndUpdate;
   DocumentShareInvitation.findOne = originalInvitationFindOne;
+  DocumentShareInvitation.updateOne = originalInvitationUpdateOne;
   DocumentShareInvitation.deleteOne = originalInvitationDeleteOne;
   (
     emailService as unknown as {
@@ -111,6 +114,7 @@ describe("document share service", () => {
       }
     ).sendDocumentShareEmail = async (payload) => {
       emailPayload = payload;
+      return { status: "ACCEPTED" };
     };
 
     const result = await createOrUpdateDocumentShare(
@@ -155,6 +159,7 @@ describe("document share service", () => {
       }
     ).sendDocumentShareEmail = async (payload) => {
       emailPayload = payload;
+      return { status: "ACCEPTED" };
     };
 
     const result = await updateDocumentSharePermission(
@@ -199,6 +204,7 @@ describe("document share service", () => {
       }
     ).sendDocumentShareEmail = async (payload) => {
       emailPayload = payload;
+      return { status: "ACCEPTED" };
     };
 
     const result = await updateDocumentSharePermission(
@@ -211,6 +217,91 @@ describe("document share service", () => {
     assert.equal(result.status, "PENDING");
     assert.equal(result.permission, "EDIT");
     assert.equal(emailPayload?.isInvitation, true);
+  });
+
+  it("resends an active share notification", async () => {
+    let emailPayload: emailService.DocumentShareEmailPayload | undefined;
+    const fakeShare = {
+      _id: shareId,
+      documentId,
+      sharedWithUserId: fakeRecipient,
+      permission: "VIEW",
+      sharedBy: ownerId,
+      createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-01T00:00:00.000Z"),
+    };
+
+    StudyDocument.findOne = (async () => fakeDocument) as typeof StudyDocument.findOne;
+    User.findById = (() => createSelectQuery(fakeSender)) as unknown as typeof User.findById;
+    DocumentShare.findOne = (() => ({
+      populate: async () => fakeShare,
+    })) as unknown as typeof DocumentShare.findOne;
+    (
+      emailService as unknown as {
+        sendDocumentShareEmail: typeof emailService.sendDocumentShareEmail;
+      }
+    ).sendDocumentShareEmail = async (payload) => {
+      emailPayload = payload;
+      return { status: "ACCEPTED" };
+    };
+
+    const result = await resendDocumentShareEmail(
+      documentId.toString(),
+      shareId.toString(),
+      ownerId.toString(),
+    );
+
+    assert.equal(result.notificationStatus, "ACCEPTED");
+    assert.equal(emailPayload?.to, fakeRecipient.email);
+    assert.equal(emailPayload?.isInvitation, undefined);
+  });
+
+  it("resends a legacy pending invitation and persists a replacement token", async () => {
+    let emailPayload: emailService.DocumentShareEmailPayload | undefined;
+    let invitationUpdate: unknown;
+    const pendingInvitation = {
+      _id: shareId,
+      documentId,
+      email: "pending@example.com",
+      permission: "VIEW",
+      sharedBy: ownerId,
+      tokenHash: "legacy-hash",
+      expiresAt: new Date("2099-07-09T00:00:00.000Z"),
+      createdAt: new Date("2026-07-02T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-02T00:00:00.000Z"),
+    };
+
+    StudyDocument.findOne = (async () => fakeDocument) as typeof StudyDocument.findOne;
+    User.findById = (() => createSelectQuery(fakeSender)) as unknown as typeof User.findById;
+    DocumentShare.findOne = (() => ({
+      populate: async () => null,
+    })) as unknown as typeof DocumentShare.findOne;
+    DocumentShareInvitation.findOne = (() => ({
+      select: async () => pendingInvitation,
+    })) as unknown as typeof DocumentShareInvitation.findOne;
+    DocumentShareInvitation.updateOne = (async (...args: unknown[]) => {
+      invitationUpdate = args;
+      return { acknowledged: true, matchedCount: 1, modifiedCount: 1 };
+    }) as unknown as typeof DocumentShareInvitation.updateOne;
+    (
+      emailService as unknown as {
+        sendDocumentShareEmail: typeof emailService.sendDocumentShareEmail;
+      }
+    ).sendDocumentShareEmail = async (payload) => {
+      emailPayload = payload;
+      return { status: "ACCEPTED" };
+    };
+
+    const result = await resendDocumentShareEmail(
+      documentId.toString(),
+      shareId.toString(),
+      ownerId.toString(),
+    );
+
+    assert.equal(result.status, "PENDING");
+    assert.equal(result.notificationStatus, "ACCEPTED");
+    assert.ok(Array.isArray(invitationUpdate));
+    assert.match(emailPayload?.documentUrl || "", /\/register\?invite=/);
   });
 
   it("revokes an existing share", async () => {

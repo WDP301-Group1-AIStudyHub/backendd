@@ -9,7 +9,11 @@ export const getStudyMaterialsByDoc = async (
   documentId: string
 ): Promise<IStudyMaterial[]> => {
   // Check if document exists and belongs to user
-  const documentExists = await StudyDocument.exists({ _id: documentId, ownerId: userId });
+  const documentExists = await StudyDocument.exists({
+    _id: documentId,
+    ownerId: userId,
+    status: { $ne: "DELETED" },
+  });
   if (!documentExists) {
     throw new AppError("Document not found or access denied", 404);
   }
@@ -53,7 +57,11 @@ export const initiateMaterialGeneration = async (
   topicFocus?: string
 ): Promise<IStudyMaterial> => {
   // 1. Verify document exists and belongs to user
-  const document = await StudyDocument.findOne({ _id: documentId, ownerId: userId });
+  const document = await StudyDocument.findOne({
+    _id: documentId,
+    ownerId: userId,
+    status: { $ne: "DELETED" },
+  });
   if (!document) {
     throw new AppError("Document not found or access denied", 404);
   }
@@ -104,7 +112,10 @@ export const generateCardExplanation = async (
     throw new AppError("Card not found in study material", 404);
   }
 
-  const document = await StudyDocument.findById(material.documentId);
+  const document = await StudyDocument.findOne({
+    _id: material.documentId,
+    status: { $ne: "DELETED" },
+  });
   if (!document || !document.extractedText || document.extractedText.trim().length === 0) {
     throw new AppError("Source document text context is empty or unavailable", 400);
   }

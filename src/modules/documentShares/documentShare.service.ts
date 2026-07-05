@@ -7,10 +7,15 @@ import {
   DocumentSharePermission,
   IDocumentShare,
 } from "./documentShare.model";
-import { sendDocumentShareEmail } from "../../services/email.service";
+import {
+  EmailDeliveryResult,
+  EmailDeliveryStatus,
+  sendDocumentShareEmail,
+} from "../../services/email.service";
 import { DocumentShareInvitation } from "./documentShareInvitation.model";
 import {
   createOrUpdateInvitation,
+  resendDocumentShareInvitation,
   toPendingShareResponse,
 } from "./documentShareInvitation.service";
 import {
@@ -33,6 +38,7 @@ export interface DocumentShareResponse {
   permission: DocumentSharePermission;
   sharedBy: string;
   status: "ACTIVE" | "PENDING";
+  notificationStatus?: EmailDeliveryStatus;
   expiresAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -58,6 +64,7 @@ const toUserSummary = (user: unknown): DocumentShareResponse["sharedWithUser"] =
 
 export const toDocumentShareResponse = (
   share: IDocumentShare,
+  notificationStatus?: EmailDeliveryStatus,
 ): DocumentShareResponse => ({
   id: share._id.toString(),
   documentId: share.documentId.toString(),
@@ -67,6 +74,7 @@ export const toDocumentShareResponse = (
   status: "ACTIVE",
   createdAt: share.createdAt,
   updatedAt: share.updatedAt,
+  ...(notificationStatus ? { notificationStatus } : {}),
 });
 
 export const permissionToAccessRole = (
@@ -154,9 +162,9 @@ const sendShareEmailSafely = async ({
   permission: DocumentSharePermission;
   recipient: PopulatedUser;
   sender: PopulatedUser;
-}): Promise<void> => {
+}): Promise<EmailDeliveryResult> => {
   try {
-    await sendDocumentShareEmail({
+    return await sendDocumentShareEmail({
       to: recipient.email,
       recipientName: recipient.fullName,
       senderName: sender.fullName,
@@ -172,6 +180,7 @@ const sendShareEmailSafely = async ({
       recipient: recipient.email,
       error: error instanceof Error ? error.message : String(error),
     });
+    return { status: "FAILED", errorCode: "EMAIL_DELIVERY_FAILED" };
   }
 };
 
@@ -202,7 +211,7 @@ export const createOrUpdateDocumentShare = async (
   }
 
   if (!recipient) {
-    const invitation = await createOrUpdateInvitation({
+    const { invitation, notificationStatus } = await createOrUpdateInvitation({
       document,
       email: payload.email,
       permission: payload.permission,
@@ -210,7 +219,7 @@ export const createOrUpdateDocumentShare = async (
       sharedBy: ownerId,
     });
 
-    return toPendingShareResponse(invitation);
+    return toPendingShareResponse(invitation, notificationStatus);
   }
 
   if (recipient._id.toString() === ownerId) {
@@ -241,17 +250,19 @@ export const createOrUpdateDocumentShare = async (
     email: recipient.email.toLowerCase(),
   });
 
+  let notificationStatus: EmailDeliveryStatus = "SKIPPED";
   if (!existingShare || isPermissionUpdate) {
-    await sendShareEmailSafely({
+    const delivery = await sendShareEmailSafely({
       document,
       isPermissionUpdate,
       permission: payload.permission,
       recipient,
       sender,
     });
+    notificationStatus = delivery.status;
   }
 
-  return toDocumentShareResponse(share);
+  return toDocumentShareResponse(share, notificationStatus);
 };
 
 export const listDocumentShares = async (
@@ -279,8 +290,8 @@ export const listDocumentShares = async (
   ]);
 
   return [
-    ...shares.map(toDocumentShareResponse),
-    ...invitations.map(toPendingShareResponse),
+    ...shares.map((share) => toDocumentShareResponse(share)),
+    ...invitations.map((invitation) => toPendingShareResponse(invitation)),
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 };
 
@@ -321,14 +332,15 @@ export const updateDocumentSharePermission = async (
       throw new AppError("Sharing user not found", 404);
     }
 
-    const updatedInvitation = await createOrUpdateInvitation({
+    const { invitation: updatedInvitation, notificationStatus } =
+      await createOrUpdateInvitation({
       document,
       email: invitation.email,
       permission,
       sender,
       sharedBy: ownerId,
     });
-    return toPendingShareResponse(updatedInvitation);
+    return toPendingShareResponse(updatedInvitation, notificationStatus);
   }
 
   const [recipient, sender] = await Promise.all([
@@ -346,17 +358,77 @@ export const updateDocumentSharePermission = async (
   await share.save();
   await share.populate("sharedWithUserId", "_id fullName email avatar");
 
+  let notificationStatus: EmailDeliveryStatus = "SKIPPED";
   if (changed) {
-    await sendShareEmailSafely({
+    const delivery = await sendShareEmailSafely({
       document,
       isPermissionUpdate: true,
       permission,
       recipient,
       sender,
     });
+    notificationStatus = delivery.status;
   }
 
-  return toDocumentShareResponse(share);
+  return toDocumentShareResponse(share, notificationStatus);
+};
+
+export const resendDocumentShareEmail = async (
+  documentId: string,
+  shareId: string,
+  ownerId: string,
+): Promise<DocumentShareResponse> => {
+  const document = await StudyDocument.findOne({
+    _id: documentId,
+    ownerId,
+    status: { $ne: "DELETED" },
+  });
+
+  if (!document) {
+    throw new AppError("Document not found", 404);
+  }
+
+  const sender = await User.findById(ownerId).select(
+    "_id fullName email avatar",
+  );
+  if (!sender) {
+    throw new AppError("Sharing user not found", 404);
+  }
+
+  const share = await DocumentShare.findOne({
+    _id: shareId,
+    documentId,
+  }).populate("sharedWithUserId", "_id fullName email avatar");
+
+  if (share) {
+    const recipient = share.sharedWithUserId as unknown as PopulatedUser;
+    const delivery = await sendShareEmailSafely({
+      document,
+      isPermissionUpdate: false,
+      permission: share.permission,
+      recipient,
+      sender,
+    });
+    return toDocumentShareResponse(share, delivery.status);
+  }
+
+  const invitation = await DocumentShareInvitation.findOne({
+    _id: shareId,
+    documentId,
+    expiresAt: { $gt: new Date() },
+  }).select("+tokenCiphertext +tokenIv +tokenAuthTag");
+
+  if (!invitation) {
+    throw new AppError("Share not found", 404);
+  }
+
+  const delivery = await resendDocumentShareInvitation({
+    document,
+    invitation,
+    sender,
+  });
+
+  return toPendingShareResponse(invitation, delivery.status);
 };
 
 export const revokeDocumentShare = async (

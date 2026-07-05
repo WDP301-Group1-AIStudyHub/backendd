@@ -2,6 +2,56 @@ import nodemailer, { Transporter } from "nodemailer";
 
 let transporter: Transporter | null = null;
 
+export type EmailDeliveryStatus = "ACCEPTED" | "FAILED" | "SKIPPED";
+
+export interface EmailDeliveryResult {
+  status: EmailDeliveryStatus;
+  messageId?: string;
+  errorCode?: string;
+}
+
+const DEFAULT_EMAIL_TIMEOUT_MS = 10_000;
+
+const getEmailTimeoutMs = (): number => {
+  const configured = Number.parseInt(
+    process.env.EMAIL_SEND_TIMEOUT_MS || "",
+    10,
+  );
+  return Number.isFinite(configured) && configured >= 1_000
+    ? configured
+    : DEFAULT_EMAIL_TIMEOUT_MS;
+};
+
+const getErrorCode = (error: unknown): string => {
+  if (error && typeof error === "object") {
+    const candidate = error as { code?: unknown; responseCode?: unknown };
+    if (typeof candidate.code === "string") return candidate.code;
+    if (typeof candidate.responseCode === "number") {
+      return `SMTP_${candidate.responseCode}`;
+    }
+  }
+  return "EMAIL_DELIVERY_FAILED";
+};
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      const error = new Error(`Email delivery exceeded ${timeoutMs}ms`) as Error & {
+        code?: string;
+      };
+      error.code = "EMAIL_TIMEOUT";
+      reject(error);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+};
+
 const getMissingSmtpVariables = (): string[] =>
   ["SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"].filter(
     (name) => !process.env[name]?.trim(),
@@ -31,12 +81,18 @@ const getTransporter = (): Transporter | null => {
     return transporter;
   }
 
-  const port = Number.parseInt(process.env.SMTP_PORT || "587", 10);
+  const port = Number.parseInt(process.env.SMTP_PORT || "2525", 10);
+  const timeoutMs = getEmailTimeoutMs();
 
   transporter = nodemailer.createTransport({
     host: host!,
     port,
     secure: port === 465,
+    requireTLS: port !== 465,
+    connectionTimeout: timeoutMs,
+    greetingTimeout: timeoutMs,
+    socketTimeout: timeoutMs,
+    dnsTimeout: Math.min(timeoutMs, 5_000),
     auth: {
       user: process.env.SMTP_USER!,
       pass: process.env.SMTP_PASS!,
@@ -44,6 +100,50 @@ const getTransporter = (): Transporter | null => {
   });
 
   return transporter;
+};
+
+export const validateEmailConfiguration = (): void => {
+  const missing = getMissingSmtpVariables();
+  const emailRequired = process.env.EMAIL_REQUIRED?.trim().toLowerCase() === "true";
+
+  if (emailRequired && missing.length > 0) {
+    throw new Error(`Missing required email configuration: ${missing.join(", ")}`);
+  }
+
+  const port = Number.parseInt(process.env.SMTP_PORT || "2525", 10);
+  if (emailRequired && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
+    throw new Error("SMTP_PORT must be a valid TCP port");
+  }
+};
+
+export const verifySmtpConnection = async (): Promise<EmailDeliveryResult> => {
+  const mailer = getTransporter();
+  if (!mailer) {
+    console.warn("[email] SMTP verification skipped; configuration is incomplete", {
+      missing: getMissingSmtpVariables(),
+    });
+    return { status: "SKIPPED", errorCode: "SMTP_NOT_CONFIGURED" };
+  }
+
+  try {
+    await withTimeout(mailer.verify(), getEmailTimeoutMs());
+    console.info("[email] SMTP transport ready", {
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT || "2525",
+    });
+    return { status: "ACCEPTED" };
+  } catch (error) {
+    const errorCode = getErrorCode(error);
+    console.error("[email] SMTP verification failed", { errorCode });
+    transporter?.close();
+    transporter = null;
+    return { status: "FAILED", errorCode };
+  }
+};
+
+export const resetEmailTransporterForTests = (): void => {
+  transporter?.close();
+  transporter = null;
 };
 
 export interface DocumentShareEmailPayload {
@@ -67,7 +167,7 @@ export const sendDocumentShareEmail = async ({
   recipientName,
   senderName,
   to,
-}: DocumentShareEmailPayload): Promise<void> => {
+}: DocumentShareEmailPayload): Promise<EmailDeliveryResult> => {
   const mailer = getTransporter();
   const from = process.env.SMTP_FROM;
 
@@ -77,7 +177,7 @@ export const sendDocumentShareEmail = async ({
       to,
       documentTitle,
     });
-    return;
+    return { status: "SKIPPED", errorCode: "SMTP_NOT_CONFIGURED" };
   }
 
   const permissionLabel = permission === "EDIT" ? "Biên tập viên" : "Người xem";
@@ -103,7 +203,8 @@ export const sendDocumentShareEmail = async ({
     : `${senderName} đã chia sẻ tài liệu "${documentTitle}" với bạn.`;
   const safeIntro = escapeHtml(intro);
 
-  await mailer.sendMail({
+  try {
+    const info = await withTimeout(mailer.sendMail({
     from,
     to,
     subject,
@@ -175,5 +276,25 @@ export const sendDocumentShareEmail = async ({
     </table>
   </body>
 </html>`,
-  });
+    }), getEmailTimeoutMs());
+
+    return {
+      status: "ACCEPTED",
+      messageId: typeof info.messageId === "string" ? info.messageId : undefined,
+    };
+  } catch (error) {
+    const errorCode = getErrorCode(error);
+    console.warn("[email] Document share email delivery failed", {
+      errorCode,
+      to,
+      documentTitle,
+    });
+
+    if (errorCode === "EMAIL_TIMEOUT") {
+      transporter?.close();
+      transporter = null;
+    }
+
+    return { status: "FAILED", errorCode };
+  }
 };

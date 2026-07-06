@@ -58,6 +58,12 @@ export const chatThreadIdSchema = z.object({
   }),
 });
 
+export const listChatThreadsSchema = z.object({
+  query: z.object({
+    status: z.enum(["ACTIVE", "ARCHIVED"]).optional(),
+  }),
+});
+
 export const updateChatThreadSchema = z.object({
   params: z.object({
     threadId: objectIdSchema,

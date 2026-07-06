@@ -263,10 +263,11 @@ export const askQuestion = async (
 
 export const getChatThreads = async (
   userId: string,
+  status: "ACTIVE" | "ARCHIVED" = "ACTIVE",
 ): Promise<ChatThreadListResponse> => {
   const threads = await ChatThread.find({
     ownerId: userId,
-    status: "ACTIVE",
+    status,
   }).sort({ lastMessageAt: -1, createdAt: -1 });
 
   return {

@@ -10,7 +10,7 @@ retrieved document context.
 - Split documents with heading/outline-aware chunking.
 - Embed chunks with Jina and store vectors in Pinecone.
 - Answer questions with one DR-RAG pipeline.
-- Use Groq for query rewrite, answer generation, grounding checks, and answer
+- Use Gemini for query rewrite, answer generation, grounding checks, and answer
   evaluation.
 - Store chat history, sources, and DR-RAG evaluation metrics in MongoDB.
 

@@ -12,7 +12,7 @@ import { AppError } from "../middlewares/error.middleware";
 import {
   generateAnswerFromContext,
   generateEntityExtractionAnswer,
-} from "./groq.service";
+} from "./gemini.service";
 import { rewriteAcademicQuery } from "./queryRewrite.service";
 import {
   calculateAverageRelevance,

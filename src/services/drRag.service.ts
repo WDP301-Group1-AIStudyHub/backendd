@@ -4,7 +4,7 @@ import { RAG_CONFIG } from "../config/rag.config";
 import {
   generateAnswerFromContext,
   generateEntityExtractionAnswer,
-} from "./groq.service";
+} from "./gemini.service";
 import { rewriteAcademicQuery } from "./queryRewrite.service";
 import {
   calculateAverageRelevance,
@@ -154,6 +154,7 @@ export const selectStaticChunks = (
     wantsDetailedAnswer: boolean;
     isMultiDocumentScope: boolean;
     wantsShortAnswer: boolean;
+    skipRelevanceFilter?: boolean;
   },
 ): EvaluatedChunk[] => {
   const maxChunks = options.wantsShortAnswer
@@ -163,12 +164,14 @@ export const selectStaticChunks = (
       : options.isMultiDocumentScope
         ? MULTI_DOCUMENT_STATIC_CHUNK_LIMIT
         : DEFAULT_STATIC_CHUNK_LIMIT;
-  const relevant = chunks.filter(
-    (chunk) =>
-      chunk.isRelevant ||
-      chunk.relevanceScore >= RAG_CONFIG.relevanceThreshold ||
-      (chunk.pineconeScore ?? 0) >= RAG_CONFIG.pineconeRelevanceThreshold,
-  );
+  const relevant = options.skipRelevanceFilter
+    ? chunks
+    : chunks.filter(
+        (chunk) =>
+          chunk.isRelevant ||
+          chunk.relevanceScore >= RAG_CONFIG.relevanceThreshold ||
+          (chunk.pineconeScore ?? 0) >= RAG_CONFIG.pineconeRelevanceThreshold,
+      );
   return rankChunks(relevant).slice(0, maxChunks);
 };
 
@@ -429,7 +432,7 @@ export type DrRagRetrievalResult = {
 export const retrieveDrRagContext = async (
   query: string,
   filters: Parameters<typeof searchRelevantChunks>[1],
-  options: { contextLimit?: number } = {},
+  options: { contextLimit?: number; skipGroundingGuard?: boolean } = {},
 ): Promise<DrRagRetrievalResult> => {
   const contextLimit = options.contextLimit ?? DEFAULT_CONTEXT_CHUNK_LIMIT;
   const stageOneRaw = await searchRelevantChunks(
@@ -441,18 +444,20 @@ export const retrieveDrRagContext = async (
   const stageOneChunks = evaluateRetrievedChunks(
     query,
     dedupeChunks(stageOneRaw),
-    RAG_CONFIG.relevanceThreshold,
+    options.skipGroundingGuard ? 0 : RAG_CONFIG.relevanceThreshold,
   );
 
   const staticChunks = selectStaticChunks(stageOneChunks, {
     wantsDetailedAnswer: false,
     isMultiDocumentScope: false,
     wantsShortAnswer: false,
+    skipRelevanceFilter: options.skipGroundingGuard,
   });
 
   if (
-    staticChunks.length === 0 ||
-    !hasSufficientStageOneEvidence(query, stageOneChunks)
+    !options.skipGroundingGuard &&
+    (staticChunks.length === 0 ||
+      !hasSufficientStageOneEvidence(query, stageOneChunks))
   ) {
     return {
       chunks: [],

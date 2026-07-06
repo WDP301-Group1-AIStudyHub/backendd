@@ -1,4 +1,4 @@
-import { generateGroqTextFromPrompt } from "./groq.service";
+import { generateGeminiTextFromPrompt } from "./gemini.service";
 
 export type SemanticQuestionIntent =
   | "qa"
@@ -88,7 +88,7 @@ ${question}
 `;
 
   try {
-    const response = await generateGroqTextFromPrompt(prompt, {
+    const response = await generateGeminiTextFromPrompt(prompt, {
       temperature: 0,
       maxTokens: 120,
     });

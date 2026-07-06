@@ -16,7 +16,7 @@ import { checkAnswerGrounding } from "./answerCheck.service";
 import {
   generateAnswerFromContext,
   generateEntityExtractionAnswer,
-} from "./groq.service";
+} from "./gemini.service";
 import { generateFallbackAnswer } from "./fallbackAnswer.service";
 import { buildCapabilityAnswer } from "./metaAnswer.service";
 import {

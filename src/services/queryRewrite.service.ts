@@ -1,4 +1,4 @@
-import { generateGroqTextFromPrompt } from "./groq.service";
+import { generateGeminiTextFromPrompt } from "./gemini.service";
 import { detectQuestionLanguage, getLanguageName } from "../utils/languageDetector";
 import {
   classifyQuestionIntent,
@@ -63,7 +63,7 @@ Question: ${question}
 Rewritten query:`;
 
   try {
-    const rewritten = await generateGroqTextFromPrompt(prompt, {
+    const rewritten = await generateGeminiTextFromPrompt(prompt, {
       temperature: 0,
       maxTokens: 120,
     });

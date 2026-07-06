@@ -3,7 +3,7 @@ import { afterEach, describe, it } from "node:test";
 import * as answerCheckService from "./answerCheck.service";
 import * as chatScopeService from "./chatScope.service";
 import * as fallbackAnswerService from "./fallbackAnswer.service";
-import * as groqService from "./groq.service";
+import * as geminiService from "./gemini.service";
 import * as intentClassifierService from "./intentClassifier.service";
 import * as queryRewriteService from "./queryRewrite.service";
 import * as vectorService from "./vector.service";
@@ -16,7 +16,7 @@ const originalSearchRelevantChunks = vectorService.searchRelevantChunks;
 const originalClassifyQuestionIntent =
   intentClassifierService.classifyQuestionIntent;
 const originalRewriteAcademicQuery = queryRewriteService.rewriteAcademicQuery;
-const originalGenerateAnswerFromContext = groqService.generateAnswerFromContext;
+const originalGenerateAnswerFromContext = geminiService.generateAnswerFromContext;
 const originalCheckAnswerGrounding = answerCheckService.checkAnswerGrounding;
 const originalGenerateFallbackAnswer =
   fallbackAnswerService.generateFallbackAnswer;
@@ -115,8 +115,8 @@ const mockRetrieval = (): string[] => {
 
 const mockGeneration = (answer: string) => {
   (
-    groqService as unknown as {
-      generateAnswerFromContext: typeof groqService.generateAnswerFromContext;
+    geminiService as unknown as {
+      generateAnswerFromContext: typeof geminiService.generateAnswerFromContext;
     }
   ).generateAnswerFromContext = async () => answer;
 };
@@ -161,8 +161,8 @@ afterEach(() => {
     }
   ).rewriteAcademicQuery = originalRewriteAcademicQuery;
   (
-    groqService as unknown as {
-      generateAnswerFromContext: typeof groqService.generateAnswerFromContext;
+    geminiService as unknown as {
+      generateAnswerFromContext: typeof geminiService.generateAnswerFromContext;
     }
   ).generateAnswerFromContext = originalGenerateAnswerFromContext;
   (

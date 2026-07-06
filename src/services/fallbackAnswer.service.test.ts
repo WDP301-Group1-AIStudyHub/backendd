@@ -1,22 +1,22 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import * as groqService from "./groq.service";
+import * as geminiService from "./gemini.service";
 import { generateFallbackAnswer } from "./fallbackAnswer.service";
 
-const originalGenerateGroqText = groqService.generateGroqText;
+const originalGenerateGeminiText = geminiService.generateGeminiText;
 
-type GroqTextMessages = Parameters<typeof groqService.generateGroqText>[0];
+type GeminiTextMessages = Parameters<typeof geminiService.generateGeminiText>[0];
 
-const mockGroqText = (
-  handler: (messages: GroqTextMessages) => Promise<string>,
-): { calls: GroqTextMessages[] } => {
-  const calls: GroqTextMessages[] = [];
+const mockGeminiText = (
+  handler: (messages: GeminiTextMessages) => Promise<string>,
+): { calls: GeminiTextMessages[] } => {
+  const calls: GeminiTextMessages[] = [];
 
   (
-    groqService as unknown as {
-      generateGroqText: typeof groqService.generateGroqText;
+    geminiService as unknown as {
+      generateGeminiText: typeof geminiService.generateGeminiText;
     }
-  ).generateGroqText = async (messages) => {
+  ).generateGeminiText = async (messages) => {
     calls.push(messages);
     return handler(messages);
   };
@@ -26,15 +26,15 @@ const mockGroqText = (
 
 afterEach(() => {
   (
-    groqService as unknown as {
-      generateGroqText: typeof groqService.generateGroqText;
+    geminiService as unknown as {
+      generateGeminiText: typeof geminiService.generateGeminiText;
     }
-  ).generateGroqText = originalGenerateGroqText;
+  ).generateGeminiText = originalGenerateGeminiText;
 });
 
 describe("fallback answer generation", () => {
   it("returns the deterministic message without an LLM call for standard answers", async () => {
-    const groq = mockGroqText(async () => "should not be used");
+    const gemini = mockGeminiText(async () => "should not be used");
 
     const answer = await generateFallbackAnswer({
       question: "Trình bày quy luật lượng chất?",
@@ -45,13 +45,13 @@ describe("fallback answer generation", () => {
       reason: "no_relevant_chunks_found",
     });
 
-    assert.equal(groq.calls.length, 0);
+    assert.equal(gemini.calls.length, 0);
     assert.match(answer, /chưa tìm thấy đoạn nội dung liên quan/i);
     assert.doesNotMatch(answer, /re-index/i);
   });
 
   it("stays deterministic for out-of-scope even with a detailed profile", async () => {
-    const groq = mockGroqText(async () => "should not be used");
+    const gemini = mockGeminiText(async () => "should not be used");
 
     const answer = await generateFallbackAnswer({
       question: "xe máy có mấy bánh",
@@ -63,13 +63,13 @@ describe("fallback answer generation", () => {
       answerProfile: "detailed",
     });
 
-    assert.equal(groq.calls.length, 0);
+    assert.equal(gemini.calls.length, 0);
     assert.match(answer, /không liên quan/i);
   });
 
   it("uses the LLM for detailed profiles without embedding the user question", async () => {
     const question = "So sánh chi tiết chương 1 và chương 2 của tài liệu?";
-    const groq = mockGroqText(async () => "## Vấn đề\nKhông đủ ngữ cảnh.");
+    const gemini = mockGeminiText(async () => "## Vấn đề\nKhông đủ ngữ cảnh.");
 
     const answer = await generateFallbackAnswer({
       question,
@@ -81,18 +81,18 @@ describe("fallback answer generation", () => {
       answerProfile: "detailed",
     });
 
-    assert.equal(groq.calls.length, 1);
+    assert.equal(gemini.calls.length, 1);
     assert.equal(answer, "## Vấn đề\nKhông đủ ngữ cảnh.");
 
-    const promptContent = String(groq.calls[0][0]?.content ?? "");
+    const promptContent = String(gemini.calls[0][0]?.content ?? "");
     assert.ok(!promptContent.includes(question));
     assert.ok(promptContent.includes("retrievedChunksCount: 3"));
     assert.ok(promptContent.includes("Vấn đề"));
   });
 
   it("degrades to the deterministic message when the LLM call fails", async () => {
-    mockGroqText(async () => {
-      throw new Error("Groq unavailable");
+    mockGeminiText(async () => {
+      throw new Error("Gemini unavailable");
     });
 
     const answer = await generateFallbackAnswer({
@@ -110,7 +110,7 @@ describe("fallback answer generation", () => {
   });
 
   it("falls back to English wording for undetected languages", async () => {
-    const groq = mockGroqText(async () => "should not be used");
+    const gemini = mockGeminiText(async () => "should not be used");
 
     const answer = await generateFallbackAnswer({
       question: "文書の内容を教えて",
@@ -120,12 +120,12 @@ describe("fallback answer generation", () => {
       averageRelevanceScore: 0,
     });
 
-    assert.equal(groq.calls.length, 0);
+    assert.equal(gemini.calls.length, 0);
     assert.match(answer, /could not find any relevant passages/i);
   });
 
   it("infers the reason from retrieval statistics when none is provided", async () => {
-    mockGroqText(async () => "should not be used");
+    mockGeminiText(async () => "should not be used");
 
     const answer = await generateFallbackAnswer({
       question: "What does chapter 3 say?",

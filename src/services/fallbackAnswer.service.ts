@@ -1,4 +1,4 @@
-import { generateGroqText } from "./groq.service";
+import { generateGeminiText } from "./gemini.service";
 import type { AnswerProfile } from "../utils/answerProfile";
 import type { AnswerLanguage } from "../utils/answerStyle";
 
@@ -136,7 +136,7 @@ reason: ${reason}
 `;
 
   try {
-    const fallback = await generateGroqText(
+    const fallback = await generateGeminiText(
       [
         {
           role: "user",

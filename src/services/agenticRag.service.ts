@@ -30,6 +30,7 @@ import {
   retrieveDrRagContext,
   toSources,
 } from "./drRag.service";
+import { initiateArtifactGeneration } from "./artifact.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
 import { generateFallbackAnswer } from "./fallbackAnswer.service";
 import { calculateAverageRelevance } from "./relevance.service";
@@ -50,6 +51,7 @@ Rules:
 - If search_documents returns NO_MATCHES, retry once with a rephrased, more specific query. If it still returns NO_MATCHES, tell the user their documents do not seem to cover this topic and suggest asking more specifically or uploading a relevant document.
 - Questions about you or this platform (greetings, "what can you do?") may be answered directly without tools: you answer questions about the user's uploaded documents, summarize and compare them, and extract facts from them.
 - Use list_documents when the user asks what files or documents they have.
+- When the user asks you to create, make, or generate flashcards, a quiz, a mind map, a report/study guide, or a data/comparison table, call create_artifact with a fitting type, title, and instructions. Do NOT write the artifact content inline in your answer — the artifact is generated in the background and appears in the Artifacts panel. After calling it, tell the user the artifact is being generated and will appear there shortly.
 - Always answer in the same language as the user's question.
 - When you used search results, mention which document (and section, if available) the answer comes from.`;
 
@@ -62,6 +64,7 @@ type AgentRunContext = {
 const buildAgentTools = (
   userId: string,
   vectorFilters: Parameters<typeof retrieveDrRagContext>[1],
+  payload: AskQuestionRequest,
   run: AgentRunContext,
   onEvent?: (event: AgentEvent) => void,
   signal?: AbortSignal,
@@ -173,7 +176,82 @@ const buildAgentTools = (
     },
   );
 
-  return [searchDocuments, listDocuments];
+  const createArtifact = tool(
+    async ({
+      type,
+      title,
+      instructions,
+    }: {
+      type: "FLASHCARD" | "QUIZ" | "MINDMAP" | "REPORT" | "DATA_TABLE";
+      title: string;
+      instructions: string;
+    }) => {
+      if (signal?.aborted) {
+        throw new DOMException("AbortError", "AbortError");
+      }
+      onEvent?.({
+        type: "tool_start",
+        tool: "create_artifact",
+        input: { type, title, instructions },
+      });
+
+      const artifact = await initiateArtifactGeneration(userId, {
+        type,
+        title,
+        instructions,
+        threadId: payload.threadId,
+        documentId: payload.documentId,
+        documentIds: payload.documentIds,
+        subject: payload.subject,
+        subjectId: payload.subjectId,
+        scope: payload.scope,
+      });
+
+      const artifactId = artifact._id.toString();
+      onEvent?.({
+        type: "artifact_created",
+        artifactId,
+        artifactType: type,
+        title: artifact.title,
+      });
+
+      const resultSummary = `${type} artifact "${artifact.title}" started`;
+      run.toolCalls.push({
+        tool: "create_artifact",
+        input: { type, title, instructions },
+        resultSummary,
+      });
+      onEvent?.({ type: "tool_end", tool: "create_artifact", resultSummary });
+
+      return JSON.stringify({
+        artifactId,
+        status: "GENERATING",
+        note: `The ${type.toLowerCase().replace("_", " ")} is being generated in the background. Tell the user it will appear in the Artifacts panel shortly — do not write its content yourself.`,
+      });
+    },
+    {
+      name: "create_artifact",
+      description:
+        "Start background generation of a study artifact from the user's documents: FLASHCARD (flashcard deck), QUIZ (multiple choice quiz), MINDMAP (hierarchical mind map), REPORT (structured study report), or DATA_TABLE (comparison/summary table). Returns immediately with the artifact id; generation finishes in the background.",
+      schema: z.object({
+        type: z
+          .enum(["FLASHCARD", "QUIZ", "MINDMAP", "REPORT", "DATA_TABLE"])
+          .describe("The kind of artifact the user asked for."),
+        title: z
+          .string()
+          .describe(
+            "A short display title for the artifact, in the user's language.",
+          ),
+        instructions: z
+          .string()
+          .describe(
+            "The topic or focus for the artifact, in the language of the documents. Be specific: include the subject area and any constraints the user gave.",
+          ),
+      }),
+    },
+  );
+
+  return [searchDocuments, listDocuments, createArtifact];
 };
 
 const loadThreadHistory = async (
@@ -269,6 +347,7 @@ export const askQuestionWithAgent = async (
     const tools = buildAgentTools(
       userId,
       chatScope.vectorFilters,
+      payload,
       run,
       onEvent,
       signal,

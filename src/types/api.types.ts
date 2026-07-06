@@ -288,6 +288,12 @@ export type AgentEvent =
   | { type: "tool_start"; tool: string; input: unknown }
   | { type: "tool_end"; tool: string; resultSummary: string }
   | { type: "grounding_check" }
+  | {
+      type: "artifact_created";
+      artifactId: string;
+      artifactType: string;
+      title: string;
+    }
   | { type: "final"; data: AgentAskResponse }
   | { type: "error"; message: string };
 

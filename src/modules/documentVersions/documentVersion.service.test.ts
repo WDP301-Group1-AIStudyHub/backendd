@@ -4,6 +4,7 @@ import { Types } from "mongoose";
 import { StudyDocument } from "../documents/document.model";
 import { Subject } from "../subjects/subject.model";
 import { UploadSession } from "../uploadSessions/uploadSession.model";
+import { DocumentShare } from "../documentShares/documentShare.model";
 import { DocumentVersion } from "./documentVersion.model";
 import {
   activateDocumentVersion,
@@ -23,6 +24,7 @@ const originalVersionFind = DocumentVersion.find;
 const originalVersionCountDocuments = DocumentVersion.countDocuments;
 const originalSessionCreate = UploadSession.create;
 const originalSessionUpdateOne = UploadSession.updateOne;
+const originalShareFindOne = DocumentShare.findOne;
 
 const ownerId = new Types.ObjectId();
 const otherUserId = new Types.ObjectId();
@@ -176,6 +178,9 @@ const installMocks = (): void => {
 
     return query;
   }) as unknown as typeof Subject.findOne;
+  DocumentShare.findOne = (() => ({
+    select: async () => null,
+  })) as unknown as typeof DocumentShare.findOne;
   DocumentVersion.create = (async (payload: Record<string, unknown>) => {
     const version = makeVersion(payload);
 
@@ -332,6 +337,7 @@ afterEach(() => {
   DocumentVersion.countDocuments = originalVersionCountDocuments;
   UploadSession.create = originalSessionCreate;
   UploadSession.updateOne = originalSessionUpdateOne;
+  DocumentShare.findOne = originalShareFindOne;
 });
 
 describe("document version service", () => {
@@ -424,6 +430,23 @@ describe("document version service", () => {
       () => uploadDocumentVersion(documentId.toString(), ownerId.toString(), { uploadMode: "OVERRIDE" }, makeFile(), { dependencies }),
       /CANNOT_UPLOAD_TO_ARCHIVED_DOCUMENT/,
     );
+  });
+
+  it("allows a shared editor to upload a new version", async () => {
+    DocumentShare.findOne = (() => ({
+      select: async () => ({ permission: "EDIT" }),
+    })) as unknown as typeof DocumentShare.findOne;
+
+    const result = await uploadDocumentVersion(
+      documentId.toString(),
+      otherUserId.toString(),
+      { uploadMode: "APPEND", makeActive: false },
+      makeFile(),
+      { dependencies },
+    );
+
+    assert.equal(result.uploadedBy.toString(), otherUserId.toString());
+    assert.equal(result.processingStatus, "INDEXED");
   });
 
   it("denies private document version access for non-owner", async () => {

@@ -15,6 +15,10 @@ import {
 } from "../../services/vector.service";
 import { Subject } from "../subjects/subject.model";
 import { UploadSession } from "../uploadSessions/uploadSession.model";
+import {
+  assertRoleHasAccess,
+  getDocumentAccessRole,
+} from "../documentShares/documentShare.service";
 import { splitTextForRag } from "../../utils/textSplitter";
 import { analyzeDocumentStructure } from "../../utils/documentStructure";
 import {
@@ -95,16 +99,24 @@ const getReadableDocument = async (
   const document = await StudyDocument.findOne({
     _id: documentId,
     status: { $ne: "DELETED" },
-    $or: [{ ownerId: userId }, { visibility: "PUBLIC" }],
   });
 
   if (!document) {
     throw new AppError("DOCUMENT_NOT_FOUND", 404);
   }
 
+  const isOwner = document.ownerId.toString() === userId;
+  if (!isOwner && document.visibility !== "PUBLIC") {
+    const accessRole = await getDocumentAccessRole(document, userId);
+
+    if (!accessRole) {
+      throw new AppError("DOCUMENT_NOT_FOUND", 404);
+    }
+  }
+
   return {
     document,
-    isOwner: document.ownerId.toString() === userId,
+    isOwner,
   };
 };
 
@@ -121,6 +133,30 @@ const getOwnedDocumentForVersionWrite = async (
   if (!document) {
     throw new AppError("DOCUMENT_NOT_FOUND", 404);
   }
+
+  return document;
+};
+
+const getEditableDocumentForVersionUpload = async (
+  documentId: string,
+  userId: string,
+): Promise<IDocument> => {
+  const document = await StudyDocument.findOne({
+    _id: documentId,
+    status: { $ne: "DELETED" },
+  });
+
+  if (!document) {
+    throw new AppError("DOCUMENT_NOT_FOUND", 404);
+  }
+
+  const accessRole = await getDocumentAccessRole(document, userId);
+
+  if (!accessRole) {
+    throw new AppError("DOCUMENT_NOT_FOUND", 404);
+  }
+
+  assertRoleHasAccess(accessRole, "EDIT");
 
   return document;
 };
@@ -309,7 +345,7 @@ const updateProcessingProgress = async (
 const processVersionSynchronously = async (
   document: IDocument,
   version: IDocumentVersion,
-  userId: string,
+  vectorOwnerId: string,
   uploadSessionId: string,
   file: Express.Multer.File,
   options: VersioningOptions,
@@ -404,7 +440,7 @@ const processVersionSynchronously = async (
       versionId: version._id.toString(),
       versionNumber: version.versionNumber,
       ownerId: document.ownerId.toString(),
-      userId,
+      userId: vectorOwnerId,
       subject: subject?.name,
       subjectId: document.subjectId.toString(),
       title: document.title,
@@ -551,7 +587,7 @@ export const uploadDocumentVersion = async (
     throw new AppError("Document version file is required", 400);
   }
 
-  const document = await getOwnedDocumentForVersionWrite(documentId, userId);
+  const document = await getEditableDocumentForVersionUpload(documentId, userId);
 
   if (document.status === "ARCHIVED") {
     throw new AppError("CANNOT_UPLOAD_TO_ARCHIVED_DOCUMENT", 409);
@@ -653,7 +689,7 @@ export const uploadDocumentVersion = async (
   await processVersionSynchronously(
     document,
     version,
-    userId,
+    document.ownerId.toString(),
     uploadSession._id.toString(),
     file,
     {

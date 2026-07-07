@@ -18,6 +18,7 @@ import {
   type DocumentOutlineNode,
 } from "../utils/documentOutline";
 import { extractOutlineWithLlmFallback } from "./documentOutlineLlm.service";
+import { getDocumentAccessRole } from "../modules/documentShares/documentShare.service";
 
 const DOCUMENT_PROCESSING_MESSAGE =
   "Tài liệu đang được xử lý, vui lòng thử lại sau.";
@@ -162,11 +163,16 @@ export const answerDocumentStructureQuestion = async (
 
   const document = await StudyDocument.findOne({
     _id: payload.documentId,
-    ownerId: userId,
     status: { $ne: "DELETED" },
   });
 
   if (!document) {
+    throw new AppError("Document not found", 404);
+  }
+
+  const accessRole = await getDocumentAccessRole(document, userId);
+
+  if (!accessRole) {
     throw new AppError("Document not found", 404);
   }
 

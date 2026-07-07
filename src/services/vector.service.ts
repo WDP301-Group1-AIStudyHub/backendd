@@ -34,7 +34,7 @@ export interface VectorChunkInput {
 }
 
 export interface VectorSearchFilters {
-  userId: string;
+  userId?: string;
   documentId?: string;
   documentIds?: string[];
   subject?: string;
@@ -172,9 +172,11 @@ const getPineconeNamespace = (): string => {
 export const buildPineconeFilter = (
   filters: VectorSearchFilters,
 ): Record<string, unknown> => {
-  const filter: Record<string, unknown> = {
-    userId: { $eq: filters.userId },
-  };
+  const filter: Record<string, unknown> = {};
+
+  if (filters.userId) {
+    filter.userId = { $eq: filters.userId };
+  }
 
   if (filters.documentIds?.length) {
     filter.documentId = { $in: filters.documentIds };
@@ -367,8 +369,9 @@ export const searchRelevantChunksPerDocument = async (
       searchRelevantChunks(
         queryEmbedding,
         {
-          userId: filters.userId,
+          ...filters,
           documentId: docId,
+          documentIds: undefined,
         },
         perDocTopK,
       ),

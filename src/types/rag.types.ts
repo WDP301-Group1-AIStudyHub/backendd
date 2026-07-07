@@ -2,7 +2,7 @@ import { Types } from "mongoose";
 import { ChatSource } from "./api.types";
 import type { AnswerProfile } from "../utils/answerProfile";
 
-export type RagMode = "dr-rag";
+export type RagMode = "dr-rag" | "basic" | "corrective" | "agentic";
 export type DrRagSelectionStrategy = "cfs-heuristic";
 
 export interface EvaluatedChunk {
@@ -66,6 +66,7 @@ export interface RagEvaluation {
   usedSectionExpansion?: boolean;
   selectedSectionTitle?: string;
   contextChunksUsed?: number;
+  correctiveAttempted?: boolean;
 }
 
 export interface RagAnswerResult {
@@ -106,6 +107,7 @@ export interface CreateRagEvaluationLogInput {
   usedSectionExpansion?: boolean;
   selectedSectionTitle?: string;
   contextChunksUsed?: number;
+  correctiveAttempted?: boolean;
 }
 
 export interface RagEvaluationLogResponse extends CreateRagEvaluationLogInput {

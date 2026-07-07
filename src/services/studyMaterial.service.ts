@@ -2,7 +2,7 @@ import { StudyMaterial, IStudyMaterial, MaterialType } from "../models/studyMate
 import { StudyDocument } from "../models/document.model";
 import { AppError } from "../middlewares/error.middleware";
 import { runMaterialGenerationWorker } from "./studyMaterial.worker";
-import { generateGroqText } from "./groq.service";
+import { generateGeminiText } from "./gemini.service";
 
 export const getStudyMaterialsByDoc = async (
   userId: string,
@@ -135,7 +135,7 @@ export const generateCardExplanation = async (
     "Write your entire response in Vietnamese."
   ].join(" ");
 
-  const explanation = await generateGroqText(
+  const explanation = await generateGeminiText(
     [
       {
         role: "system",

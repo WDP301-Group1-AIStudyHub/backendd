@@ -14,7 +14,7 @@ User
 -> Jina embeddings
 -> Pinecone vector DB
 -> DR-RAG retrieval and selection
--> Groq answer generation and grounding
+-> Gemini answer generation and grounding
 -> MongoDB chat/evaluation storage
 ```
 
@@ -29,7 +29,7 @@ User
 - Generate embeddings with Jina.
 - Store and query vectors in Pinecone.
 - Run DR-RAG stage 1 retrieval, stage 2 dynamic retrieval, and CFS heuristic selection.
-- Generate grounded answers with Groq.
+- Generate grounded answers with Gemini.
 - Store chat history, benchmark results, and evaluation logs in MongoDB.
 
 ## Data Storage
@@ -54,7 +54,7 @@ User question
 -> Stage 2 Pinecone retrieval for dynamic-relevant chunks
 -> CFS-style heuristic selection
 -> final context
--> Groq answer
+-> Gemini answer
 -> grounding check
 -> answer or safe fallback
 ```

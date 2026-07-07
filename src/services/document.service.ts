@@ -155,6 +155,13 @@ export const createDocument = async (
     throw new AppError("Document file is required", 400);
   }
 
+  console.log("[document.service: createDocument] Starting document creation pipeline", {
+    title: payload.title,
+    fileName: file.originalname,
+    mimeType: file.mimetype,
+    sizeBytes: file.size
+  });
+
   const subject = await getSubjectOwnedByUser(payload.subjectId, userId, role);
 
   let extractedText = "";
@@ -163,6 +170,7 @@ export const createDocument = async (
   let semanticOutline: DocumentOutlineNode[] = [];
 
   try {
+    console.log("[document.service: createDocument] Triggering extractDocumentText stage...");
     const extractionResult = await extractDocumentText(
       file.buffer,
       file.originalname,
@@ -170,13 +178,28 @@ export const createDocument = async (
     );
     extractedText = extractionResult.extractedText;
     semanticOutline = extractionResult.metadata?.semanticOutline || [];
+    console.log("[document.service: createDocument] Text extraction completed successfully", {
+      extractedTextLength: extractedText.length,
+      semanticOutlineNodesCount: semanticOutline.length
+    });
   } catch (error) {
+    console.error("[document.service: createDocument] Text extraction FAILED", error);
     extractionStatus = "FAILED";
     extractionError = error instanceof Error ? error.message : String(error);
   }
 
+  console.log("[document.service: createDocument] Uploading document to Cloudinary...");
   const cloudinaryUpload = await uploadDocumentToCloudinary(file);
+  console.log("[document.service: createDocument] Cloudinary upload finished", {
+    secureUrl: cloudinaryUpload.result.secure_url,
+    fileExtension: cloudinaryUpload.fileExtension
+  });
+
+  console.log("[document.service: createDocument] Splitting text into chunks for RAG...");
   const chunkingResult = await splitTextForRag(extractedText);
+  console.log("[document.service: createDocument] Chunking complete. Chunks generated:", chunkingResult.chunks.length);
+
+  console.log("[document.service: createDocument] Extracting document outline...");
   const documentOutline = extractDocumentOutline({
     text: extractedText,
     chunkingResult,
@@ -184,6 +207,11 @@ export const createDocument = async (
   });
   const outlineSummary = summarizeDocumentOutline(documentOutline);
   const structure = analyzeDocumentStructure(chunkingResult);
+  console.log("[document.service: createDocument] Outline analysis finished", {
+    outlineNodesCount: documentOutline.length,
+    chapterCount: outlineSummary.chapterCount,
+    sectionCount: outlineSummary.sectionCount
+  });
 
   const document = await StudyDocument.create({
     title: payload.title,
@@ -257,7 +285,12 @@ export const createDocument = async (
   await document.save();
 
   if (extractionStatus === "COMPLETED") {
+    console.log("[document.service: createDocument] Triggering RAG indexing via indexDocumentForRag...");
     const indexResult = await indexDocumentForRag(document._id.toString(), userId);
+    console.log("[document.service: createDocument] RAG indexing completed successfully", {
+      chunksCreated: indexResult.chunksCreated,
+      chunkingStrategy: indexResult.chunkingStrategy
+    });
     const indexedAt = new Date();
 
     version.indexedAt = indexedAt;
@@ -286,6 +319,8 @@ export const createDocument = async (
     document.partCount = indexResult.partCount || 0;
     document.sectionCount = indexResult.sectionCount || 0;
     await document.save();
+  } else {
+    console.warn("[document.service: createDocument] Extraction failed, skipping RAG indexing.");
   }
 
   return toDocumentResponse(document);

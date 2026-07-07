@@ -30,6 +30,7 @@ export interface IRagEvaluationLog extends Document {
   usedSectionExpansion?: boolean;
   selectedSectionTitle?: string;
   contextChunksUsed?: number;
+  correctiveAttempted?: boolean;
   createdAt: Date;
 }
 
@@ -52,7 +53,7 @@ const ragEvaluationLogSchema = new Schema<IRagEvaluationLog>(
     },
     retrievalMode: {
       type: String,
-      enum: ["dr-rag"],
+      enum: ["dr-rag", "basic", "corrective", "agentic"],
       required: true,
       index: true,
     },
@@ -133,6 +134,9 @@ const ragEvaluationLogSchema = new Schema<IRagEvaluationLog>(
     },
     contextChunksUsed: {
       type: Number,
+    },
+    correctiveAttempted: {
+      type: Boolean,
     },
   },
   {

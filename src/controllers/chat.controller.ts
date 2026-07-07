@@ -43,7 +43,8 @@ export const listChatThreads = asyncHandler(async (
   req: Request,
   res: Response,
 ): Promise<void> => {
-  const data = await getChatThreads(req.authUser!.id);
+  const status = req.query.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE";
+  const data = await getChatThreads(req.authUser!.id, status);
 
   sendResponse(res, 200, {
     success: true,

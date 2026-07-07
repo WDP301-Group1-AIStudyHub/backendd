@@ -1,4 +1,4 @@
-import { generateGroqTextFromPrompt } from "./groq.service";
+import { generateGeminiTextFromPrompt } from "./gemini.service";
 
 export type SemanticQuestionIntent =
   | "qa"
@@ -7,6 +7,7 @@ export type SemanticQuestionIntent =
   | "extraction"
   | "instruction"
   | "list"
+  | "meta"
   | "unknown";
 
 export interface IntentClassification {
@@ -21,6 +22,7 @@ const VALID_INTENTS = new Set<SemanticQuestionIntent>([
   "extraction",
   "instruction",
   "list",
+  "meta",
   "unknown",
 ]);
 
@@ -72,11 +74,12 @@ Allowed intents:
 - extraction: user asks to extract specific names, values, dates, entities, facts, or items
 - instruction: user asks for steps, procedure, or what to do
 - list: user asks for an enumerated list
+- meta: user asks about the assistant itself (capabilities, identity, greetings, small talk) rather than about any document, e.g. "what can you do?", "who are you?", "hello"
 - unknown: unclear intent
 
 Expected JSON:
 {
-  "intent": "qa | summary | comparison | extraction | instruction | list | unknown",
+  "intent": "qa | summary | comparison | extraction | instruction | list | meta | unknown",
   "confidence": 0.0
 }
 
@@ -85,7 +88,7 @@ ${question}
 `;
 
   try {
-    const response = await generateGroqTextFromPrompt(prompt, {
+    const response = await generateGeminiTextFromPrompt(prompt, {
       temperature: 0,
       maxTokens: 120,
     });

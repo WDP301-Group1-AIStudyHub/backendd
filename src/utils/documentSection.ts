@@ -47,6 +47,7 @@ export const isLikelyHeading = (
   previousLine?: string,
   nextLine?: string,
   nextContentLine?: string,
+  isMarkdown?: boolean,
 ): boolean => {
   const trimmedLine = line.trim();
   const normalizedText = normalizeHeadingCandidate(line);
@@ -59,9 +60,16 @@ export const isLikelyHeading = (
     return false;
   }
 
+  const isMarkdownHeading = MARKDOWN_HEADING_REGEX.test(line);
+
+  // If the document has explicit markdown headings, ONLY consider lines starting with '#'
+  // as headings. This prevents tables, lists, and bold text lines from triggering false positive splits.
+  if (isMarkdown) {
+    return isMarkdownHeading;
+  }
+
   const wordCount = normalizedText.split(/\s+/).filter(Boolean).length;
   const uppercaseRatio = getUppercaseRatio(line);
-  const isMarkdownHeading = MARKDOWN_HEADING_REGEX.test(line);
   const isNumberedHeading = NUMBERED_HEADING_REGEX.test(normalizedText);
   const isKeywordHeading = KEYWORD_HEADING_REGEX.test(normalizedText);
   const startsNewBlock = isBlank(previousLine);
@@ -98,8 +106,9 @@ export const detectSectionFromHeading = (
   previousLine?: string,
   nextLine?: string,
   nextContentLine?: string,
+  isMarkdown?: boolean,
 ): SectionLabel | null => {
-  if (!isLikelyHeading(text, previousLine, nextLine, nextContentLine)) {
+  if (!isLikelyHeading(text, previousLine, nextLine, nextContentLine, isMarkdown)) {
     return null;
   }
 

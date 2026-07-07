@@ -24,6 +24,12 @@ export const uploadDocument = asyncHandler(async (
   req: Request<unknown, unknown, UploadDocumentRequest>,
   res: Response,
 ): Promise<void> => {
+  console.log("\n[uploadDocument Controller] Ingestion request received", {
+    body: { title: req.body.title, subjectId: req.body.subjectId },
+    file: req.file ? { originalname: req.file.originalname, mimetype: req.file.mimetype, size: req.file.size } : null,
+    userId: req.authUser?.id
+  });
+
   const data = await createDocument(
     req.body,
     req.file,
@@ -31,11 +37,13 @@ export const uploadDocument = asyncHandler(async (
     req.authUser!.role,
   );
 
+  console.log("[uploadDocument Controller] Document creation pipeline completed. Document ID:", data.id);
+
   await ActivityLogService.log({
     userId: req.authUser!.id,
     action: "DOCUMENT_UPLOAD",
     entityType: "Document",
-    entityId: data._id,
+    entityId: data.id,
     details: { title: data.title },
     ipAddress: getIpAddress(req),
     userAgent: req.headers["user-agent"],

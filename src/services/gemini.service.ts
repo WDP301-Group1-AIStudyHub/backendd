@@ -1,5 +1,4 @@
-import Groq, { APIError, RateLimitError } from "groq-sdk";
-import { ChatCompletionMessageParam } from "groq-sdk/resources/chat";
+import { GoogleGenAI, Content } from "@google/genai";
 import { AppError } from "../middlewares/error.middleware";
 import {
   detectAnswerStyle,
@@ -9,97 +8,151 @@ import type { AnswerProfile } from "../utils/answerProfile";
 import { retryAsync } from "../utils/retry";
 import type { SemanticQuestionIntent } from "./intentClassifier.service";
 
-const DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant";
+const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 
-let groqClient: Groq | null = null;
+let geminiClient: GoogleGenAI | null = null;
 
-const getGroqClient = (): Groq => {
-  const apiKey = process.env.GROQ_API_KEY;
+const getGeminiClient = (): GoogleGenAI => {
+  const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    throw new AppError("GROQ_API_KEY is required for answer generation", 500);
+    throw new AppError("GEMINI_API_KEY is required for answer generation", 500);
   }
 
-  if (!groqClient) {
-    groqClient = new Groq({ apiKey });
+  if (!geminiClient) {
+    geminiClient = new GoogleGenAI({ apiKey });
   }
 
-  return groqClient;
+  return geminiClient;
 };
 
-const isRetryableGroqError = (error: unknown): boolean => {
-  if (error instanceof RateLimitError) {
-    return true;
+const isRetryableGeminiError = (error: any): boolean => {
+  const status = error?.status || error?.statusCode || error?.status_code;
+  if (status) {
+    return status === 429 || status >= 500;
   }
-
-  if (error instanceof APIError) {
-    return error.status === 429 || error.status >= 500;
-  }
-
-  return false;
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("429") ||
+    message.includes("rate limit") ||
+    message.includes("quota exceeded") ||
+    message.includes("500") ||
+    message.includes("503")
+  );
 };
 
-const getGroqErrorMessage = (error: unknown): string => {
-  if (error instanceof APIError) {
-    return error.message;
-  }
-
+const getGeminiErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;
   }
 
-  return "Unknown Groq API error";
+  return "Unknown Gemini API error";
 };
 
-const getGroqHttpStatus = (error: unknown): number => {
-  if (error instanceof RateLimitError) {
+const getGeminiHttpStatus = (error: any): number => {
+  const status = error?.status || error?.statusCode || error?.status_code;
+  if (status === 429) {
     return 429;
   }
-
   return 502;
 };
 
-export const generateGroqText = async (
-  messages: ChatCompletionMessageParam[],
+export interface ChatMessageParam {
+  role: "system" | "user" | "assistant" | "model";
+  content: string | Array<{ text?: string }>;
+}
+
+const convertMessagesToGemini = (
+  messages: ChatMessageParam[],
+): { contents: Content[]; systemInstruction?: string } => {
+  let systemInstruction = "";
+  const contents: Content[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      const textContent = typeof msg.content === "string"
+        ? msg.content
+        : Array.isArray(msg.content)
+        ? msg.content.map((c) => c.text || "").join("")
+        : "";
+      systemInstruction = systemInstruction
+        ? `${systemInstruction}\n${textContent}`
+        : textContent;
+    } else {
+      const role = msg.role === "assistant" ? "model" : msg.role;
+      const textContent = typeof msg.content === "string"
+        ? msg.content
+        : Array.isArray(msg.content)
+        ? msg.content.map((c) => c.text || "").join("")
+        : "";
+
+      contents.push({
+        role,
+        parts: [{ text: textContent }],
+      });
+    }
+  }
+
+  return {
+    contents,
+    systemInstruction: systemInstruction || undefined,
+  };
+};
+
+export const generateGeminiText = async (
+  messages: ChatMessageParam[],
   options: {
     temperature?: number;
     maxTokens?: number;
+    retries?: number;
+    // Native structured output: "application/json" forces syntactically valid
+    // JSON; responseSchema (Google Schema format) additionally constrains the
+    // shape. Used by artifact generation.
+    responseMimeType?: string;
+    responseSchema?: Record<string, unknown>;
   } = {},
 ): Promise<string> => {
   try {
+    const { contents, systemInstruction } = convertMessagesToGemini(messages);
+
     const completion = await retryAsync(
       () =>
-        getGroqClient().chat.completions.create({
-          model: process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL,
-          messages,
-          temperature: options.temperature ?? 0.2,
-          max_tokens: options.maxTokens ?? 900,
+        getGeminiClient().models.generateContent({
+          model: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+          contents,
+          config: {
+            systemInstruction,
+            temperature: options.temperature ?? 0.2,
+            maxOutputTokens: options.maxTokens ?? 900,
+            responseMimeType: options.responseMimeType,
+            responseSchema: options.responseSchema,
+          },
         }),
       {
-        retries: 3,
+        retries: options.retries ?? 3,
         baseDelayMs: 1_000,
         maxDelayMs: 8_000,
-        shouldRetry: isRetryableGroqError,
+        shouldRetry: isRetryableGeminiError,
       },
     );
 
-    return completion.choices[0]?.message?.content?.trim() ?? "";
+    return completion.text?.trim() ?? "";
   } catch (error) {
     throw new AppError(
-      `Groq answer generation failed: ${getGroqErrorMessage(error)}`,
-      getGroqHttpStatus(error),
+      `Gemini answer generation failed: ${getGeminiErrorMessage(error)}`,
+      getGeminiHttpStatus(error),
     );
   }
 };
 
-export const generateGroqTextFromPrompt = async (
+export const generateGeminiTextFromPrompt = async (
   prompt: string,
   options?: {
     temperature?: number;
     maxTokens?: number;
   },
 ): Promise<string> =>
-  generateGroqText(
+  generateGeminiText(
     [
       {
         role: "user",
@@ -185,7 +238,7 @@ const compressShortAnswer = async (
 ): Promise<string> => {
   const style = detectAnswerStyle(question);
 
-  const compressed = await generateGroqText(
+  const compressed = await generateGeminiText(
     [
       {
         role: "system",
@@ -307,7 +360,7 @@ export const generateAnswerFromContext = async (
     .filter(Boolean)
     .join(" ");
 
-  const answer = await generateGroqText(
+  const answer = await generateGeminiText(
     [
       {
         role: "system",
@@ -338,7 +391,7 @@ export const generateEntityExtractionAnswer = async (
   context: string,
 ): Promise<string> => {
   const style = detectAnswerStyle(question);
-  const extraction = await generateGroqText(
+  const extraction = await generateGeminiText(
     [
       {
         role: "system",

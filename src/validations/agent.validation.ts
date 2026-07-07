@@ -4,7 +4,9 @@ const objectIdSchema = z.string().trim().regex(/^[0-9a-fA-F]{24}$/, {
   message: "Invalid ObjectId",
 });
 
-export const askQuestionSchema = z.object({
+// Same contract as the chat ask endpoint, minus mode: the agent endpoint has
+// exactly one engine, so there is nothing for the client to select.
+export const agentAskSchema = z.object({
   body: z.object({
     question: z.string().trim().min(1).max(2000),
     threadId: objectIdSchema.optional(),
@@ -15,10 +17,6 @@ export const askQuestionSchema = z.object({
     scope: z
       .enum(["single_document", "subject_all", "document_set", "library_all"])
       .optional(),
-    // Clients may pick the documented product modes only; internal engines
-    // (e.g. "dr-rag") are selected server-side via RAG_ENGINE or by
-    // internal callers and stay rejected here.
-    mode: z.enum(["basic", "corrective"]).optional(),
   }).strict().superRefine((body, ctx) => {
     if (body.documentId && body.documentIds?.length) {
       ctx.addIssue({
@@ -44,36 +42,4 @@ export const askQuestionSchema = z.object({
       });
     }
   }),
-});
-
-export const chatHistoryIdSchema = z.object({
-  params: z.object({
-    id: objectIdSchema,
-  }),
-});
-
-export const chatThreadIdSchema = z.object({
-  params: z.object({
-    threadId: objectIdSchema,
-  }),
-});
-
-export const listChatThreadsSchema = z.object({
-  query: z.object({
-    status: z.enum(["ACTIVE", "ARCHIVED"]).optional(),
-  }),
-});
-
-export const updateChatThreadSchema = z.object({
-  params: z.object({
-    threadId: objectIdSchema,
-  }),
-  body: z
-    .object({
-      title: z.string().trim().min(1).max(120).optional(),
-      status: z.enum(["ACTIVE", "ARCHIVED"]).optional(),
-    })
-    .refine((data) => Object.keys(data).length > 0, {
-      message: "At least one field is required",
-    }),
 });

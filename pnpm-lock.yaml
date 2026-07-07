@@ -32,9 +32,6 @@ importers:
       express:
         specifier: ^5.2.1
         version: 5.2.1
-      groq-sdk:
-        specifier: ^1.2.0
-        version: 1.2.1
       helmet:
         specifier: ^8.2.0
         version: 8.2.0
@@ -746,10 +743,6 @@ packages:
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
-
-  groq-sdk@1.2.1:
-    resolution: {integrity: sha512-dsDSWJRJf+n2dPiCv7zU3IsJbrh7jfSPqi6vc1q0TTK1oUF6bn+wv4P2VFdynkHpuJ0TTJ57vlpT87judPgVPA==}
-    hasBin: true
 
   has-flag@3.0.0:
     resolution: {integrity: sha512-sKJf1+ceQBr4SMkvQnBDNDtf4TXpVhVGateu0t918bl30FnbE2m4vNLX+VWe/dpjlb+HugGYzW7uQXH98HPEYw==}
@@ -2178,8 +2171,6 @@ snapshots:
       path-is-absolute: 1.0.1
 
   gopd@1.2.0: {}
-
-  groq-sdk@1.2.1: {}
 
   has-flag@3.0.0: {}
 

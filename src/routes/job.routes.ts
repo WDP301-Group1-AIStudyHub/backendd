@@ -2,7 +2,10 @@ import { Router, Request } from "express";
 import { AppError } from "../middlewares/error.middleware";
 import { asyncHandler } from "../utils/asyncHandler";
 import { sendResponse } from "../utils/apiResponse";
-import { purgeExpiredTrashDocuments } from "../modules/documents/document.service";
+import {
+  purgeExpiredTrashDocuments,
+  reconcileTrashVectors,
+} from "../modules/documents/document.service";
 
 const router = Router();
 
@@ -31,6 +34,19 @@ const assertJobSecret = (req: Request): void => {
     throw new AppError("Forbidden", 403);
   }
 };
+
+router.post(
+  "/reconcile-trash-vectors",
+  asyncHandler(async (req, res) => {
+    assertJobSecret(req);
+    const data = await reconcileTrashVectors();
+    sendResponse(res, 200, {
+      success: true,
+      message: "Trash vector reconciliation completed",
+      data,
+    });
+  }),
+);
 
 router.post(
   "/purge-trash",

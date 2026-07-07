@@ -7,6 +7,10 @@ export interface IBenchmarkQuestion extends Document {
   expectedAnswer: string;
   subject?: string;
   documentId?: Types.ObjectId;
+  sourceDocumentId?: string;
+  sourceDocumentTitle?: string;
+  sourceStatus?: "ACTIVE" | "DELETED";
+  sourceDeletedAt?: Date;
   difficulty: BenchmarkDifficulty;
   createdBy: Types.ObjectId;
   createdAt: Date;
@@ -33,6 +37,14 @@ const benchmarkQuestionSchema = new Schema<IBenchmarkQuestion>(
       type: Schema.Types.ObjectId,
       ref: "Document",
     },
+    sourceDocumentId: { type: String, trim: true },
+    sourceDocumentTitle: { type: String, trim: true },
+    sourceStatus: {
+      type: String,
+      enum: ["ACTIVE", "DELETED"],
+      default: "ACTIVE",
+    },
+    sourceDeletedAt: { type: Date },
     difficulty: {
       type: String,
       enum: ["easy", "medium", "hard"],

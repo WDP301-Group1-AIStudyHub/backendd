@@ -47,7 +47,10 @@ export const uploadDocumentToCloudinary = async (
 export const deleteCloudinaryFile = async (
   publicId: string,
 ): Promise<void> => {
-  await cloudinary.uploader.destroy(publicId, {
+  const result = await cloudinary.uploader.destroy(publicId, {
     resource_type: "raw",
   });
+  if (result.result !== "ok" && result.result !== "not found") {
+    throw new Error(`Cloudinary deletion failed with result: ${result.result}`);
+  }
 };

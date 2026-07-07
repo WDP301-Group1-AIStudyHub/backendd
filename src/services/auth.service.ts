@@ -11,6 +11,10 @@ import {
   claimDocumentShareInvitations,
   validateDocumentShareInvitation,
 } from "../modules/documentShares/documentShareInvitation.service";
+import {
+  claimSubjectMemberInvitations,
+  validateSubjectMemberInvitation,
+} from "../modules/subjects/subjectMemberInvitation.service";
 
 export const toUserResponse = (user: IUser): UserResponse & { isActive?: boolean; banReason?: string } => ({
   id: user._id.toString(),
@@ -34,7 +38,15 @@ export const registerUser = async (
   }
 
   if (payload.inviteToken) {
-    await validateDocumentShareInvitation(payload.email, payload.inviteToken);
+    try {
+      await validateDocumentShareInvitation(payload.email, payload.inviteToken);
+    } catch (documentInviteError) {
+      try {
+        await validateSubjectMemberInvitation(payload.email, payload.inviteToken);
+      } catch {
+        throw documentInviteError;
+      }
+    }
   }
 
   const { inviteToken, ...userPayload } = payload;
@@ -47,11 +59,19 @@ export const registerUser = async (
         inviteToken,
       )
     : undefined;
+  const redirectSubjectId = inviteToken
+    ? await claimSubjectMemberInvitations(
+      user.email,
+      user._id.toString(),
+      inviteToken,
+    )
+    : undefined;
 
   return {
     user: toUserResponse(user),
     accessToken,
     redirectDocumentId,
+    redirectSubjectId,
   };
 };
 

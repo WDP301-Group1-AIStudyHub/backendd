@@ -216,6 +216,9 @@ const updateDocumentFromActiveVersion = async (
         partCount: version.partCount || 0,
         sectionCount: version.sectionCount || 0,
         lastIndexedAt: version.indexedAt,
+        ragStatus: version.extractedText?.trim() ? "INDEXED" : "NOT_AVAILABLE",
+        ragError: "",
+        ragStatusUpdatedAt: version.indexedAt || new Date(),
         fileUrl: version.fileUrl,
         filePublicId: version.filePublicId,
         fileName: version.fileName,
@@ -327,6 +330,18 @@ const updateProcessingProgress = async (
         message,
         errorMessage,
         ...(completedAt ? { completedAt } : {}),
+      },
+    },
+  );
+
+  await StudyDocument.updateOne(
+    { _id: documentId, status: { $ne: "DELETED" } },
+    {
+      $set: {
+        ragStatus:
+          status === "INDEXED" ? "INDEXED" : status === "FAILED" ? "FAILED" : "INDEXING",
+        ragError: status === "FAILED" ? errorMessage || message : "",
+        ragStatusUpdatedAt: new Date(),
       },
     },
   );
@@ -513,6 +528,9 @@ const processVersionSynchronously = async (
             currentVersionId: version._id,
             totalChunks: version.totalChunks,
             lastIndexedAt: indexedAt,
+            ragStatus: "INDEXED",
+            ragError: "",
+            ragStatusUpdatedAt: indexedAt,
             fileUrl: version.fileUrl,
             filePublicId: version.filePublicId,
             fileName: version.fileName,
@@ -795,6 +813,9 @@ export const activateDocumentVersion = async (
       {
         $set: {
           lastIndexedAt: reindexResult.indexedAt,
+          ragStatus: "INDEXED",
+          ragError: "",
+          ragStatusUpdatedAt: reindexResult.indexedAt,
           totalChunks: reindexResult.chunksCreated,
           chunkingStrategy: reindexResult.chunkingStrategy,
           detectedSections: reindexResult.detectedSections,
@@ -994,7 +1015,15 @@ export const reindexDocumentVersion = async (
       await updateDocumentFromActiveVersion(documentId, version);
       await StudyDocument.updateOne(
         { _id: documentId },
-        { $set: { lastIndexedAt: indexedAt, totalChunks: chunks.length } },
+        {
+          $set: {
+            lastIndexedAt: indexedAt,
+            totalChunks: chunks.length,
+            ragStatus: "INDEXED",
+            ragError: "",
+            ragStatusUpdatedAt: indexedAt,
+          },
+        },
       );
     }
 

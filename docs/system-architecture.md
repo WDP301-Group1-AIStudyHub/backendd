@@ -16,7 +16,7 @@ are removed.
 | LangChain text splitters | Chunking extracted text |
 | Jina Embeddings | Document/query embeddings |
 | Pinecone | Semantic vector search |
-| Groq | Query rewriting, answer generation, grounding/evaluation |
+| Gemini | Query rewriting, answer generation, grounding/evaluation |
 
 ## Main Flow
 
@@ -26,7 +26,7 @@ User
 -> Express API
 -> Auth middleware
 -> Document, Chat, Evaluation, Benchmark modules
--> MongoDB / Cloudinary / Jina / Pinecone / Groq
+-> MongoDB / Cloudinary / Jina / Pinecone / Gemini
 ```
 
 ## Upload And Indexing
@@ -54,7 +54,7 @@ POST /api/chat/ask
 -> Stage 2: retrieve dynamic-relevant chunks using expanded queries
 -> CFS-style heuristic selection
 -> build final context
--> generate one answer from Groq
+-> generate one answer from Gemini
 -> grounding check
 -> safe fallback if ungrounded
 -> persist chat history and evaluation log

@@ -1,5 +1,5 @@
 import { AnswerGroundingCheck } from "../types/rag.types";
-import { generateGroqTextFromPrompt } from "./groq.service";
+import { generateGeminiTextFromPrompt } from "./gemini.service";
 
 const parseJsonObject = <T>(text: string): T | null => {
   const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -69,7 +69,7 @@ Answer:
 ${answer}
 `;
 
-  const text = await generateGroqTextFromPrompt(prompt, {
+  const text = await generateGeminiTextFromPrompt(prompt, {
     temperature: 0,
     maxTokens: 250,
   });

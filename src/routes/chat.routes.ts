@@ -15,6 +15,7 @@ import {
   askQuestionSchema,
   chatHistoryIdSchema,
   chatThreadIdSchema,
+  listChatThreadsSchema,
   updateChatThreadSchema,
 } from "../validations/chat.validation";
 
@@ -23,7 +24,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.post("/ask", validateRequest(askQuestionSchema), ask);
-router.get("/threads", listChatThreads);
+router.get("/threads", validateRequest(listChatThreadsSchema), listChatThreads);
 router.get("/threads/:threadId", validateRequest(chatThreadIdSchema), getChatThread);
 router.patch(
   "/threads/:threadId",

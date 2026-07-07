@@ -19,14 +19,28 @@ describe("chat validation", () => {
     assert.equal(result.success, true);
   });
 
-  it("rejects legacy RAG mode input", () => {
+  it("accepts the documented client RAG modes", () => {
     const result = askQuestionSchema.safeParse({
       body: {
         question: "Compare these documents",
         documentIds: [objectId, otherObjectId],
         subjectId: objectId,
         scope: "document_set",
-        mode: "basic",
+        mode: "corrective",
+      },
+    });
+
+    assert.equal(result.success, true);
+  });
+
+  it("rejects internal-only RAG engine modes", () => {
+    const result = askQuestionSchema.safeParse({
+      body: {
+        question: "Compare these documents",
+        documentIds: [objectId, otherObjectId],
+        subjectId: objectId,
+        scope: "document_set",
+        mode: "dr-rag",
       },
     });
 

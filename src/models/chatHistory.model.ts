@@ -163,7 +163,7 @@ const chatHistorySchema = new Schema<IChatHistory>(
     },
     mode: {
       type: String,
-      enum: ["dr-rag"],
+      enum: ["dr-rag", "basic", "corrective", "agentic"],
       default: "dr-rag",
     },
     evaluation: {

@@ -64,6 +64,9 @@ const splitTextIntoHeadingSections = (text: string): HeadingSection[] => {
   let currentBodyLines: string[] = [];
   let headingsDetected = false;
 
+  // Check if the document has explicit markdown headings
+  const isMarkdown = /^\s{0,3}#{1,6}\s+/m.test(text);
+
   const flushSection = (): void => {
     const body = currentBodyLines.join("\n").trim();
 
@@ -99,6 +102,7 @@ const splitTextIntoHeadingSections = (text: string): HeadingSection[] => {
       lines[index - 1],
       lines[index + 1],
       findNextContentLine(index + 1),
+      isMarkdown,
     );
 
     if (detectedHeading) {

@@ -30,7 +30,7 @@ Jina Embeddings
 ↓
 Pinecone Semantic Search
 ↓
-Groq Answer Generation
+Gemini Answer Generation
 ↓
 Chat History / Evaluation Logs
 ```
@@ -46,7 +46,7 @@ Pinecone Semantic Search
 ↓
 Relevant Chunks
 ↓
-Groq Answer Generation
+Gemini Answer Generation
 ↓
 Grounding Check
 ```
@@ -61,7 +61,7 @@ Grounding Check
 - pdf-parse, mammoth, pptx2json, and xlsx for extracting document text.
 - Jina Embeddings for text/query vectors.
 - Pinecone for semantic vector search.
-- Groq for answer generation.
+- Gemini for answer generation.
 - JWT for authentication.
 - Zod for request validation.
 - Swagger for API documentation.
@@ -83,7 +83,7 @@ If no headings are detected, the pipeline falls back to fixed-size chunks and ma
 
 ## Vietnamese RAG Tuning
 
-Prompts prioritize Vietnamese study documents: Vietnamese questions are answered in Vietnamese, accents and subject terms are preserved, and answers use only retrieved context from uploaded files. If the context is insufficient, the API generates a short fallback answer with Groq instead of answering from outside knowledge.
+Prompts prioritize Vietnamese study documents: Vietnamese questions are answered in Vietnamese, accents and subject terms are preserved, and answers use only retrieved context from uploaded files. If the context is insufficient, the API generates a short fallback answer with Gemini instead of answering from outside knowledge.
 
 The fallback explains why the system cannot answer, such as no relevant chunks found, retrieved chunks not being relevant enough, grounding failure, the file needing re-indexing, or text extraction quality. It does not answer the actual question and is capped to a short response so users know what to try next.
 

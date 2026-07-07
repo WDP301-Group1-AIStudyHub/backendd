@@ -14,6 +14,7 @@ import {
   UploadDocumentRequest,
 } from "../types/api.types";
 import { AppError } from "../middlewares/error.middleware";
+import { assertSubjectManageAccess } from "../modules/subjects/subjectAccess.service";
 import { uploadDocumentToCloudinary } from "./cloudinary.service";
 import { extractDocumentText } from "./documentExtraction/extractDocumentText";
 import {
@@ -124,7 +125,17 @@ const toDocumentListItemResponse = (
 const getSubjectOwnedByUser = async (
   subjectId: string,
   userId: string,
+  role = "user",
 ): Promise<ISubject> => {
+  if (Subject.db.readyState === 1) {
+    await assertSubjectManageAccess(subjectId, userId, role);
+    const managedSubject = await Subject.findOne({ _id: subjectId });
+    if (!managedSubject) {
+      throw new AppError("Subject not found", 404);
+    }
+    return managedSubject;
+  }
+
   const subject = await Subject.findOne({ _id: subjectId, ownerId: userId });
 
   if (!subject) {
@@ -138,12 +149,13 @@ export const createDocument = async (
   payload: UploadDocumentRequest,
   file: Express.Multer.File | undefined,
   userId: string,
+  role = "user",
 ): Promise<DocumentResponse> => {
   if (!file) {
     throw new AppError("Document file is required", 400);
   }
 
-  const subject = await getSubjectOwnedByUser(payload.subjectId, userId);
+  const subject = await getSubjectOwnedByUser(payload.subjectId, userId, role);
 
   let extractedText = "";
   let extractionStatus: "COMPLETED" | "FAILED" = "COMPLETED";
@@ -191,6 +203,9 @@ export const createDocument = async (
     extractionError,
     visibility: payload.visibility || "PRIVATE",
     status: "ACTIVE",
+    ragStatus: extractionStatus === "COMPLETED" ? "INDEXING" : "NOT_AVAILABLE",
+    ragError: extractionStatus === "COMPLETED" ? "" : extractionError,
+    ragStatusUpdatedAt: new Date(),
     ownerId: userId,
     chunkingStrategy: structure.chunkingStrategy,
     detectedSections:
@@ -260,6 +275,9 @@ export const createDocument = async (
     version.processingCompletedAt = indexedAt;
     await version.save();
     document.lastIndexedAt = indexedAt;
+    document.ragStatus = "INDEXED";
+    document.ragError = "";
+    document.ragStatusUpdatedAt = indexedAt;
     document.totalChunks = indexResult.chunksCreated;
     document.chunkingStrategy = indexResult.chunkingStrategy;
     document.detectedSections = indexResult.detectedSections;
@@ -391,6 +409,9 @@ export const reindexUserDocument = async (
         partCount: result.partCount || 0,
         sectionCount: result.sectionCount || 0,
         lastIndexedAt: indexedAt,
+        ragStatus: "INDEXED",
+        ragError: "",
+        ragStatusUpdatedAt: indexedAt,
       },
     },
   );

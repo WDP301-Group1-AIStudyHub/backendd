@@ -5,6 +5,13 @@ export type DocumentVisibility = "PUBLIC" | "PRIVATE";
 export type DocumentStatus = "ACTIVE" | "ARCHIVED" | "DELETED";
 export type ExtractionStatus = "COMPLETED" | "FAILED";
 export type DocumentChunkingStrategy = "heading-based" | "fixed-size-fallback";
+export type DocumentRagStatus =
+  | "INDEXED"
+  | "DELETE_PENDING"
+  | "DELETED"
+  | "INDEXING"
+  | "FAILED"
+  | "NOT_AVAILABLE";
 
 export interface IDocument extends Document {
   ownerId: Types.ObjectId;
@@ -25,6 +32,9 @@ export interface IDocument extends Document {
   partCount?: number;
   sectionCount?: number;
   lastIndexedAt?: Date | null;
+  ragStatus: DocumentRagStatus;
+  ragError?: string;
+  ragStatusUpdatedAt?: Date | null;
   deletedAt?: Date | null;
   deletedBy?: Types.ObjectId | null;
   fileUrl?: string;
@@ -135,6 +145,22 @@ const documentSchema = new Schema<IDocument>(
       min: 0,
     },
     lastIndexedAt: {
+      type: Date,
+      default: null,
+    },
+    ragStatus: {
+      type: String,
+      enum: ["INDEXED", "DELETE_PENDING", "DELETED", "INDEXING", "FAILED", "NOT_AVAILABLE"],
+      default: "NOT_AVAILABLE",
+      required: true,
+      index: true,
+    },
+    ragError: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    ragStatusUpdatedAt: {
       type: Date,
       default: null,
     },

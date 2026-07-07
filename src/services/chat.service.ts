@@ -32,6 +32,8 @@ const toChatHistoryResponse = (
   scope: history.scope,
   mode: history.mode,
   evaluation: history.evaluation,
+  sourceStatus: history.sourceStatus,
+  sourceDeletedAt: history.sourceDeletedAt,
   createdAt: history.createdAt,
   updatedAt: history.updatedAt,
 });
@@ -48,6 +50,8 @@ const toChatThreadResponse = (thread: IChatThread): ChatThreadResponse => ({
   documentId: thread.documentId,
   documentIds: thread.documentIds,
   mode: thread.mode,
+  sourceStatus: thread.sourceStatus,
+  sourceDeletedAt: thread.sourceDeletedAt,
   createdAt: thread.createdAt,
   updatedAt: thread.updatedAt,
 });
@@ -70,6 +74,18 @@ const getOrCreateThread = async (
 
     if (!thread) {
       throw new AppError("Chat thread not found", 404);
+    }
+
+    if (
+      thread.sourceStatus === "DELETED" &&
+      !payload.documentId &&
+      !payload.documentIds?.length &&
+      !payload.subjectId
+    ) {
+      throw new AppError(
+        "Source document was deleted. Select an active document to continue this conversation.",
+        409,
+      );
     }
 
     return thread;
@@ -136,6 +152,8 @@ export const askQuestion = async (
           documentId: chatScope.documentId,
           documentIds: chatScope.documentIds,
           mode: result.mode,
+          sourceStatus: "ACTIVE",
+          sourceDeletedAt: null,
         },
       },
       { runValidators: true },

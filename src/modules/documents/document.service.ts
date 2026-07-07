@@ -13,14 +13,22 @@ import { DocumentVersion, IDocumentVersion } from "../documentVersions/documentV
 import { UploadSession } from "../uploadSessions/uploadSession.model";
 import * as cloudinaryService from "../../services/cloudinary.service";
 import * as vectorService from "../../services/vector.service";
+import { reindexDocumentForRag } from "../../services/rag.service";
+import { reindexDocumentVersion } from "../documentVersions/documentVersion.service";
+import { StudyMaterial } from "../../models/studyMaterial.model";
+import { ChatHistory } from "../../models/chatHistory.model";
+import { ChatThread } from "../../models/chatThread.model";
+import { BenchmarkQuestion } from "../../models/benchmarkQuestion.model";
 import {
   assertRoleHasAccess,
   DocumentAccessRole,
   getDocumentAccessRole,
   permissionToAccessRole,
 } from "../documentShares/documentShare.service";
+import { getReadableSubjectDocumentIds } from "../subjects/subjectAccess.service";
 import {
   DocumentStatus,
+  DocumentRagStatus,
   DocumentVisibility,
   IDocument,
   StudyDocument,
@@ -78,6 +86,9 @@ export interface DocumentResponse {
   totalVersions: number;
   totalChunks: number;
   lastIndexedAt?: Date | null;
+  ragStatus: DocumentRagStatus;
+  ragError?: string;
+  ragStatusUpdatedAt?: Date | null;
   deletedAt?: Date | null;
   deletedBy?: string | Types.ObjectId | null;
   trashExpiresAt?: Date | null;
@@ -218,6 +229,9 @@ export const toDocumentResponse = (
     totalVersions: document.totalVersions,
     totalChunks: document.totalChunks,
     lastIndexedAt: document.lastIndexedAt,
+    ragStatus: document.ragStatus,
+    ragError: document.ragError,
+    ragStatusUpdatedAt: document.ragStatusUpdatedAt,
     deletedAt: document.deletedAt,
     deletedBy: document.deletedBy,
     trashExpiresAt: getTrashExpiresAt(document.deletedAt),
@@ -266,7 +280,7 @@ const buildReadableDocumentFilter = (
   userId: string,
   role: string,
   query: ListDocumentQuery,
-  sharedDocumentIds: string[] = [],
+  readableDocumentIds: string[] = [],
 ): Record<string, unknown> => {
   const subjectId = query.subjectId?.trim();
   const filter: Record<string, unknown> = {
@@ -277,11 +291,11 @@ const buildReadableDocumentFilter = (
     filter.$or = subjectId
       ? [
           { ownerId: userId, subjectId },
-          { _id: { $in: sharedDocumentIds } },
+          { _id: { $in: readableDocumentIds } },
         ]
       : [
           { ownerId: userId },
-          { _id: { $in: sharedDocumentIds } },
+          { _id: { $in: readableDocumentIds } },
         ];
   }
 
@@ -372,6 +386,18 @@ const buildAccessContextMap = async (
       },
     );
   }
+
+  const unresolvedDocuments = documents.filter(
+    (document) => !accessMap.has(document._id.toString()),
+  );
+  await Promise.all(
+    unresolvedDocuments.map(async (document) => {
+      const accessRole = await getDocumentAccessRole(document, userId, role);
+      if (accessRole) {
+        accessMap.set(document._id.toString(), { accessRole });
+      }
+    }),
+  );
 
   return accessMap;
 };
@@ -466,14 +492,22 @@ export const getDocuments = async (
 ): Promise<{ data: DocumentResponse[]; pagination: PaginationResponse }> => {
   const { page, limit, skip } = paginate(query);
   const requestedSubjectId = query.subjectId?.trim();
-  const sharedDocumentIds =
+  const [sharedDocumentIds, subjectWorkspaceDocumentIds] =
     role === "admin"
-      ? []
-      : (await DocumentShare.distinct("documentId", {
-          sharedWithUserId: userId,
-          ...(requestedSubjectId ? { personalSubjectId: requestedSubjectId } : {}),
-        })).map((id) => id.toString());
-  const filters = buildReadableDocumentFilter(userId, role, query, sharedDocumentIds);
+      ? [[], []]
+      : await Promise.all([
+          DocumentShare.distinct("documentId", {
+            sharedWithUserId: userId,
+            ...(requestedSubjectId ? { personalSubjectId: requestedSubjectId } : {}),
+          }).then((ids) => ids.map((id) => id.toString())),
+          getReadableSubjectDocumentIds(userId, role, requestedSubjectId),
+        ]);
+  const filters = buildReadableDocumentFilter(
+    userId,
+    role,
+    query,
+    [...new Set([...sharedDocumentIds, ...subjectWorkspaceDocumentIds])],
+  );
 
   const [documents, totalItems] = await Promise.all([
     StudyDocument.find(filters)
@@ -642,7 +676,7 @@ export const softDeleteDocument = async (
   documentId: string,
   ownerId: string,
   role: string = "user",
-): Promise<void> => {
+): Promise<{ ragStatus: DocumentRagStatus; warning?: string }> => {
   const filter: Record<string, any> = {
     _id: documentId,
     status: { $ne: "DELETED" },
@@ -668,6 +702,9 @@ export const softDeleteDocument = async (
       status: "DELETED",
       deletedAt: new Date(),
       deletedBy: new Types.ObjectId(ownerId),
+      ragStatus: "DELETE_PENDING",
+      ragError: "",
+      ragStatusUpdatedAt: new Date(),
     },
     {
       new: true,
@@ -677,6 +714,52 @@ export const softDeleteDocument = async (
 
   if (!document) {
     throw new AppError("Document not found", 404);
+  }
+
+  try {
+    await vectorService.deleteDocumentChunks(documentId);
+    await Promise.all([
+      StudyDocument.updateOne(
+        { _id: documentId, status: "DELETED" },
+        {
+          $set: {
+            ragStatus: "DELETED",
+            ragError: "",
+            ragStatusUpdatedAt: new Date(),
+            totalChunks: 0,
+            lastIndexedAt: null,
+          },
+        },
+      ),
+      DocumentVersion.updateMany(
+        { documentId: document._id, isActive: true, deletedAt: null },
+        {
+          $set: {
+            processingStatus: "PENDING",
+            processingStage: "UPLOADED",
+            processingProgress: 0,
+          },
+        },
+      ),
+    ]);
+    return { ragStatus: "DELETED" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Pinecone cleanup failed";
+    await StudyDocument.updateOne(
+      { _id: documentId, status: "DELETED" },
+      {
+        $set: {
+          ragStatus: "DELETE_PENDING",
+          ragError: message,
+          ragStatusUpdatedAt: new Date(),
+        },
+      },
+    );
+    console.warn("[trash] Vector cleanup queued for retry", { documentId, error: message });
+    return {
+      ragStatus: "DELETE_PENDING",
+      warning: "Document moved to Trash; AI data cleanup is being retried",
+    };
   }
 };
 
@@ -755,32 +838,107 @@ export const restoreDocumentFromTrash = async (
 
   assertRoleHasAccess(accessRole, "OWNER");
 
-  const document = await StudyDocument.findOneAndUpdate(
+  await vectorService.deleteDocumentChunks(documentId);
+  const restored = await StudyDocument.findOneAndUpdate(
     { _id: documentId, status: "DELETED" },
     {
       $set: {
         status: "ACTIVE",
         deletedAt: null,
         deletedBy: null,
+        ragStatus: "INDEXING",
+        ragError: "",
+        ragStatusUpdatedAt: new Date(),
       },
     },
-    {
-      new: true,
-      runValidators: true,
-    },
-  )
+    { new: true, runValidators: true },
+  );
+
+  if (!restored) {
+    throw new AppError("Document not found in trash", 404);
+  }
+
+  try {
+    if (!restored.extractedText?.trim()) {
+      await StudyDocument.updateOne(
+        { _id: documentId, status: "ACTIVE" },
+        {
+          $set: {
+            ragStatus: "NOT_AVAILABLE",
+            ragError: "Document text is not available for AI indexing",
+            ragStatusUpdatedAt: new Date(),
+            totalChunks: 0,
+            lastIndexedAt: null,
+          },
+        },
+      );
+    } else if (restored.currentVersionId) {
+      await reindexDocumentVersion(
+        documentId,
+        restored.currentVersionId.toString(),
+        restored.ownerId.toString(),
+      );
+      await StudyDocument.updateOne(
+        { _id: documentId, status: "ACTIVE" },
+        {
+          $set: {
+            ragStatus: "INDEXED",
+            ragError: "",
+            ragStatusUpdatedAt: new Date(),
+          },
+        },
+      );
+    } else {
+      const result = await reindexDocumentForRag(documentId, restored.ownerId.toString());
+      await StudyDocument.updateOne(
+        { _id: documentId, status: "ACTIVE" },
+        {
+          $set: {
+            ragStatus: "INDEXED",
+            ragError: "",
+            ragStatusUpdatedAt: new Date(),
+            totalChunks: result.chunksCreated,
+            lastIndexedAt: new Date(),
+          },
+        },
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Document reindex failed";
+    try {
+      await vectorService.deleteDocumentChunks(documentId);
+    } catch (cleanupError) {
+      console.warn("[trash] Failed to remove partial vectors after restore failure", {
+        documentId,
+        error: cleanupError instanceof Error ? cleanupError.message : cleanupError,
+      });
+    }
+    await StudyDocument.updateOne(
+      { _id: documentId },
+      {
+        $set: {
+          status: "DELETED",
+          deletedAt: existingDocument.deletedAt || new Date(),
+          deletedBy: existingDocument.deletedBy || new Types.ObjectId(userId),
+          ragStatus: "FAILED",
+          ragError: message,
+          ragStatusUpdatedAt: new Date(),
+        },
+      },
+    );
+    throw new AppError(`Document restore failed: ${message}`, 502);
+  }
+
+  const document = await StudyDocument.findById(documentId)
     .populate("subjectId", "_id name description color code semester")
     .populate(
       "currentVersionId",
       "_id processingStatus processingStage processingProgress",
     );
-
   if (!document) {
-    throw new AppError("Document not found in trash", 404);
+    throw new AppError("Document not found after restore", 404);
   }
-
   const starMap = await buildStarMap([document._id], userId);
-
   return toDocumentResponse(document, {
     accessRole,
     isShared: false,
@@ -803,6 +961,79 @@ const deleteCloudinaryFiles = async (publicIds: string[]): Promise<void> => {
   }
 };
 
+const markDerivedSourcesDeleted = async (document: IDocument): Promise<void> => {
+  const documentId = document._id.toString();
+  const sourceDeletedAt = new Date();
+
+  await Promise.all([
+    StudyMaterial.updateMany(
+      { documentId: document._id },
+      {
+        $set: {
+          documentId: null,
+          sourceDocumentId: documentId,
+          sourceDocumentTitle: document.title,
+          sourceStatus: "DELETED",
+          sourceDeletedAt,
+        },
+      },
+    ),
+    ChatHistory.updateMany(
+      {
+        $or: [
+          { documentId: document._id },
+          { documentIds: document._id },
+          { "sources.documentId": documentId },
+        ],
+      },
+      {
+        $unset: { documentId: "" },
+        $pull: { documentIds: document._id },
+        $set: {
+          sourceStatus: "DELETED",
+          sourceDeletedAt,
+          "sources.$[source].sourceStatus": "DELETED",
+          "sources.$[source].sourceDeletedAt": sourceDeletedAt,
+        },
+      } as any,
+      { arrayFilters: [{ "source.documentId": documentId }] },
+    ),
+    ChatThread.updateMany(
+      { $or: [{ documentId: document._id }, { documentIds: document._id }] },
+      {
+        $unset: { documentId: "" },
+        $pull: { documentIds: document._id },
+        $set: { sourceStatus: "DELETED", sourceDeletedAt },
+      } as any,
+    ),
+    BenchmarkQuestion.updateMany(
+      { documentId: document._id },
+      {
+        $unset: { documentId: "" },
+        $set: {
+          sourceDocumentId: documentId,
+          sourceDocumentTitle: document.title,
+          sourceStatus: "DELETED",
+          sourceDeletedAt,
+        },
+      },
+    ),
+  ]);
+};
+
+type PermanentDeleteStage = "PINECONE" | "CLOUDINARY" | "MONGODB";
+
+class PermanentDeleteError extends Error {
+  constructor(
+    public readonly stage: PermanentDeleteStage,
+    cause: unknown,
+  ) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    super(`${stage} cleanup failed: ${message}`);
+    this.name = "PermanentDeleteError";
+  }
+}
+
 export const permanentlyDeleteDocumentRecord = async (
   document: IDocument,
 ): Promise<void> => {
@@ -814,20 +1045,30 @@ export const permanentlyDeleteDocumentRecord = async (
     ...versions.map((version: IDocumentVersion) => version.filePublicId),
   ].filter((publicId): publicId is string => Boolean(publicId));
 
-  await deleteCloudinaryFiles(filePublicIds);
-  await vectorService.deleteDocumentChunks(
-    document._id.toString(),
-    document.ownerId.toString(),
-  );
+  try {
+    await vectorService.deleteDocumentChunks(document._id.toString());
+  } catch (error) {
+    throw new PermanentDeleteError("PINECONE", error);
+  }
+  try {
+    await deleteCloudinaryFiles(filePublicIds);
+  } catch (error) {
+    throw new PermanentDeleteError("CLOUDINARY", error);
+  }
+  try {
+    await markDerivedSourcesDeleted(document);
 
-  await Promise.all([
-    DocumentVersion.deleteMany({ documentId: document._id }),
-    UploadSession.deleteMany({ documentId: document._id }),
-    DocumentShare.deleteMany({ documentId: document._id }),
-    DocumentShareInvitation.deleteMany({ documentId: document._id }),
-    DocumentStar.deleteMany({ documentId: document._id }),
-    StudyDocument.deleteOne({ _id: document._id }),
-  ]);
+    await Promise.all([
+      DocumentVersion.deleteMany({ documentId: document._id }),
+      UploadSession.deleteMany({ documentId: document._id }),
+      DocumentShare.deleteMany({ documentId: document._id }),
+      DocumentShareInvitation.deleteMany({ documentId: document._id }),
+      DocumentStar.deleteMany({ documentId: document._id }),
+    ]);
+    await StudyDocument.deleteOne({ _id: document._id });
+  } catch (error) {
+    throw new PermanentDeleteError("MONGODB", error);
+  }
 };
 
 export const permanentlyDeleteDocument = async (
@@ -858,17 +1099,39 @@ export const permanentlyDeleteDocument = async (
 
 export const emptyTrashDocuments = async (
   userId: string,
-): Promise<{ deletedCount: number }> => {
+): Promise<{
+  deletedCount: number;
+  failedCount: number;
+  failures: Array<{
+    documentId: string;
+    stage: "PINECONE" | "CLOUDINARY" | "MONGODB";
+    message: string;
+  }>;
+}> => {
   const documents = await StudyDocument.find({
     ownerId: userId,
     status: "DELETED",
   });
 
+  let deletedCount = 0;
+  const failures: Array<{
+    documentId: string;
+    stage: "PINECONE" | "CLOUDINARY" | "MONGODB";
+    message: string;
+  }> = [];
+
   for (const document of documents) {
-    await permanentlyDeleteDocumentRecord(document);
+    try {
+      await permanentlyDeleteDocumentRecord(document);
+      deletedCount += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Permanent deletion failed";
+      const stage = error instanceof PermanentDeleteError ? error.stage : "MONGODB";
+      failures.push({ documentId: document._id.toString(), stage, message });
+    }
   }
 
-  return { deletedCount: documents.length };
+  return { deletedCount, failedCount: failures.length, failures };
 };
 
 export const setDocumentStar = async (
@@ -1024,6 +1287,54 @@ export const purgeExpiredTrashDocuments = async (
     deletedCount: documentIds.length,
     documentIds,
   };
+};
+
+export const reconcileTrashVectors = async (): Promise<{
+  cleanedCount: number;
+  failedCount: number;
+  failures: Array<{ documentId: string; message: string }>;
+}> => {
+  const documents = await StudyDocument.find({
+    status: "DELETED",
+    ragStatus: { $in: ["DELETE_PENDING", "FAILED"] },
+  }).limit(100);
+  let cleanedCount = 0;
+  const failures: Array<{ documentId: string; message: string }> = [];
+
+  for (const document of documents) {
+    const documentId = document._id.toString();
+    try {
+      await vectorService.deleteDocumentChunks(documentId);
+      await StudyDocument.updateOne(
+        { _id: document._id, status: "DELETED" },
+        {
+          $set: {
+            ragStatus: "DELETED",
+            ragError: "",
+            ragStatusUpdatedAt: new Date(),
+            totalChunks: 0,
+            lastIndexedAt: null,
+          },
+        },
+      );
+      cleanedCount += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Vector cleanup failed";
+      failures.push({ documentId, message });
+      await StudyDocument.updateOne(
+        { _id: document._id, status: "DELETED" },
+        {
+          $set: {
+            ragStatus: "DELETE_PENDING",
+            ragError: message,
+            ragStatusUpdatedAt: new Date(),
+          },
+        },
+      );
+    }
+  }
+
+  return { cleanedCount, failedCount: failures.length, failures };
 };
 
 export const getDocumentDownloadUrl = async (

@@ -18,6 +18,8 @@ export interface IChatHistory extends Document {
   scope?: ChatScope;
   mode?: RagMode;
   evaluation?: RagEvaluation;
+  sourceStatus?: "ACTIVE" | "DELETED";
+  sourceDeletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -76,6 +78,12 @@ const chatSourceSchema = new Schema<ChatSource>(
     relevanceScore: {
       type: Number,
     },
+    sourceStatus: {
+      type: String,
+      enum: ["ACTIVE", "DELETED"],
+      default: "ACTIVE",
+    },
+    sourceDeletedAt: { type: Date },
   },
   { _id: false },
 );
@@ -169,6 +177,13 @@ const chatHistorySchema = new Schema<IChatHistory>(
     evaluation: {
       type: ragEvaluationSchema,
     },
+    sourceStatus: {
+      type: String,
+      enum: ["ACTIVE", "DELETED"],
+      default: "ACTIVE",
+      index: true,
+    },
+    sourceDeletedAt: { type: Date },
   },
   {
     timestamps: true,

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { Types } from "mongoose";
+import type { DocumentRagStatus } from "../documents/document.model";
 import { StudyDocument } from "../documents/document.model";
+import * as vectorService from "../../services/vector.service";
 import { Subject } from "./subject.model";
 import {
   createSubject,
@@ -13,14 +15,20 @@ const originalSubjectCreate = Subject.create;
 const originalSubjectFindOne = Subject.findOne;
 const originalSubjectFindOneAndUpdate = Subject.findOneAndUpdate;
 const originalDocumentCountDocuments = StudyDocument.countDocuments;
-const originalDocumentUpdateMany = StudyDocument.updateMany;
+const originalDocumentFind = StudyDocument.find;
+const originalDocumentFindByIdAndUpdate = StudyDocument.findByIdAndUpdate;
+const originalDeleteDocumentChunks = vectorService.deleteDocumentChunks;
 
 afterEach(() => {
   Subject.create = originalSubjectCreate;
   Subject.findOne = originalSubjectFindOne;
   Subject.findOneAndUpdate = originalSubjectFindOneAndUpdate;
   StudyDocument.countDocuments = originalDocumentCountDocuments;
-  StudyDocument.updateMany = originalDocumentUpdateMany;
+  StudyDocument.find = originalDocumentFind;
+  StudyDocument.findByIdAndUpdate = originalDocumentFindByIdAndUpdate;
+  (vectorService as unknown as {
+    deleteDocumentChunks: typeof vectorService.deleteDocumentChunks;
+  }).deleteDocumentChunks = originalDeleteDocumentChunks;
 });
 
 const ownerId = new Types.ObjectId();
@@ -80,7 +88,6 @@ describe("subject service", () => {
 
   it("deletes subjects without documents", async () => {
     let deleted = false;
-    let softDeleted = false;
 
     Subject.findOne = (async () => ({
       ...fakeSubject,
@@ -88,21 +95,18 @@ describe("subject service", () => {
         deleted = true;
       },
     })) as typeof Subject.findOne;
-    StudyDocument.updateMany = (async () => {
-      softDeleted = true;
-      return { modifiedCount: 0 };
-    }) as unknown as typeof StudyDocument.updateMany;
+    StudyDocument.find = (async () => []) as unknown as typeof StudyDocument.find;
 
     await deleteSubject(subjectId.toString(), ownerId.toString());
 
     assert.equal(deleted, true);
-    assert.equal(softDeleted, true);
   });
 
-  it("soft deletes documents before deleting their subject", async () => {
+  it("soft deletes documents and removes their vectors before deleting their subject", async () => {
     let deleted = false;
-    let capturedFilter: unknown;
-    let capturedPayload: unknown;
+    const documentId = new Types.ObjectId();
+    const capturedUpdates: unknown[] = [];
+    const cleanedDocumentIds: string[] = [];
 
     Subject.findOne = (async () => ({
       ...fakeSubject,
@@ -110,24 +114,43 @@ describe("subject service", () => {
         deleted = true;
       },
     })) as typeof Subject.findOne;
-    StudyDocument.updateMany = (async (filter: unknown, payload: unknown) => {
-      capturedFilter = filter;
-      capturedPayload = payload;
-      return { modifiedCount: 1 };
-    }) as unknown as typeof StudyDocument.updateMany;
+    StudyDocument.find = (async (filter: unknown) => {
+      const query = filter as {
+        ownerId?: string;
+        subjectId?: Types.ObjectId;
+        status?: { $ne?: string };
+      };
+      assert.equal(query.ownerId, ownerId.toString());
+      assert.equal(query.subjectId?.toString(), subjectId.toString());
+      assert.deepEqual(query.status, { $ne: "DELETED" });
+      return [{ _id: documentId }];
+    }) as unknown as typeof StudyDocument.find;
+    StudyDocument.findByIdAndUpdate = (async (_id: unknown, payload: unknown) => {
+      assert.equal((_id as Types.ObjectId).toString(), documentId.toString());
+      capturedUpdates.push(payload);
+      return null;
+    }) as unknown as typeof StudyDocument.findByIdAndUpdate;
+    (vectorService as unknown as {
+      deleteDocumentChunks: typeof vectorService.deleteDocumentChunks;
+    }).deleteDocumentChunks = async (id: string) => {
+      cleanedDocumentIds.push(id);
+      return { deletedVectorCount: 2 };
+    };
 
     await deleteSubject(subjectId.toString(), ownerId.toString());
 
     assert.equal(deleted, true);
-    const filter = capturedFilter as {
-      ownerId?: string;
-      subjectId?: Types.ObjectId;
-      status?: { $ne?: string };
-    };
-    assert.equal(filter.ownerId, ownerId.toString());
-    assert.equal(filter.subjectId?.toString(), subjectId.toString());
-    assert.deepEqual(filter.status, { $ne: "DELETED" });
-    assert.equal((capturedPayload as { status?: string }).status, "DELETED");
-    assert.ok((capturedPayload as { deletedAt?: Date }).deletedAt instanceof Date);
+    assert.deepEqual(cleanedDocumentIds, [documentId.toString()]);
+    assert.equal((capturedUpdates[0] as { status?: string }).status, "DELETED");
+    assert.equal(
+      (capturedUpdates[0] as { ragStatus?: DocumentRagStatus }).ragStatus,
+      "DELETE_PENDING",
+    );
+    assert.ok((capturedUpdates[0] as { deletedAt?: Date }).deletedAt instanceof Date);
+    assert.equal(
+      (capturedUpdates[1] as { ragStatus?: DocumentRagStatus }).ragStatus,
+      "DELETED",
+    );
+    assert.equal((capturedUpdates[1] as { totalChunks?: number }).totalChunks, 0);
   });
 });

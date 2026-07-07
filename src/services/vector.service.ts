@@ -98,6 +98,45 @@ interface PineconeChunkMetadata extends RecordMetadata {
 }
 
 const PINECONE_UPSERT_BATCH_SIZE = 100;
+const PINECONE_DELETE_BATCH_SIZE = 1000;
+const PINECONE_LIST_PAGE_SIZE = 99;
+
+const sleep = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+const isRetryablePineconeError = (error: unknown): boolean => {
+  const candidate = error as {
+    status?: number;
+    statusCode?: number;
+    code?: string;
+  };
+  const status = candidate?.status ?? candidate?.statusCode;
+
+  return (
+    status === 408 ||
+    status === 429 ||
+    (typeof status === "number" && status >= 500) ||
+    ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].includes(candidate?.code || "")
+  );
+};
+
+const withPineconeDeleteRetry = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const attempts = Math.max(1, Number(process.env.PINECONE_DELETE_RETRY_COUNT || 3));
+  const baseDelay = Math.max(0, Number(process.env.PINECONE_DELETE_RETRY_DELAY_MS || 250));
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt === attempts || !isRetryablePineconeError(error)) {
+        throw error;
+      }
+      await sleep(baseDelay * attempt);
+    }
+  }
+
+  throw new Error("Pinecone delete retry exhausted");
+};
 
 const getPineconeClient = (): Pinecone => {
   const apiKey = process.env.PINECONE_API_KEY;
@@ -254,8 +293,16 @@ export const upsertDocumentChunks = async (
   return chunks.length;
 };
 
-const listDocumentVectorIds = async (documentId: string): Promise<string[]> => {
-  const index = await getPineconeIndex();
+type PineconeIndexClient = Awaited<ReturnType<typeof getPineconeIndex>>;
+
+export interface DeleteDocumentChunksOptions {
+  getIndex?: () => Promise<PineconeIndexClient>;
+}
+
+const listDocumentVectorIds = async (
+  documentId: string,
+  index: PineconeIndexClient,
+): Promise<string[]> => {
   const vectorIds: string[] = [];
   let paginationToken: string | undefined;
 
@@ -263,7 +310,7 @@ const listDocumentVectorIds = async (documentId: string): Promise<string[]> => {
     const result = await index.listPaginated({
       namespace: getPineconeNamespace(),
       prefix: `${documentId}:`,
-      limit: 100,
+      limit: PINECONE_LIST_PAGE_SIZE,
       paginationToken,
     });
 
@@ -401,13 +448,14 @@ export const fetchVectorChunksByIds = async (
 
 export const deleteDocumentChunks = async (
   documentId: string,
-  userId: string,
+  _userId?: string,
+  options: DeleteDocumentChunksOptions = {},
 ): Promise<DeleteDocumentChunksResult> => {
-  const index = await getPineconeIndex();
+  const index = await (options.getIndex || getPineconeIndex)();
   let vectorIds: string[] = [];
 
   try {
-    vectorIds = await listDocumentVectorIds(documentId);
+    vectorIds = await listDocumentVectorIds(documentId, index);
   } catch (error) {
     console.warn("[RAG reindex] Could not list document vector ids before delete", {
       documentId,
@@ -416,35 +464,37 @@ export const deleteDocumentChunks = async (
   }
 
   if (vectorIds.length > 0) {
-    await index.deleteMany({
-      namespace: getPineconeNamespace(),
-      ids: vectorIds,
-    });
+    for (let start = 0; start < vectorIds.length; start += PINECONE_DELETE_BATCH_SIZE) {
+      const ids = vectorIds.slice(start, start + PINECONE_DELETE_BATCH_SIZE);
+      await withPineconeDeleteRetry(() =>
+        index.deleteMany({
+          namespace: getPineconeNamespace(),
+          ids,
+        }),
+      );
+    }
 
-    console.log("[RAG reindex] Deleted document vectors by id", {
+    console.log("[RAG cleanup] Deleted document vectors by id", {
       documentId,
       deletedVectorCount: vectorIds.length,
     });
-
-    return {
-      deletedVectorCount: vectorIds.length,
-    };
   }
 
-  await index.deleteMany({
-    namespace: getPineconeNamespace(),
-    filter: {
-      documentId: { $eq: documentId },
-      userId: { $eq: userId },
-    },
-  });
+  await withPineconeDeleteRetry(() =>
+    index.deleteMany({
+      namespace: getPineconeNamespace(),
+      filter: {
+        documentId: { $eq: documentId },
+      },
+    }),
+  );
 
-  console.log("[RAG reindex] Deleted document vectors by metadata filter", {
+  console.log("[RAG cleanup] Deleted document vectors by metadata filter", {
     documentId,
-    deletedVectorCount: 0,
+    prefixedVectorCount: vectorIds.length,
   });
 
   return {
-    deletedVectorCount: 0,
+    deletedVectorCount: vectorIds.length,
   };
 };

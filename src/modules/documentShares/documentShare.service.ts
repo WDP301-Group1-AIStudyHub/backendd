@@ -7,6 +7,7 @@ import {
   DocumentSharePermission,
   IDocumentShare,
 } from "./documentShare.model";
+import { getSubjectDocumentAccessRole } from "../subjects/subjectAccess.service";
 import {
   EmailDeliveryResult,
   EmailDeliveryStatus,
@@ -108,7 +109,7 @@ export const assertRoleHasAccess = (
 };
 
 export const getDocumentAccessRole = async (
-  document: Pick<IDocument, "ownerId" | "_id">,
+  document: Pick<IDocument, "ownerId" | "_id" | "subjectId">,
   userId: string,
   role = "user",
 ): Promise<DocumentAccessRole | null> => {
@@ -121,7 +122,18 @@ export const getDocumentAccessRole = async (
     sharedWithUserId: userId,
   }).select("permission");
 
-  return share ? permissionToAccessRole(share.permission) : null;
+  const shareAccessRole = share ? permissionToAccessRole(share.permission) : null;
+  if (shareAccessRole === "EDITOR" || !document.subjectId) {
+    return shareAccessRole;
+  }
+
+  const subjectAccessRole = await getSubjectDocumentAccessRole(document, userId, role);
+
+  if (subjectAccessRole === "OWNER") {
+    return "OWNER";
+  }
+
+  return subjectAccessRole || shareAccessRole;
 };
 
 export const getAccessibleDocumentOrThrow = async (

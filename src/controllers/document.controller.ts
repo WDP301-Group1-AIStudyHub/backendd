@@ -24,7 +24,12 @@ export const uploadDocument = asyncHandler(async (
   req: Request<unknown, unknown, UploadDocumentRequest>,
   res: Response,
 ): Promise<void> => {
-  const data = await createDocument(req.body, req.file, req.authUser!.id);
+  const data = await createDocument(
+    req.body,
+    req.file,
+    req.authUser!.id,
+    req.authUser!.role,
+  );
 
   await ActivityLogService.log({
     userId: req.authUser!.id,

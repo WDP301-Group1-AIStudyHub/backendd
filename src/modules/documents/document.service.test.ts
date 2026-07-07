@@ -10,10 +10,16 @@ import { DocumentVersion } from "../documentVersions/documentVersion.model";
 import { UploadSession } from "../uploadSessions/uploadSession.model";
 import * as cloudinaryService from "../../services/cloudinary.service";
 import * as vectorService from "../../services/vector.service";
+import { StudyMaterial } from "../../models/studyMaterial.model";
+import { ChatHistory } from "../../models/chatHistory.model";
+import { ChatThread } from "../../models/chatThread.model";
+import { BenchmarkQuestion } from "../../models/benchmarkQuestion.model";
 import {
   createDocumentMetadata,
+  emptyTrashDocuments,
   getDocuments,
   permanentlyDeleteDocumentRecord,
+  restoreDocumentFromTrash,
   setDocumentStar,
   softDeleteDocument,
   updateDocumentMetadata,
@@ -25,7 +31,9 @@ const originalDocumentFind = StudyDocument.find;
 const originalDocumentCountDocuments = StudyDocument.countDocuments;
 const originalDocumentFindOneAndUpdate = StudyDocument.findOneAndUpdate;
 const originalDocumentFindOne = StudyDocument.findOne;
+const originalDocumentFindById = StudyDocument.findById;
 const originalDocumentDeleteOne = StudyDocument.deleteOne;
+const originalDocumentUpdateOne = StudyDocument.updateOne;
 const originalShareDistinct = DocumentShare.distinct;
 const originalShareFindOne = DocumentShare.findOne;
 const originalShareDeleteMany = DocumentShare.deleteMany;
@@ -36,9 +44,14 @@ const originalStarDeleteOne = DocumentStar.deleteOne;
 const originalStarDeleteMany = DocumentStar.deleteMany;
 const originalVersionFind = DocumentVersion.find;
 const originalVersionDeleteMany = DocumentVersion.deleteMany;
+const originalVersionUpdateMany = DocumentVersion.updateMany;
 const originalSessionDeleteMany = UploadSession.deleteMany;
 const originalDeleteCloudinaryFile = cloudinaryService.deleteCloudinaryFile;
 const originalDeleteDocumentChunks = vectorService.deleteDocumentChunks;
+const originalStudyMaterialUpdateMany = StudyMaterial.updateMany;
+const originalChatHistoryUpdateMany = ChatHistory.updateMany;
+const originalChatThreadUpdateMany = ChatThread.updateMany;
+const originalBenchmarkQuestionUpdateMany = BenchmarkQuestion.updateMany;
 
 afterEach(() => {
   Subject.findOne = originalSubjectFindOne;
@@ -47,7 +60,9 @@ afterEach(() => {
   StudyDocument.countDocuments = originalDocumentCountDocuments;
   StudyDocument.findOneAndUpdate = originalDocumentFindOneAndUpdate;
   StudyDocument.findOne = originalDocumentFindOne;
+  StudyDocument.findById = originalDocumentFindById;
   StudyDocument.deleteOne = originalDocumentDeleteOne;
+  StudyDocument.updateOne = originalDocumentUpdateOne;
   DocumentShare.distinct = originalShareDistinct;
   DocumentShare.findOne = originalShareFindOne;
   DocumentShare.deleteMany = originalShareDeleteMany;
@@ -58,7 +73,12 @@ afterEach(() => {
   DocumentStar.deleteMany = originalStarDeleteMany;
   DocumentVersion.find = originalVersionFind;
   DocumentVersion.deleteMany = originalVersionDeleteMany;
+  DocumentVersion.updateMany = originalVersionUpdateMany;
   UploadSession.deleteMany = originalSessionDeleteMany;
+  StudyMaterial.updateMany = originalStudyMaterialUpdateMany;
+  ChatHistory.updateMany = originalChatHistoryUpdateMany;
+  ChatThread.updateMany = originalChatThreadUpdateMany;
+  BenchmarkQuestion.updateMany = originalBenchmarkQuestionUpdateMany;
   (
     cloudinaryService as typeof cloudinaryService & {
       deleteCloudinaryFile: typeof cloudinaryService.deleteCloudinaryFile;
@@ -199,11 +219,69 @@ describe("document service", () => {
       updatePayload = payload;
       return fakeDocument;
     }) as typeof StudyDocument.findOneAndUpdate;
+    StudyDocument.updateOne = (async () => ({ acknowledged: true, modifiedCount: 1 })) as unknown as typeof StudyDocument.updateOne;
+    DocumentVersion.updateMany = (async () => ({ acknowledged: true, modifiedCount: 1 })) as unknown as typeof DocumentVersion.updateMany;
+    (
+      vectorService as typeof vectorService & {
+        deleteDocumentChunks: typeof vectorService.deleteDocumentChunks;
+      }
+    ).deleteDocumentChunks = async () => ({ deletedVectorCount: 3 });
 
-    await softDeleteDocument(fakeDocument._id.toString(), ownerId.toString());
+    const result = await softDeleteDocument(fakeDocument._id.toString(), ownerId.toString());
 
     assert.equal(updatePayload?.status, "DELETED");
     assert.ok(updatePayload?.deletedAt instanceof Date);
+    assert.equal(updatePayload?.ragStatus, "DELETE_PENDING");
+    assert.equal(result.ragStatus, "DELETED");
+  });
+
+  it("restores a document without extracted text as active but not AI-indexable", async () => {
+    const deletedDocument = {
+      ...fakeDocument,
+      status: "DELETED",
+      deletedAt: new Date("2026-02-01T00:00:00.000Z"),
+      deletedBy: ownerId,
+      extractedText: "",
+    };
+    const restoredDocument = {
+      ...deletedDocument,
+      status: "ACTIVE",
+      deletedAt: null,
+      deletedBy: null,
+      ragStatus: "NOT_AVAILABLE",
+    };
+    const updates: Array<Record<string, any>> = [];
+
+    StudyDocument.findOne = (async () => deletedDocument) as typeof StudyDocument.findOne;
+    StudyDocument.findOneAndUpdate = (async () => restoredDocument) as typeof StudyDocument.findOneAndUpdate;
+    StudyDocument.updateOne = (async (_filter: unknown, update: Record<string, any>) => {
+      updates.push(update);
+      return { acknowledged: true, modifiedCount: 1 };
+    }) as unknown as typeof StudyDocument.updateOne;
+    StudyDocument.findById = (() => {
+      const query = {
+        populate: () => query,
+        then: (resolve: (value: typeof restoredDocument) => unknown) =>
+          Promise.resolve(restoredDocument).then(resolve),
+      };
+      return query;
+    }) as unknown as typeof StudyDocument.findById;
+    DocumentStar.find = (() => ({ select: async () => [] })) as unknown as typeof DocumentStar.find;
+    (
+      vectorService as typeof vectorService & {
+        deleteDocumentChunks: typeof vectorService.deleteDocumentChunks;
+      }
+    ).deleteDocumentChunks = async () => ({ deletedVectorCount: 2 });
+
+    const result = await restoreDocumentFromTrash(
+      fakeDocument._id.toString(),
+      ownerId.toString(),
+    );
+
+    assert.equal(result.status, "ACTIVE");
+    assert.equal(result.ragStatus, "NOT_AVAILABLE");
+    assert.equal(updates[0].$set.ragStatus, "NOT_AVAILABLE");
+    assert.equal(updates[0].$set.totalChunks, 0);
   });
 
   it("allows shared editors to update title and description", async () => {
@@ -325,6 +403,8 @@ describe("document service", () => {
     const deletedCloudinaryIds: string[] = [];
     const deletedCollections: string[] = [];
     let deletedVectorDocumentId: string | undefined;
+    let studyMaterialUpdate: Record<string, any> | undefined;
+    let chatHistoryUpdate: Record<string, any> | undefined;
 
     DocumentVersion.find = (() => ({
       select: async () => [{ filePublicId: versionPublicId }],
@@ -349,6 +429,16 @@ describe("document service", () => {
       deletedCollections.push("stars");
       return { acknowledged: true, deletedCount: 1 };
     }) as unknown as typeof DocumentStar.deleteMany;
+    StudyMaterial.updateMany = (async (_filter: unknown, payload: Record<string, any>) => {
+      studyMaterialUpdate = payload;
+      return { acknowledged: true, modifiedCount: 1 };
+    }) as unknown as typeof StudyMaterial.updateMany;
+    ChatHistory.updateMany = (async (_filter: unknown, payload: Record<string, any>) => {
+      chatHistoryUpdate = payload;
+      return { acknowledged: true, modifiedCount: 1 };
+    }) as unknown as typeof ChatHistory.updateMany;
+    ChatThread.updateMany = (async () => ({ acknowledged: true, modifiedCount: 1 })) as unknown as typeof ChatThread.updateMany;
+    BenchmarkQuestion.updateMany = (async () => ({ acknowledged: true, modifiedCount: 1 })) as unknown as typeof BenchmarkQuestion.updateMany;
     StudyDocument.deleteOne = (async () => {
       deletedCollections.push("document");
       return { acknowledged: true, deletedCount: 1 };
@@ -379,6 +469,10 @@ describe("document service", () => {
       versionPublicId,
     ].sort());
     assert.equal(deletedVectorDocumentId, fakeDocument._id.toString());
+    assert.equal(studyMaterialUpdate?.$set?.documentId, null);
+    assert.equal(studyMaterialUpdate?.$set?.sourceStatus, "DELETED");
+    assert.equal(chatHistoryUpdate?.$set?.sourceStatus, "DELETED");
+    assert.equal(chatHistoryUpdate?.$unset?.sources, undefined);
     assert.deepEqual(deletedCollections.sort(), [
       "document",
       "invitations",
@@ -387,5 +481,79 @@ describe("document service", () => {
       "stars",
       "versions",
     ].sort());
+  });
+
+  it("does not delete Cloudinary or Mongo records when Pinecone cleanup fails", async () => {
+    let cloudinaryCalled = false;
+    let mongoDeleteCalled = false;
+    DocumentVersion.find = (() => ({ select: async () => [] })) as unknown as typeof DocumentVersion.find;
+    StudyDocument.deleteOne = (async () => {
+      mongoDeleteCalled = true;
+      return { acknowledged: true, deletedCount: 1 };
+    }) as unknown as typeof StudyDocument.deleteOne;
+    (
+      vectorService as typeof vectorService & {
+        deleteDocumentChunks: typeof vectorService.deleteDocumentChunks;
+      }
+    ).deleteDocumentChunks = async () => {
+      throw new Error("Pinecone unavailable");
+    };
+    (
+      cloudinaryService as typeof cloudinaryService & {
+        deleteCloudinaryFile: typeof cloudinaryService.deleteCloudinaryFile;
+      }
+    ).deleteCloudinaryFile = async () => {
+      cloudinaryCalled = true;
+    };
+
+    await assert.rejects(
+      () => permanentlyDeleteDocumentRecord(fakeDocument as any),
+      /Pinecone unavailable/,
+    );
+    assert.equal(cloudinaryCalled, false);
+    assert.equal(mongoDeleteCalled, false);
+  });
+
+  it("reports partial success when emptying trash", async () => {
+    const successfulDocument = {
+      ...fakeDocument,
+      _id: new Types.ObjectId(),
+      status: "DELETED",
+    };
+    const failedDocument = {
+      ...fakeDocument,
+      _id: new Types.ObjectId(),
+      status: "DELETED",
+    };
+
+    StudyDocument.find = (async () => [successfulDocument, failedDocument]) as unknown as typeof StudyDocument.find;
+    DocumentVersion.find = (() => ({ select: async () => [] })) as unknown as typeof DocumentVersion.find;
+    DocumentVersion.deleteMany = (async () => ({ acknowledged: true, deletedCount: 0 })) as unknown as typeof DocumentVersion.deleteMany;
+    UploadSession.deleteMany = (async () => ({ acknowledged: true, deletedCount: 0 })) as unknown as typeof UploadSession.deleteMany;
+    DocumentShare.deleteMany = (async () => ({ acknowledged: true, deletedCount: 0 })) as unknown as typeof DocumentShare.deleteMany;
+    DocumentShareInvitation.deleteMany = (async () => ({ acknowledged: true, deletedCount: 0 })) as unknown as typeof DocumentShareInvitation.deleteMany;
+    DocumentStar.deleteMany = (async () => ({ acknowledged: true, deletedCount: 0 })) as unknown as typeof DocumentStar.deleteMany;
+    StudyMaterial.updateMany = (async () => ({ acknowledged: true, modifiedCount: 0 })) as unknown as typeof StudyMaterial.updateMany;
+    ChatHistory.updateMany = (async () => ({ acknowledged: true, modifiedCount: 0 })) as unknown as typeof ChatHistory.updateMany;
+    ChatThread.updateMany = (async () => ({ acknowledged: true, modifiedCount: 0 })) as unknown as typeof ChatThread.updateMany;
+    BenchmarkQuestion.updateMany = (async () => ({ acknowledged: true, modifiedCount: 0 })) as unknown as typeof BenchmarkQuestion.updateMany;
+    StudyDocument.deleteOne = (async () => ({ acknowledged: true, deletedCount: 1 })) as unknown as typeof StudyDocument.deleteOne;
+    (
+      vectorService as typeof vectorService & {
+        deleteDocumentChunks: typeof vectorService.deleteDocumentChunks;
+      }
+    ).deleteDocumentChunks = async (documentId: string) => {
+      if (documentId === failedDocument._id.toString()) {
+        throw new Error("Pinecone timeout");
+      }
+      return { deletedVectorCount: 1 };
+    };
+
+    const result = await emptyTrashDocuments(ownerId.toString());
+
+    assert.equal(result.deletedCount, 1);
+    assert.equal(result.failedCount, 1);
+    assert.equal(result.failures[0].documentId, failedDocument._id.toString());
+    assert.equal(result.failures[0].stage, "PINECONE");
   });
 });

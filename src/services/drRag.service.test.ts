@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import * as answerCheckService from "./answerCheck.service";
 import * as chatScopeService from "./chatScope.service";
-import * as groqService from "./groq.service";
+import * as geminiService from "./gemini.service";
 import * as intentClassifierService from "./intentClassifier.service";
 import * as queryRewriteService from "./queryRewrite.service";
 import * as vectorService from "./vector.service";
 import {
   askQuestionWithDrRag,
   buildExpandedRetrievalQuery,
+  dedupeChunks,
   hasSufficientStageOneEvidence,
 } from "./drRag.service";
 import type { EvaluatedChunk } from "../types/rag.types";
@@ -19,7 +20,7 @@ const originalSearchRelevantChunks = vectorService.searchRelevantChunks;
 const originalClassifyQuestionIntent =
   intentClassifierService.classifyQuestionIntent;
 const originalRewriteAcademicQuery = queryRewriteService.rewriteAcademicQuery;
-const originalGenerateAnswerFromContext = groqService.generateAnswerFromContext;
+const originalGenerateAnswerFromContext = geminiService.generateAnswerFromContext;
 const originalCheckAnswerGrounding = answerCheckService.checkAnswerGrounding;
 
 const makeEvaluatedChunk = (
@@ -65,8 +66,8 @@ afterEach(() => {
     }
   ).rewriteAcademicQuery = originalRewriteAcademicQuery;
   (
-    groqService as unknown as {
-      generateAnswerFromContext: typeof groqService.generateAnswerFromContext;
+    geminiService as unknown as {
+      generateAnswerFromContext: typeof geminiService.generateAnswerFromContext;
     }
   ).generateAnswerFromContext = originalGenerateAnswerFromContext;
   (
@@ -74,6 +75,36 @@ afterEach(() => {
       checkAnswerGrounding: typeof answerCheckService.checkAnswerGrounding;
     }
   ).checkAnswerGrounding = originalCheckAnswerGrounding;
+});
+
+describe("chunk dedupe", () => {
+  it("collapses identical passages from duplicated document uploads", () => {
+    const original = makeEvaluatedChunk(
+      "doc-1:0",
+      "Vật chất quyết định ý thức.",
+    );
+    const duplicateFromOtherUpload = {
+      ...makeEvaluatedChunk("doc-2:0", "Vật chất   quyết định ý thức.", {
+        documentId: "doc-2",
+      }),
+      pineconeScore: 0.95,
+    };
+    const distinct = makeEvaluatedChunk(
+      "doc-1:1",
+      "Ý thức tác động trở lại vật chất.",
+    );
+
+    const deduped = dedupeChunks([
+      original,
+      duplicateFromOtherUpload,
+      distinct,
+    ]);
+
+    assert.equal(deduped.length, 2);
+    // The higher-scored copy of the duplicated passage survives
+    assert.ok(deduped.some((chunk) => chunk.id === "doc-2:0"));
+    assert.ok(deduped.some((chunk) => chunk.id === "doc-1:1"));
+  });
 });
 
 describe("DR-RAG retrieval", () => {
@@ -232,8 +263,8 @@ describe("DR-RAG retrieval", () => {
       ];
     };
     (
-      groqService as unknown as {
-        generateAnswerFromContext: typeof groqService.generateAnswerFromContext;
+      geminiService as unknown as {
+        generateAnswerFromContext: typeof geminiService.generateAnswerFromContext;
       }
     ).generateAnswerFromContext = async () => "The spouse/partner is Miquette Giraudy.";
     (

@@ -3,6 +3,8 @@ import express, { Request, Response } from "express";
 import helmet from "helmet";
 import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./config/swagger";
+import agentRoutes from "./routes/agent.routes";
+import artifactRoutes from "./routes/artifact.routes";
 import authRoutes from "./routes/auth.routes";
 import benchmarkRoutes from "./routes/benchmark.routes";
 import chatRoutes from "./routes/chat.routes";
@@ -75,6 +77,8 @@ app.get("/api-docs.json", (_req: Request, res: Response) => {
 });
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+app.use("/api/agent", agentRoutes);
+app.use("/api/artifacts", artifactRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/benchmark", benchmarkRoutes);
 app.use("/api/chat", chatRoutes);

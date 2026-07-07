@@ -25,11 +25,11 @@ stored in `RagEvaluationLog`.
 - `retrievalQueries`: stage 1 query followed by expanded stage 2 queries.
 
 The V1 selector uses Pinecone score, lexical relevance, section/outline
-metadata, and novelty. It does not call Groq repeatedly as a classifier.
+metadata, and novelty. It does not call Gemini repeatedly as a classifier.
 
 ## Grounding And Fallback
 
-- `isGrounded`: whether Groq judged the final answer supported by context.
+- `isGrounded`: whether Gemini judged the final answer supported by context.
 - `confidenceScore`: grounding confidence clamped to `[0, 1]`.
 - `fallbackGenerated`: true when the system returns a safe fallback response.
 - `fallbackReason`: examples include `no_relevant_chunks_found`,

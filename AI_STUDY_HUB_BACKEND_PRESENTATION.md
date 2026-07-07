@@ -15,7 +15,7 @@ over their own materials.
 | Extraction | pdf-parse, mammoth, pptx2json, xlsx |
 | Embeddings | Jina embeddings |
 | Vector DB | Pinecone |
-| LLM | Groq |
+| LLM | Gemini |
 
 ## 3. Upload Pipeline
 

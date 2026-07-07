@@ -27,8 +27,8 @@ User question
 -> Build expanded queries: question + static chunk metadata/content
 -> Stage 2 retrieval: retrieve dynamic-relevant chunks
 -> CFS-style heuristic selection
--> Groq answer generation from final context
--> Groq grounding check
+-> Gemini answer generation from final context
+-> Gemini grounding check
 -> Safe fallback if answer is empty or ungrounded
 -> Chat history and RAG evaluation log
 ```
@@ -42,7 +42,7 @@ User question
 | `d_stat` | Stage 1 static chunks |
 | `q*` | Expanded query from `question + static chunk` |
 | `d_dyn` | Stage 2 dynamic chunks |
-| `Cnt` | Final context sent to Groq |
+| `Cnt` | Final context sent to Gemini |
 | `C` | V1 CFS heuristic selector, not a trained classifier |
 
 ## Selection Strategy

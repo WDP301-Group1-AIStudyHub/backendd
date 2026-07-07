@@ -1,6 +1,6 @@
 import { StudyMaterial } from "../models/studyMaterial.model";
 import { StudyDocument } from "../models/document.model";
-import { generateGroqText } from "./groq.service";
+import { generateGeminiText } from "./gemini.service";
 import { emitUploadProgress } from "./uploadProgress.socket";
 
 const cleanJson = (text: string): string => {
@@ -93,8 +93,8 @@ export const runMaterialGenerationWorker = async (
       ].filter(Boolean).join(" ");
     }
 
-    // 4. Call Groq
-    const responseText = await generateGroqText(
+    // 4. Call Gemini
+    const responseText = await generateGeminiText(
       [
         {
           role: "system",
@@ -127,7 +127,7 @@ export const runMaterialGenerationWorker = async (
         followUpTopics = parsed.followUpTopics || [];
       }
     } catch (e) {
-      console.error("Failed to parse JSON response from Groq:", cleanedText);
+      console.error("Failed to parse JSON response from Gemini:", cleanedText);
       throw new Error("Generated response format was invalid. Please try again.");
     }
 

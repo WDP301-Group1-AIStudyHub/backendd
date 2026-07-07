@@ -3,7 +3,7 @@ import {
   DocumentOutlineNode,
   extractDocumentOutline,
 } from "../utils/documentOutline";
-import { generateGroqText } from "./groq.service";
+import { generateGeminiText } from "./gemini.service";
 
 type LlmOutlineCacheEntry = {
   hash: string;
@@ -44,7 +44,7 @@ export const extractOutlineWithLlmFallback = async ({
 }): Promise<DocumentOutlineNode[]> => {
   if (
     process.env.NODE_ENV === "test" ||
-    !process.env.GROQ_API_KEY ||
+    !process.env.GEMINI_API_KEY ||
     !text.trim()
   ) {
     return [];
@@ -60,7 +60,7 @@ export const extractOutlineWithLlmFallback = async ({
   const sourceText = text.slice(0, MAX_OUTLINE_TEXT_LENGTH);
 
   try {
-    const response = await generateGroqText(
+    const response = await generateGeminiText(
       [
         {
           role: "system",

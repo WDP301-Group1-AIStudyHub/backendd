@@ -262,6 +262,7 @@ export interface AskQuestionRequest {
   subject?: string;
   subjectId?: string;
   scope?: "single_document" | "subject_all" | "document_set" | "library_all";
+  mode?: RagMode;
 }
 
 export interface ChatSource {
@@ -292,6 +293,34 @@ export interface AskQuestionResponse {
   sources: ChatSource[];
   evaluation?: RagEvaluation;
 }
+
+export interface AgentToolCallSummary {
+  tool: string;
+  input: unknown;
+  resultSummary: string;
+}
+
+export interface AgentAskResponse extends AskQuestionResponse {
+  agent: {
+    steps: number;
+    toolCalls: AgentToolCallSummary[];
+  };
+}
+
+export type AgentEvent =
+  | { type: "agent_step"; step: number }
+  | { type: "tool_start"; tool: string; input: unknown }
+  | { type: "tool_end"; tool: string; resultSummary: string }
+  | { type: "grounding_check" }
+  | {
+      type: "artifact_created";
+      artifactId: string;
+      artifactType: string;
+      title: string;
+    }
+  | { type: "final"; data: AgentAskResponse }
+  | { type: "error"; message: string };
+
 
 export interface ChatHistoryResponse {
   id: string;

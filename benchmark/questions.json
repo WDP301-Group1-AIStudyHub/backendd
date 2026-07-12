@@ -1,0 +1,373 @@
+[
+  {
+    "question": "What human activity is the current rate of global warming strongly linked to?",
+    "expectedAnswer": "The current rate of warming is strongly linked to human activity, especially the burning of fossil fuels such as coal, oil, and gas.",
+    "subject": "Environmental Science",
+    "documentId": "6a2fd981d93e0e1db6f0e11b",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Which two greenhouse gases are mentioned as trapping heat in the atmosphere?",
+    "expectedAnswer": "Carbon dioxide and methane.",
+    "subject": "Environmental Science",
+    "documentId": "6a2fd981d93e0e1db6f0e11b",
+    "difficulty": "easy"
+  },
+  {
+    "question": "What visible effects of climate change are already happening according to the document?",
+    "expectedAnswer": "Many regions are experiencing more intense heatwaves, stronger storms, rising sea levels, longer droughts, and unpredictable rainfall. Glaciers and polar ice are melting, threatening coastal communities and ecosystems, and farmers face challenges as changing weather affects crops and water availability.",
+    "subject": "Environmental Science",
+    "documentId": "6a2fd981d93e0e1db6f0e11b",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Why is climate change considered a social and economic issue, not only an environmental one?",
+    "expectedAnswer": "Because it does not affect everyone equally: poorer communities, small island nations, and people who rely directly on farming or fishing often suffer the most, even though they may have contributed the least to the problem.",
+    "subject": "Environmental Science",
+    "documentId": "6a2fd981d93e0e1db6f0e11b",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Why is individual action alone not enough to solve climate change, and what does the document say is needed instead?",
+    "expectedAnswer": "The biggest changes must come from systems: how energy is produced, how cities are designed, how food is grown, and how industries operate. It also requires cooperation between countries, because pollution and environmental damage do not stop at national borders.",
+    "subject": "Environmental Science",
+    "documentId": "6a2fd981d93e0e1db6f0e11b",
+    "difficulty": "hard"
+  },
+  {
+    "question": "What reasons for hope about climate change does the document give?",
+    "expectedAnswer": "Renewable energy is becoming cheaper and more widely used, new technologies are helping reduce emissions, and more young people, scientists, communities, and leaders are calling for urgent action.",
+    "subject": "Environmental Science",
+    "documentId": "6a2fd981d93e0e1db6f0e11b",
+    "difficulty": "medium"
+  },
+  {
+    "question": "What is another name for Emotion AI?",
+    "expectedAnswer": "Affective computing.",
+    "subject": "Technology Ethics",
+    "documentId": "6a30e9d8f5fdd6c1d02e1cbc",
+    "difficulty": "easy"
+  },
+  {
+    "question": "What three recommendations for ethical management of emotion AI does the essay make?",
+    "expectedAnswer": "1) Establish a right to emotional privacy by legally categorizing emotional data as sensitive biometric information requiring explicit, un-coerced consent; 2) Implement strict contextual limits, banning emotion AI in high-stakes environments like hiring, workplace performance reviews, and education; 3) Mandate independent third-party algorithmic auditing to ensure data collection does not disproportionately penalize minority groups or neurodivergent employees.",
+    "subject": "Technology Ethics",
+    "documentId": "6a30e9d8f5fdd6c1d02e1cbc",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Why does the author claim emotion AI is built on bad science?",
+    "expectedAnswer": "Most of these tools rely on outdated psychological theories suggesting human emotions can be neatly categorized into six universal facial expressions, but emotions are deeply personal, highly contextual, and culturally nuanced, so treating facial geometry as absolute truth introduces massive biases.",
+    "subject": "Technology Ethics",
+    "documentId": "6a30e9d8f5fdd6c1d02e1cbc",
+    "difficulty": "medium"
+  },
+  {
+    "question": "What chilling effect does emotional surveillance have on workers' behavior?",
+    "expectedAnswer": "When workers know their face is being graded, they stop acting naturally and begin performing emotional labor — a forced, robotic mask of cheerfulness to appease the algorithm — which breeds anxiety, paranoia, and a profound loss of psychological safety.",
+    "subject": "Technology Ethics",
+    "documentId": "6a30e9d8f5fdd6c1d02e1cbc",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Which groups does emotion AI routinely misinterpret?",
+    "expectedAnswer": "Neurodivergent individuals and people from diverse cultural backgrounds who don't fit a standardized data model.",
+    "subject": "Technology Ethics",
+    "documentId": "6a30e9d8f5fdd6c1d02e1cbc",
+    "difficulty": "easy"
+  },
+  {
+    "question": "How can aggregated emotion AI data affect an employee's career according to the essay?",
+    "expectedAnswer": "The data is aggregated, stored, and fed into predictive models that can quietly influence who gets promoted, who gets sidelined, and who is deemed a 'flight risk' and let go.",
+    "subject": "Technology Ethics",
+    "documentId": "6a30e9d8f5fdd6c1d02e1cbc",
+    "difficulty": "hard"
+  },
+  {
+    "question": "In which high-stakes environments does the essay say emotion AI should be outright banned?",
+    "expectedAnswer": "Hiring, workplace performance reviews, and education, where the power imbalance makes true consent impossible.",
+    "subject": "Technology Ethics",
+    "documentId": "6a30e9d8f5fdd6c1d02e1cbc",
+    "difficulty": "easy"
+  },
+  {
+    "question": "What dangerous line does the author say we cross by allowing algorithms to claim they know what we are feeling?",
+    "expectedAnswer": "We cross the line from monitoring what workers do to policing how they feel.",
+    "subject": "Technology Ethics",
+    "documentId": "6a30e9d8f5fdd6c1d02e1cbc",
+    "difficulty": "hard"
+  },
+  {
+    "question": "Nhóm 4 đã chọn Level RBL nào?",
+    "expectedAnswer": "Nhóm chọn Level 4 (L4).",
+    "subject": "MLN122",
+    "documentId": "6a456554086485a8c32e994a",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Tên đề tài nghiên cứu của nhóm là gì?",
+    "expectedAnswer": "Độc quyền dữ liệu của nền tảng số và bài toán chủ quyền dữ liệu quốc gia (gắn Nghị quyết 57-NQ/TW).",
+    "subject": "MLN122",
+    "documentId": "6a456554086485a8c32e994a",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Research Question ban đầu của nhóm là gì?",
+    "expectedAnswer": "Mức độ tập trung dữ liệu người dùng vào một số nền tảng lớn tạo ra rào cản gia nhập và rủi ro cho chủ quyền dữ liệu ở Việt Nam như thế nào?",
+    "subject": "MLN122",
+    "documentId": "6a456554086485a8c32e994a",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Vì sao nhóm chọn Level 4 cho đề tài RBL?",
+    "expectedAnswer": "Vì Level 4 yêu cầu kết hợp literature review, phân tích chính sách và case study thực tiễn — phù hợp với đề tài cần đối chiếu lý luận Lenin về độc quyền với dữ liệu thực tế thị phần nền tảng số Việt Nam và khung pháp lý (NQ 57-NQ/TW, Luật Dữ liệu 2024).",
+    "subject": "MLN122",
+    "documentId": "6a456554086485a8c32e994a",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Ai là nhóm trưởng và ai là thư ký của nhóm?",
+    "expectedAnswer": "Mai Xuân Thắng (SE196244) là nhóm trưởng và Phạm Anh Duy (SE196215) là thư ký.",
+    "subject": "MLN122",
+    "documentId": "6a456554086485a8c32e994a",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Theo báo cáo We Are Social 2026, Google Search chiếm bao nhiêu phần trăm thị phần tìm kiếm tại Việt Nam?",
+    "expectedAnswer": "Google Search chiếm khoảng 94,76% thị phần tìm kiếm tại Việt Nam.",
+    "subject": "MLN122",
+    "documentId": "6a456aa734a63ddaa18bc97d",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Ba nền tảng số lớn nào là trọng tâm case study của nghiên cứu?",
+    "expectedAnswer": "Google/Alphabet, Meta/Facebook và TikTok/ByteDance.",
+    "subject": "MLN122",
+    "documentId": "6a456aa734a63ddaa18bc97d",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Ba mục tiêu cụ thể của nghiên cứu là gì?",
+    "expectedAnswer": "1) Đo lường và mô tả cấu trúc thị phần/lưu lượng dữ liệu của 3 nền tảng lớn (Google, Meta, TikTok) tại Việt Nam giai đoạn 2021–2024; 2) Phân tích cơ chế rào cản gia nhập do tập trung dữ liệu tạo ra đối với doanh nghiệp và nền tảng số Việt Nam; 3) Đánh giá khung chính sách NQ 57-NQ/TW (2024) và Luật Dữ liệu (2024) trong việc bảo vệ chủ quyền dữ liệu quốc gia.",
+    "subject": "MLN122",
+    "documentId": "6a456aa734a63ddaa18bc97d",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Nghiên cứu dự kiến sử dụng những phương pháp nào?",
+    "expectedAnswer": "Ba phương pháp: Literature Review (tổng quan tài liệu, hệ thống hóa lý luận Marx-Lenin về tập trung tư bản và độc quyền kết hợp lý thuyết platform economy), Policy Analysis (phân tích NQ 57-NQ/TW và Luật Dữ liệu 2024, đối chiếu quốc tế), và Case Study (3 nền tảng số lớn tại Việt Nam).",
+    "subject": "MLN122",
+    "documentId": "6a456aa734a63ddaa18bc97d",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Phạm vi thời gian của nghiên cứu là giai đoạn nào?",
+    "expectedAnswer": "Giai đoạn 2021–2024 cho dữ liệu thị phần, và chính sách năm 2024 (NQ57, Luật Dữ liệu).",
+    "subject": "MLN122",
+    "documentId": "6a456aa734a63ddaa18bc97d",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Rủi ro R2 của nhóm là gì và phương án dự phòng ra sao?",
+    "expectedAnswer": "R2 là rủi ro nguồn AI gợi ý có DOI giả hoặc không tồn tại. Phương án dự phòng: M2 verify tất cả nguồn trước khi đưa vào Source Log, không dùng nguồn chưa kiểm tra, và ghi rõ AI-Free Zone.",
+    "subject": "MLN122",
+    "documentId": "6a456aa734a63ddaa18bc97d",
+    "difficulty": "hard"
+  },
+  {
+    "question": "AI-Free Zone trong kế hoạch sử dụng AI của nhóm bao gồm những phần nào?",
+    "expectedAnswer": "Phân tích lý luận Lenin–Marx (nhóm tự đọc và viết Sec.6 Discussion và phần liên kết lý luận trong Sec.3 Literature Review), kết luận và đánh giá chính sách (nhóm tự viết Sec.7 Policy Implications và Sec.8 Conclusion), và nhật ký phản ánh trong PAAL Log (M1 tự ghi reflection cá nhân).",
+    "subject": "MLN122",
+    "documentId": "6a456aa734a63ddaa18bc97d",
+    "difficulty": "hard"
+  },
+  {
+    "question": "Dual/Public Output dự kiến của nhóm là gì?",
+    "expectedAnswer": "Một infographic A3 kỹ thuật số mang tên 'Bản đồ quyền lực dữ liệu số tại Việt Nam 2024', thể hiện thị phần dữ liệu của 3 nền tảng lớn dạng visual (treemap/pie chart), so sánh với nền tảng nội địa (Zalo, Cốc Cốc, VinBigData) và tóm tắt 3 khuyến nghị chính sách từ NQ 57.",
+    "subject": "MLN122",
+    "documentId": "6a456aa734a63ddaa18bc97d",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Hai điều kiện ra đời của sản xuất hàng hóa là gì?",
+    "expectedAnswer": "Phải có đồng thời hai điều kiện: 1) Phân công lao động xã hội (mỗi người chuyên môn hóa vào một lĩnh vực, sinh ra nhu cầu trao đổi sản phẩm); 2) Sự tách biệt tương đối về kinh tế giữa những người sản xuất (khởi thủy là chế độ tư hữu về tư liệu sản xuất, người sản xuất tự chủ và độc lập với nhau). Thiếu một điều kiện thì không có sản xuất hàng hóa.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Hàng hóa là gì theo định nghĩa trong bài giảng?",
+    "expectedAnswer": "Hàng hóa là sản phẩm của lao động, có thể thỏa mãn nhu cầu nào đó của con người thông qua trao đổi, mua bán.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Hàng hóa có những thuộc tính nào?",
+    "expectedAnswer": "Hàng hóa có hai thuộc tính: giá trị sử dụng (công dụng của hàng hóa) và giá trị (lao động xã hội của người sản xuất kết tinh trong hàng hóa). Hai thuộc tính thống nhất nhưng cũng mâu thuẫn với nhau.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Vì sao không khí không phải là hàng hóa?",
+    "expectedAnswer": "Không khí có ích (có giá trị sử dụng) nhưng không phải là sản phẩm của lao động và không qua trao đổi, mua bán, nên không phải là hàng hóa.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Phân biệt lao động cụ thể và lao động trừu tượng.",
+    "expectedAnswer": "Lao động cụ thể là lao động có ích dưới một hình thức cụ thể của những nghề nghiệp chuyên môn nhất định, tạo ra giá trị sử dụng và là phạm trù vĩnh viễn. Lao động trừu tượng là sự hao phí sức lao động nói chung (cơ bắp, thần kinh, trí óc) khi gạt bỏ hình thức cụ thể, tạo ra giá trị của hàng hóa và là phạm trù lịch sử chỉ có trong sản xuất hàng hóa. Đây là hai mặt của cùng một quá trình lao động.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Thời gian lao động xã hội cần thiết là gì?",
+    "expectedAnswer": "Là thời gian cần thiết để sản xuất ra một hàng hóa trong điều kiện bình thường của xã hội, với trình độ kỹ thuật trung bình, trình độ thành thạo trung bình và cường độ lao động trung bình. Nó thường tiệm cận thời gian lao động cá biệt của những người cung cấp đại bộ phận hàng hóa đó trên thị trường.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Vì sao tăng năng suất lao động làm giảm giá trị một đơn vị hàng hóa, còn tăng cường độ lao động thì không?",
+    "expectedAnswer": "Khi năng suất lao động tăng, cùng một thời gian làm ra nhiều sản phẩm hơn nên giá trị một đơn vị hàng hóa giảm (tỷ lệ nghịch), trong khi tổng lượng giá trị không đổi. Khi tăng cường độ lao động, số sản phẩm và tổng giá trị đều tăng nhưng giá trị một đơn vị hàng hóa không đổi, vì vậy cường độ lao động không phải là nhân tố ảnh hưởng đến lượng giá trị của một hàng hóa.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "hard"
+  },
+  {
+    "question": "Mâu thuẫn cơ bản của sản xuất hàng hóa là gì?",
+    "expectedAnswer": "Là mâu thuẫn giữa lao động tư nhân và lao động xã hội: lao động cụ thể biểu hiện lao động tư nhân, lao động trừu tượng biểu hiện lao động xã hội. Sản phẩm có thể không bán được nếu xã hội không thừa nhận, và hao phí lao động cá biệt có thể không phù hợp với hao phí mà xã hội chấp nhận.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Lượng giá trị của một hàng hóa được cấu thành từ những bộ phận nào?",
+    "expectedAnswer": "Giá trị hàng hóa G = c + (v + m), gồm hai bộ phận: c là giá trị cũ (giá trị tư liệu sản xuất do lao động cụ thể bảo tồn và chuyển vào sản phẩm) và (v + m) là giá trị mới (do lao động trừu tượng của người sản xuất tạo thêm, tức lao động sống).",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Bốn hình thái phát triển của giá trị dẫn đến sự ra đời của tiền tệ là gì?",
+    "expectedAnswer": "1) Hình thái giá trị giản đơn hay ngẫu nhiên; 2) Hình thái giá trị đầy đủ hay mở rộng; 3) Hình thái giá trị chung; 4) Hình thái tiền tệ. Mỗi bước khắc phục hạn chế của bước trước.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Vì sao trao đổi trực tiếp hàng đổi hàng gặp bế tắc và xã hội đã giải quyết bằng cách nào?",
+    "expectedAnswer": "Trao đổi trực tiếp đòi hỏi trùng khớp nhu cầu kép — phải tìm đúng người vừa có thứ ta cần vừa cần thứ ta có — rất tốn công và nhiều khi bế tắc. Xã hội giải quyết bằng một vật trung gian ai cũng chấp nhận, đó là mầm mống của sự ra đời tiền tệ.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "hard"
+  },
+  {
+    "question": "Vì sao Chương 2 được coi là nền tảng của môn Kinh tế Chính trị Mác-Lênin?",
+    "expectedAnswer": "Vì các phạm trù hàng hóa, giá trị, lao động, thời gian lao động xã hội cần thiết học ở chương này là công cụ lý luận để hiểu giá trị thặng dư ở Chương 3 — trái tim học thuyết kinh tế của C. Mác.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "hard"
+  },
+  {
+    "question": "Trong ví dụ về ba người sản xuất áo, thời gian lao động xã hội cần thiết được xác định như thế nào?",
+    "expectedAnswer": "Người A làm 5 giờ/áo (sản xuất ít, thiệt), người B làm 2 giờ/áo (cung cấp đại bộ phận, hòa), người C làm 1 giờ/áo (sản xuất ít, lời). TGLĐXHCT xấp xỉ 2 giờ vì tiệm cận thời gian của người cung cấp đại bộ phận hàng hóa, nên giá trị xã hội của áo bằng 2 giờ lao động. Ai làm nhanh hơn mức trung bình thì có lợi, tạo động lực cải tiến kỹ thuật.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "hard"
+  },
+  {
+    "question": "Lao động giản đơn và lao động phức tạp khác nhau như thế nào về lượng giá trị tạo ra?",
+    "expectedAnswer": "Lao động giản đơn là lao động không cần đào tạo chuyên môn (như bốc vác, quét dọn), lao động phức tạp là lao động phải qua đào tạo, huấn luyện (như lập trình, phẫu thuật). Trong cùng một thời gian, lao động phức tạp tạo ra nhiều giá trị hơn lao động giản đơn; lao động phức tạp là bội số của lao động giản đơn.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Giá trị trao đổi là gì và cơ sở nào khiến hai vật khác nhau trao đổi được với nhau?",
+    "expectedAnswer": "Giá trị trao đổi là quan hệ tỷ lệ về lượng, theo đó một giá trị sử dụng loại này đổi lấy giá trị sử dụng loại khác (ví dụ 1m vải = 5kg thóc). Cơ sở chung để trao đổi là lao động hao phí để tạo ra hàng hóa — lao động đó kết tinh trong hàng hóa chính là giá trị.",
+    "subject": "MLN122",
+    "documentId": "6a435fbca3961f5b30604f0c",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Triết học ra đời vào khoảng thời gian nào và ở những trung tâm văn minh nào?",
+    "expectedAnswer": "Triết học ra đời ở cả phương Đông và phương Tây gần như cùng một thời gian, khoảng từ thế kỷ VIII đến thế kỷ VI trước Công nguyên, tại một số trung tâm văn minh cổ đại như Trung Quốc, Ấn Độ, Hy Lạp.",
+    "subject": "Triết học Mác-Lênin",
+    "documentId": "6a30f3cad9e51df1c7fc81e3",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Theo Ăngghen, vấn đề cơ bản lớn của mọi triết học là gì?",
+    "expectedAnswer": "Theo Ăngghen: 'Vấn đề cơ bản lớn của mọi triết học, đặc biệt là của triết học hiện đại, là vấn đề quan hệ giữa tư duy với tồn tại.'",
+    "subject": "Triết học Mác-Lênin",
+    "documentId": "6a30f3cad9e51df1c7fc81e3",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Vấn đề cơ bản của triết học có mấy mặt và mỗi mặt trả lời câu hỏi gì?",
+    "expectedAnswer": "Có hai mặt. Mặt thứ nhất: giữa ý thức và vật chất thì cái nào có trước, cái nào có sau, cái nào quyết định cái nào? Mặt thứ hai: con người có khả năng nhận thức được thế giới hay không?",
+    "subject": "Triết học Mác-Lênin",
+    "documentId": "6a30f3cad9e51df1c7fc81e3",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Chủ nghĩa duy vật đã được thể hiện dưới những hình thức cơ bản nào?",
+    "expectedAnswer": "Ba hình thức cơ bản: chủ nghĩa duy vật chất phác (thời cổ đại), chủ nghĩa duy vật siêu hình (thế kỷ XV–XVIII) và chủ nghĩa duy vật biện chứng (do C.Mác và Ph.Ăngghen xây dựng).",
+    "subject": "Triết học Mác-Lênin",
+    "documentId": "6a30f3cad9e51df1c7fc81e3",
+    "difficulty": "easy"
+  },
+  {
+    "question": "Nếu xét theo quá trình phát triển, thế giới quan được chia thành những loại hình cơ bản nào?",
+    "expectedAnswer": "Ba loại hình cơ bản: thế giới quan huyền thoại (phương thức cảm nhận thế giới của người nguyên thủy), thế giới quan tôn giáo (niềm tin tôn giáo đóng vai trò chủ yếu) và thế giới quan triết học (diễn tả quan niệm dưới dạng hệ thống phạm trù, quy luật).",
+    "subject": "Triết học Mác-Lênin",
+    "documentId": "6a30f3cad9e51df1c7fc81e3",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Chủ nghĩa duy vật biện chứng do ai xây dựng, vào thời gian nào, và nó khắc phục được điều gì?",
+    "expectedAnswer": "Chủ nghĩa duy vật biện chứng do C.Mác và Ph.Ăngghen xây dựng vào những năm 40 của thế kỷ XIX, sau đó được V.I.Lênin phát triển. Ngay từ khi ra đời nó đã khắc phục được hạn chế của chủ nghĩa duy vật chất phác thời cổ đại và chủ nghĩa duy vật siêu hình, là đỉnh cao trong sự phát triển của chủ nghĩa duy vật.",
+    "subject": "Triết học Mác-Lênin",
+    "documentId": "6a30f3cad9e51df1c7fc81e3",
+    "difficulty": "hard"
+  },
+  {
+    "question": "What is the two-minute rule in Getting Things Done?",
+    "expectedAnswer": "If an action will take less than two minutes, it should be done at the moment it is defined.",
+    "subject": "Productivity",
+    "documentId": "6a2fc465f165c910ec5896b7",
+    "difficulty": "easy"
+  },
+  {
+    "question": "What does the 'external brain' concept in Getting Things Done refer to?",
+    "expectedAnswer": "Relying on tools that can do routine categorizing and remembering for us — from simple folders in which to store receipts to established places where you always put keys, glasses, or other things you don't want to hunt for each time.",
+    "subject": "Productivity",
+    "documentId": "6a2fc465f165c910ec5896b7",
+    "difficulty": "medium"
+  },
+  {
+    "question": "According to James Fallows' foreword, what three qualities make Getting Things Done different from other self-improvement books?",
+    "expectedAnswer": "1) Its practicality — a modular and forgiving approach that is useful even when applied piece by piece; 2) its open-ended adaptability — it refers to but does not depend on any specific external systems or technology; 3) the wholeness and authenticity of David Allen's recommendations — the connection between the person and the message.",
+    "subject": "Productivity",
+    "documentId": "6a2fc465f165c910ec5896b7",
+    "difficulty": "hard"
+  },
+  {
+    "question": "Why did David Allen eliminate most references to specific software applications in the revised edition?",
+    "expectedAnswer": "Because the rate of innovation means any specific software program can easily be outdated, upgraded, or undermined by the next new thing by the time you read about it; instead he provides a general model for how to evaluate the usefulness of any tool.",
+    "subject": "Productivity",
+    "documentId": "6a2fc465f165c910ec5896b7",
+    "difficulty": "medium"
+  },
+  {
+    "question": "Who wrote the foreword to the revised edition of Getting Things Done?",
+    "expectedAnswer": "James Fallows, a national correspondent for the Atlantic magazine, who first wrote about David Allen in a 2004 Atlantic article called 'Organize Your Life!'",
+    "subject": "Productivity",
+    "documentId": "6a2fc465f165c910ec5896b7",
+    "difficulty": "easy"
+  }
+]

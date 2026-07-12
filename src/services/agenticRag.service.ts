@@ -20,6 +20,7 @@ import {
   AskQuestionRequest,
   ChatSource,
 } from "../types/api.types";
+import { recordLlmTokens } from "../utils/tokenTracker";
 import { EvaluatedChunk } from "../types/rag.types";
 import { getAgentModel } from "./agentModel";
 import { resolveChatScope } from "./chatScope.service";
@@ -59,6 +60,8 @@ type AgentRunContext = {
   collectedChunks: EvaluatedChunk[];
   retrievalQueries: string[];
   toolCalls: AgentToolCallSummary[];
+  retrievalLatencyMs: number;
+  stageTwoLatencyMs: number;
 };
 
 const buildAgentTools = (
@@ -81,6 +84,8 @@ const buildAgentTools = (
       });
       const result = await retrieveDrRagContext(query, vectorFilters);
       run.retrievalQueries.push(...result.retrievalQueries);
+      if (result.stageOneLatencyMs) run.retrievalLatencyMs += result.stageOneLatencyMs;
+      if (result.stageTwoLatencyMs) run.stageTwoLatencyMs += result.stageTwoLatencyMs;
 
       if (result.chunks.length === 0) {
         const toolCall = {
@@ -343,6 +348,8 @@ export const askQuestionWithAgent = async (
       collectedChunks: [],
       retrievalQueries: [],
       toolCalls: [],
+      retrievalLatencyMs: 0,
+      stageTwoLatencyMs: 0,
     };
     const tools = buildAgentTools(
       userId,
@@ -362,6 +369,12 @@ export const askQuestionWithAgent = async (
       agentSteps += 1;
       onEvent?.({ type: "agent_step", step: agentSteps });
       const response = await boundModel.invoke(state.messages, { signal });
+      if (response.usage_metadata) {
+        recordLlmTokens(
+          response.usage_metadata.input_tokens || 0,
+          response.usage_metadata.output_tokens || 0,
+        );
+      }
       return { messages: [response] };
     };
 
@@ -429,6 +442,7 @@ export const askQuestionWithAgent = async (
     let warning: string | undefined;
     let fallbackGenerated = false;
     let fallbackReason: string | undefined;
+    let groundingLatencyMs = 0;
 
     if (!answer) {
       fallbackGenerated = true;
@@ -451,10 +465,12 @@ export const askQuestionWithAgent = async (
         throw new DOMException("AbortError", "AbortError");
       }
       onEvent?.({ type: "grounding_check" });
+      const groundingStart = Date.now();
       const grounding = await checkAnswerGrounding(
         answer,
         buildContext(uniqueChunks),
       );
+      groundingLatencyMs = Date.now() - groundingStart;
       isGrounded = grounding.isGrounded;
       confidenceScore = grounding.confidenceScore;
       warning = grounding.warning;
@@ -499,6 +515,10 @@ export const askQuestionWithAgent = async (
           isGrounded,
           confidenceScore,
           responseTimeMs: Date.now() - startedAt,
+          retrievalLatencyMs: run.retrievalLatencyMs,
+          stageTwoLatencyMs: run.stageTwoLatencyMs,
+          agentLatencyMs: (Date.now() - startedAt) - run.retrievalLatencyMs - groundingLatencyMs,
+          groundingLatencyMs,
           retrievalQueries: run.retrievalQueries,
           contextChunksUsed: uniqueChunks.length,
           dynamicRetrievalAttempted: run.retrievalQueries.length > 1,

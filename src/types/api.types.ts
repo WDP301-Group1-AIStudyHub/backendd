@@ -1,5 +1,5 @@
 import { Types } from "mongoose";
-import { RagEvaluation, RagMode } from "./rag.types";
+import { DrRagAblation, RagEvaluation, RagMode } from "./rag.types";
 import type { DocumentOutlineNode } from "../utils/documentOutline";
 
 export interface ApiResponse<T> {
@@ -263,6 +263,8 @@ export interface AskQuestionRequest {
   subjectId?: string;
   scope?: "single_document" | "subject_all" | "document_set" | "library_all";
   mode?: RagMode;
+  // Internal (benchmark/ablation) only — the chat HTTP schema rejects it.
+  ablation?: DrRagAblation;
 }
 
 export interface ChatSource {
@@ -378,6 +380,7 @@ export type BenchmarkDifficulty = "easy" | "medium" | "hard";
 export interface BenchmarkQuestionRequest {
   question: string;
   expectedAnswer: string;
+  expectedChunks?: number[];
   subject?: string;
   documentId?: string;
   difficulty: BenchmarkDifficulty;
@@ -387,6 +390,7 @@ export interface BenchmarkQuestionResponse {
   id: string;
   question: string;
   expectedAnswer: string;
+  expectedChunks?: number[];
   subject?: string;
   documentId?: string | Types.ObjectId;
   difficulty: BenchmarkDifficulty;
@@ -411,15 +415,49 @@ export interface BenchmarkResultResponse {
   expectedAnswer: string;
   answer: string;
   evaluation: BenchmarkEvaluationScore;
+  mode?: RagMode;
+  ablation?: DrRagAblation;
+  telemetry?: RagEvaluation;
+  retrievalMetrics?: {
+    recall5: number;
+    recall10: number;
+    mrr: number;
+    hit5: number;
+  };
+  costMetrics?: {
+    promptTokens: number;
+    completionTokens: number;
+    embeddingTokens: number;
+    embeddingCalls: number;
+    usdCost: number;
+  };
+  exactMatch?: boolean;
+  f1Score?: number;
   createdBy: string | Types.ObjectId;
   createdAt: Date;
 }
 
-export interface BenchmarkSummaryResponse {
+export interface BenchmarkModeSummary {
   totalRuns: number;
   averageScore: number;
   averageAnswerCorrectness: number;
   averageFaithfulness: number;
   averageRelevance: number;
   averageCompleteness: number;
+  averageResponseTimeMs: number;
+  averageRecall5?: number;
+  averageRecall10?: number;
+  averageMrr?: number;
+  averageHit5?: number;
+  averageExactMatch?: number;
+  averageF1Score?: number;
+  averagePromptTokens?: number;
+  averageCompletionTokens?: number;
+  averageEmbeddingTokens?: number;
+  averageEmbeddingCalls?: number;
+  averageUsdCost?: number;
+}
+
+export interface BenchmarkSummaryResponse extends BenchmarkModeSummary {
+  byMode: Record<string, BenchmarkModeSummary>;
 }

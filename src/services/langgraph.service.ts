@@ -94,6 +94,11 @@ export const AgentState = Annotation.Root({
   dynamicRetrievalAttempted: Annotation<boolean | undefined>(),
   selectionStrategy: Annotation<DrRagSelectionStrategy | undefined>(),
   retrievalQueries: Annotation<string[] | undefined>(),
+
+  // Per-stage wall-clock timings (benchmark instrumentation)
+  retrievalLatencyMs: Annotation<number | undefined>(),
+  generationLatencyMs: Annotation<number | undefined>(),
+  groundingLatencyMs: Annotation<number | undefined>(),
 });
 
 // 2. Define the Graph Nodes
@@ -186,6 +191,7 @@ const documentStructureNode = async (state: typeof AgentState.State) => {
 
 // Node C: Primary Vector Retrieval
 const retrieveChunksNode = async (state: typeof AgentState.State) => {
+  const retrievalStartedAt = Date.now();
   const wantsDetailed = state.answerProfile.wantsDetailedAnswer;
   const retrievalTopK = wantsDetailed ? 20 : 8; // matched to DETAILED_RETRIEVAL_TOP_K vs DEFAULT_RETRIEVAL_TOP_K in corrective RAG
 
@@ -216,11 +222,13 @@ const retrieveChunksNode = async (state: typeof AgentState.State) => {
   return {
     retrievedChunks: evaluated,
     relevantChunks: relevant,
+    retrievalLatencyMs: Date.now() - retrievalStartedAt,
   };
 };
 
 // Node D: Corrective Retrieval Fallback (CRAG Node)
 const correctiveSearchNode = async (state: typeof AgentState.State) => {
+  const correctiveStartedAt = Date.now();
   const wantsDetailed = state.answerProfile.wantsDetailedAnswer;
   const retrievalTopK = wantsDetailed ? 20 : 8;
 
@@ -263,6 +271,9 @@ const correctiveSearchNode = async (state: typeof AgentState.State) => {
     retrievedChunks: mergedEvaluated,
     relevantChunks: mergedRelevant,
     correctiveAttempted: true,
+    // Both retrieval passes count toward the retrieval stage.
+    retrievalLatencyMs:
+      (state.retrievalLatencyMs || 0) + (Date.now() - correctiveStartedAt),
   };
 };
 
@@ -371,6 +382,9 @@ const generateAnswerNode = async (state: typeof AgentState.State) => {
     .join("\n\n");
 
   // Call LLM
+  let generationLatencyMs = 0;
+  let groundingLatencyMs = 0;
+  let stageStartedAt = Date.now();
   let answer =
     state.intent === "extraction"
       ? await generateEntityExtractionAnswer(state.payload.question, contextText)
@@ -378,11 +392,15 @@ const generateAnswerNode = async (state: typeof AgentState.State) => {
           intent: state.intent,
           answerProfile: state.answerProfile.profile,
         });
+  generationLatencyMs += Date.now() - stageStartedAt;
 
+  stageStartedAt = Date.now();
   let grounding = await checkAnswerGrounding(answer, contextText);
+  groundingLatencyMs += Date.now() - stageStartedAt;
 
   // If not grounded, run strict mode query
   if (!grounding.isGrounded) {
+    stageStartedAt = Date.now();
     answer =
       state.intent === "extraction"
         ? await generateEntityExtractionAnswer(state.payload.question, contextText)
@@ -390,7 +408,11 @@ const generateAnswerNode = async (state: typeof AgentState.State) => {
             intent: state.intent,
             answerProfile: state.answerProfile.profile,
           });
+    generationLatencyMs += Date.now() - stageStartedAt;
+
+    stageStartedAt = Date.now();
     grounding = await checkAnswerGrounding(answer, contextText);
+    groundingLatencyMs += Date.now() - stageStartedAt;
   }
 
   // Map sources
@@ -443,6 +465,8 @@ const generateAnswerNode = async (state: typeof AgentState.State) => {
       usedSectionExpansion: contextSelection.usedSectionExpansion,
       selectedSectionTitle: contextSelection.selectedSectionTitle,
       answerChunks: answerChunks,
+      generationLatencyMs,
+      groundingLatencyMs,
     };
   }
 
@@ -456,6 +480,8 @@ const generateAnswerNode = async (state: typeof AgentState.State) => {
     usedSectionExpansion: contextSelection.usedSectionExpansion,
     selectedSectionTitle: contextSelection.selectedSectionTitle,
     answerChunks: answerChunks,
+    generationLatencyMs,
+    groundingLatencyMs,
   };
 };
 

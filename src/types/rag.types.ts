@@ -3,7 +3,17 @@ import { ChatSource } from "./api.types";
 import type { AnswerProfile } from "../utils/answerProfile";
 
 export type RagMode = "dr-rag" | "basic" | "corrective" | "agentic";
-export type DrRagSelectionStrategy = "cfs-heuristic";
+export type DrRagSelectionStrategy = "cfs-heuristic" | "greedy-all";
+
+// Single-component ablations of the DR-RAG pipeline (internal/benchmark only):
+// no-stage2 = static-only retrieval, no-metadata = expanded queries from chunk
+// text only, no-grounding = grounding gate disabled, no-cfs = all Stage-2
+// candidates admitted up to the context budget.
+export type DrRagAblation =
+  | "no-stage2"
+  | "no-metadata"
+  | "no-grounding"
+  | "no-cfs";
 
 export interface EvaluatedChunk {
   id: string;
@@ -67,6 +77,13 @@ export interface RagEvaluation {
   selectedSectionTitle?: string;
   contextChunksUsed?: number;
   correctiveAttempted?: boolean;
+  ablation?: DrRagAblation;
+  // Per-stage wall-clock timings (benchmark instrumentation).
+  retrievalLatencyMs?: number;
+  stageTwoLatencyMs?: number;
+  generationLatencyMs?: number;
+  groundingLatencyMs?: number;
+  agentLatencyMs?: number;
 }
 
 export interface RagAnswerResult {

@@ -48,6 +48,7 @@ import {
   retrieveStageOneChunks,
   selectContextLimit,
   selectDynamicChunksCfs,
+  selectDynamicChunksGreedy,
   selectStaticChunks,
   toSources,
 } from "./drRag.service";
@@ -115,6 +116,13 @@ export const DrRagState = Annotation.Root({
   grounding: Annotation<AnswerGroundingCheck | undefined>(),
   fallbackReason: Annotation<DrRagFallbackReason | undefined>(),
 
+  // Per-stage wall-clock timings (benchmark instrumentation)
+  stageOneLatencyMs: Annotation<number | undefined>(),
+  stageTwoStartedAt: Annotation<number | undefined>(),
+  stageTwoLatencyMs: Annotation<number | undefined>(),
+  generationLatencyMs: Annotation<number | undefined>(),
+  groundingLatencyMs: Annotation<number | undefined>(),
+
   // Output
   result: Annotation<RagAnswerResult>(),
 });
@@ -125,6 +133,7 @@ type QdcBranchInput = {
   seed: EvaluatedChunk;
   question: string;
   vectorFilters: ChatScopeResolution["vectorFilters"];
+  includeMetadata: boolean;
 };
 
 // Node: resolve scope, classify intent, detect answer profile/style, rewrite query
@@ -188,6 +197,7 @@ const prepareNode = async (
 const stageOneRetrieveNode = async (
   state: DrRagStateType,
 ): Promise<Partial<DrRagStateType>> => {
+  const stageOneStartedAt = Date.now();
   const stageOneRawChunks = await retrieveStageOneChunks(
     state.stageOneQuery,
     state.chatScope.vectorFilters,
@@ -219,14 +229,22 @@ const stageOneRetrieveNode = async (
     fallbackReason = "out_of_scope";
   }
 
-  return { stageOneChunks, staticChunks, fallbackReason };
+  return {
+    stageOneChunks,
+    staticChunks,
+    fallbackReason,
+    stageOneLatencyMs: Date.now() - stageOneStartedAt,
+    stageTwoStartedAt: Date.now(),
+  };
 };
 
 // Node: second-retrieval stage — one parallel branch per static seed (QDC)
 const qdcRetrieveNode = async (
   branch: QdcBranchInput,
 ): Promise<Partial<DrRagStateType>> => {
-  const query = buildExpandedRetrievalQuery(branch.question, branch.seed);
+  const query = buildExpandedRetrievalQuery(branch.question, branch.seed, {
+    includeMetadata: branch.includeMetadata,
+  });
   const rawCandidates = await searchRelevantChunks(
     query,
     branch.vectorFilters,
@@ -248,10 +266,10 @@ const cfsSelectNode = async (
   const stageTwoChunks = dedupeChunks(
     state.dynamicGroups.flatMap((group) => group.candidates),
   );
-  const dynamicChunks = selectDynamicChunksCfs(
-    state.staticChunks,
-    state.dynamicGroups,
-  );
+  const dynamicChunks =
+    state.payload.ablation === "no-cfs"
+      ? selectDynamicChunksGreedy(state.staticChunks, state.dynamicGroups)
+      : selectDynamicChunksCfs(state.staticChunks, state.dynamicGroups);
   const contextLimit = selectContextLimit(
     state.intent,
     state.answerStyle.wantsShortAnswer,
@@ -285,6 +303,11 @@ const cfsSelectNode = async (
     answerChunks,
     usedSectionExpansion: contextSelection.usedSectionExpansion,
     selectedSectionTitle: contextSelection.selectedSectionTitle,
+    // Covers the parallel QDC fan-out (this node starts after the join) plus
+    // CFS selection and optional section expansion.
+    stageTwoLatencyMs: state.stageTwoStartedAt
+      ? Date.now() - state.stageTwoStartedAt
+      : undefined,
   };
 };
 
@@ -292,6 +315,7 @@ const cfsSelectNode = async (
 const generateNode = async (
   state: DrRagStateType,
 ): Promise<Partial<DrRagStateType>> => {
+  const generationStartedAt = Date.now();
   const context = buildContext(state.answerChunks);
   const answer =
     state.intent === "extraction"
@@ -304,13 +328,32 @@ const generateNode = async (
           allowIllustrativeExamples: state.allowIllustrativeExamples,
         });
 
-  return { context, answer };
+  return {
+    context,
+    answer,
+    generationLatencyMs: Date.now() - generationStartedAt,
+  };
 };
 
 // Node: deterministic grounding gate before finalizing
 const gradeGroundingNode = async (
   state: DrRagStateType,
 ): Promise<Partial<DrRagStateType>> => {
+  // no-grounding ablation: the gate is disabled and every non-empty answer is
+  // accepted without a grounding check.
+  if (state.payload.ablation === "no-grounding") {
+    return {
+      grounding: {
+        isGrounded: true,
+        confidenceScore: 1,
+        reason: "grounding gate disabled (ablation)",
+      },
+      fallbackReason: state.answer ? undefined : "empty_answer",
+      groundingLatencyMs: 0,
+    };
+  }
+
+  const groundingStartedAt = Date.now();
   const grounding = await checkAnswerGrounding(state.answer, state.context, {
     intent: state.intent,
     isMultiDocument: state.chatScope.isMultiDocumentScope,
@@ -324,7 +367,11 @@ const gradeGroundingNode = async (
     fallbackReason = "grounding_failed";
   }
 
-  return { grounding, fallbackReason };
+  return {
+    grounding,
+    fallbackReason,
+    groundingLatencyMs: Date.now() - groundingStartedAt,
+  };
 };
 
 // Node: unified graceful-failure path for all fallback reasons
@@ -457,6 +504,10 @@ const finalizeNode = async (
         isGrounded: isFallback ? false : state.grounding?.isGrounded ?? false,
         confidenceScore: state.grounding?.confidenceScore ?? 0,
         responseTimeMs: Date.now() - state.startedAt,
+        retrievalLatencyMs: state.stageOneLatencyMs,
+        stageTwoLatencyMs: state.stageTwoLatencyMs,
+        generationLatencyMs: state.generationLatencyMs,
+        groundingLatencyMs: state.groundingLatencyMs,
         stageOneChunksCount: state.stageOneChunks.length,
         stageTwoChunksCount: state.stageTwoChunks.length,
         selectedStaticChunksCount: isPreGenerationFallback
@@ -466,7 +517,9 @@ const finalizeNode = async (
           ? 0
           : state.dynamicChunks.length,
         dynamicRetrievalAttempted: state.dynamicGroups.length > 0,
-        selectionStrategy: SELECTION_STRATEGY,
+        selectionStrategy:
+          state.payload.ablation === "no-cfs" ? "greedy-all" : SELECTION_STRATEGY,
+        ablation: state.payload.ablation,
         retrievalQueries: [
           state.stageOneQuery,
           ...state.dynamicGroups.map((group) => group.query),
@@ -507,9 +560,15 @@ const routeAfterPrepare = (
 // dynamicGroups reducer before cfsSelect executes.
 const routeAfterStageOne = (
   state: DrRagStateType,
-): "fallback" | Send[] => {
+): "fallback" | "cfsSelect" | Send[] => {
   if (state.fallbackReason) {
     return "fallback";
+  }
+
+  // no-stage2 ablation: static-only retrieval — skip the QDC fan-out so
+  // selection and generation run over Stage-1 chunks alone.
+  if (state.payload.ablation === "no-stage2") {
+    return "cfsSelect";
   }
 
   return state.staticChunks
@@ -520,6 +579,7 @@ const routeAfterStageOne = (
           seed,
           question: state.payload.question,
           vectorFilters: state.chatScope.vectorFilters,
+          includeMetadata: state.payload.ablation !== "no-metadata",
         } satisfies QdcBranchInput),
     );
 };
@@ -553,6 +613,7 @@ const buildDrRagGraph = () =>
     .addConditionalEdges("stageOneRetrieve", routeAfterStageOne, [
       "qdcRetrieve",
       "fallback",
+      "cfsSelect",
     ])
     .addEdge("qdcRetrieve", "cfsSelect")
     .addEdge("cfsSelect", "generate")

@@ -183,7 +183,13 @@ const compactChunkText = (chunk: EvaluatedChunk): string =>
 export const buildExpandedRetrievalQuery = (
   question: string,
   chunk: EvaluatedChunk,
+  options: { includeMetadata?: boolean } = {},
 ): string => {
+  // no-metadata ablation: expanded query carries chunk text only.
+  if (options.includeMetadata === false) {
+    return [question, `Known context: ${compactChunkText(chunk)}`].join("\n");
+  }
+
   const section =
     chunk.metadata.outlinePath ||
     chunk.metadata.sectionTitle ||
@@ -266,6 +272,19 @@ export const selectDynamicChunksCfs = (
   }
 
   return selectedDynamicChunks;
+};
+
+// no-cfs ablation: admit every Stage-2 candidate ranked by relevance, without
+// the CFS usefulness/novelty tests; the context budget still caps the total.
+export const selectDynamicChunksGreedy = (
+  staticChunks: EvaluatedChunk[],
+  dynamicGroups: DynamicCandidateGroup[],
+): EvaluatedChunk[] => {
+  const staticIds = new Set(staticChunks.map((chunk) => chunk.id));
+
+  return rankChunks(
+    dedupeChunks(dynamicGroups.flatMap((group) => group.candidates)),
+  ).filter((chunk) => !staticIds.has(chunk.id));
 };
 
 export const interleaveStaticAndDynamicChunks = (
@@ -424,6 +443,8 @@ export type DrRagRetrievalResult = {
   stageOneCount: number;
   stageTwoCount: number;
   retrievalQueries: string[];
+  stageOneLatencyMs?: number;
+  stageTwoLatencyMs?: number;
 };
 
 // Retrieval-only DR-RAG (stage one + QDC fan-out + CFS selection) with no LLM
@@ -435,6 +456,7 @@ export const retrieveDrRagContext = async (
   options: { contextLimit?: number; skipGroundingGuard?: boolean } = {},
 ): Promise<DrRagRetrievalResult> => {
   const contextLimit = options.contextLimit ?? DEFAULT_CONTEXT_CHUNK_LIMIT;
+  const s1Start = Date.now();
   const stageOneRaw = await searchRelevantChunks(
     query,
     filters,
@@ -454,6 +476,8 @@ export const retrieveDrRagContext = async (
     skipRelevanceFilter: options.skipGroundingGuard,
   });
 
+  const stageOneLatencyMs = Date.now() - s1Start;
+
   if (
     !options.skipGroundingGuard &&
     (staticChunks.length === 0 ||
@@ -465,6 +489,8 @@ export const retrieveDrRagContext = async (
       stageOneCount: stageOneChunks.length,
       stageTwoCount: 0,
       retrievalQueries: [query],
+      stageOneLatencyMs,
+      stageTwoLatencyMs: 0,
     };
   }
 
@@ -474,6 +500,7 @@ export const retrieveDrRagContext = async (
     buildExpandedRetrievalQuery(query, seed),
   );
 
+  const s2Start = Date.now();
   const stageTwoResults = await Promise.all(
     expandedQueries.map((expandedQuery) =>
       searchRelevantChunks(
@@ -496,6 +523,8 @@ export const retrieveDrRagContext = async (
     ),
   }));
   const dynamicChunks = selectDynamicChunksCfs(staticChunks, dynamicGroups);
+  const stageTwoLatencyMs = Date.now() - s2Start;
+
   const selected = interleaveStaticAndDynamicChunks(
     staticChunks,
     dynamicChunks,
@@ -510,6 +539,8 @@ export const retrieveDrRagContext = async (
       dynamicGroups.flatMap((group) => group.candidates),
     ).length,
     retrievalQueries: [query, ...expandedQueries],
+    stageOneLatencyMs,
+    stageTwoLatencyMs,
   };
 };
 

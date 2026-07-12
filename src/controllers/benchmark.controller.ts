@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import {
   BenchmarkQuestionRequest,
 } from "../types/api.types";
+import { DrRagAblation, RagMode } from "../types/rag.types";
 import {
   createBenchmarkQuestion,
   deleteBenchmarkQuestion,
@@ -83,10 +84,19 @@ export const removeQuestion = asyncHandler(async (
 });
 
 export const runQuestionBenchmark = asyncHandler(async (
-  req: Request<{ questionId: string }>,
+  req: Request<
+    { questionId: string },
+    unknown,
+    { mode?: RagMode; ablation?: DrRagAblation } | undefined
+  >,
   res: Response,
 ): Promise<void> => {
-  const data = await runBenchmarkQuestion(req.authUser!.id, req.params.questionId);
+  const data = await runBenchmarkQuestion(
+    req.authUser!.id,
+    req.params.questionId,
+    req.body?.mode,
+    req.body?.ablation,
+  );
 
   sendResponse(res, 201, {
     success: true,

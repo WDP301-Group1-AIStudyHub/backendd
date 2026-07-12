@@ -5,6 +5,7 @@ export type BenchmarkDifficulty = "easy" | "medium" | "hard";
 export interface IBenchmarkQuestion extends Document {
   question: string;
   expectedAnswer: string;
+  expectedChunks: number[];
   subject?: string;
   documentId?: Types.ObjectId;
   difficulty: BenchmarkDifficulty;
@@ -24,6 +25,10 @@ const benchmarkQuestionSchema = new Schema<IBenchmarkQuestion>(
       type: String,
       required: true,
       trim: true,
+    },
+    expectedChunks: {
+      type: [Number],
+      default: [],
     },
     subject: {
       type: String,

@@ -7,6 +7,7 @@ import {
 import type { AnswerProfile } from "../utils/answerProfile";
 import { retryAsync } from "../utils/retry";
 import type { SemanticQuestionIntent } from "./intentClassifier.service";
+import { recordLlmTokens } from "../utils/tokenTracker";
 
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 
@@ -135,6 +136,13 @@ export const generateGeminiText = async (
         shouldRetry: isRetryableGeminiError,
       },
     );
+
+    if (completion.usageMetadata) {
+      recordLlmTokens(
+        completion.usageMetadata.promptTokenCount || 0,
+        completion.usageMetadata.candidatesTokenCount || 0,
+      );
+    }
 
     return completion.text?.trim() ?? "";
   } catch (error) {

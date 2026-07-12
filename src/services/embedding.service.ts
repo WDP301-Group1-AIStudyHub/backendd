@@ -1,5 +1,6 @@
 import { AppError } from "../middlewares/error.middleware";
 import { retryAsync } from "../utils/retry";
+import { recordEmbeddingTokens } from "../utils/tokenTracker";
 
 export const JINA_EMBEDDING_DIMENSION = 1024;
 const JINA_MAX_CONCURRENT_REQUESTS = 2;
@@ -14,6 +15,10 @@ interface JinaEmbeddingItem {
 
 interface JinaEmbeddingResponse {
   data?: JinaEmbeddingItem[];
+  usage?: {
+    total_tokens?: number;
+    prompt_tokens?: number;
+  };
   detail?: string;
   message?: string;
 }
@@ -95,6 +100,13 @@ const requestJinaEmbeddings = async (texts: string[]): Promise<number[][]> => {
 
         if (!Array.isArray(body.data)) {
           throw new AppError("Jina embedding response did not include data", 502);
+        }
+
+        if (body.usage?.total_tokens) {
+          recordEmbeddingTokens(body.usage.total_tokens);
+        } else {
+          const chars = texts.reduce((acc, t) => acc + t.length, 0);
+          recordEmbeddingTokens(Math.ceil(chars / 4));
         }
 
         return body.data

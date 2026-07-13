@@ -26,6 +26,7 @@ import {
   permissionToAccessRole,
 } from "../documentShares/documentShare.service";
 import { getReadableSubjectDocumentIds } from "../subjects/subjectAccess.service";
+import { SubjectMember } from "../subjects/subjectWorkspace.model";
 import {
   DocumentStatus,
   DocumentRagStatus,
@@ -116,6 +117,7 @@ export interface DocumentResponse {
   };
   personalSubjectId?: string | Types.ObjectId | SubjectSummaryResponse;
   personalSubject?: SubjectSummaryResponse | null;
+  shareContext?: "SUBJECT_WORKSPACE" | "PERSONAL_SHARE";
   isStarred?: boolean;
   starredAt?: Date | null;
 }
@@ -176,6 +178,7 @@ interface DocumentResponseOptions {
   };
   subjectOverride?: SubjectSummaryResponse | null;
   personalSubject?: SubjectSummaryResponse | null;
+  shareContext?: "SUBJECT_WORKSPACE" | "PERSONAL_SHARE";
   isStarred?: boolean;
   starredAt?: Date | null;
 }
@@ -255,6 +258,7 @@ export const toDocumentResponse = (
     sharedBy: options.sharedBy,
     personalSubjectId: personalSubject?._id,
     personalSubject,
+    shareContext: options.shareContext,
     isStarred: Boolean(options.isStarred),
     starredAt: options.starredAt ?? null,
   };
@@ -322,7 +326,72 @@ const buildReadableDocumentFilter = (
 interface DocumentAccessContext {
   accessRole: DocumentAccessRole;
   personalSubject?: SubjectSummaryResponse | null;
+  shareContext?: "SUBJECT_WORKSPACE" | "PERSONAL_SHARE";
 }
+
+const getDocumentSubjectId = (document: IDocument): string | null => {
+  const value = document.subjectId;
+  if (!value) return null;
+  if (typeof value === "object" && "_id" in value) {
+    return String(value._id);
+  }
+  return String(value);
+};
+
+const getWorkspaceSubjectIdsForUser = async (
+  documents: IDocument[],
+  userId: string,
+): Promise<Set<string>> => {
+  if (SubjectMember.db.readyState !== 1 || !Types.ObjectId.isValid(userId)) {
+    return new Set();
+  }
+
+  const subjectIds = [
+    ...new Set(
+      documents
+        .map(getDocumentSubjectId)
+        .filter((value): value is string => Boolean(value && Types.ObjectId.isValid(value))),
+    ),
+  ];
+  if (!subjectIds.length) return new Set();
+
+  const memberships = await SubjectMember.find({
+    userId: new Types.ObjectId(userId),
+    subjectId: { $in: subjectIds.map((id) => new Types.ObjectId(id)) },
+  })
+    .select("subjectId")
+    .lean();
+
+  return new Set(memberships.map((membership) => membership.subjectId.toString()));
+};
+
+const resolveSingleDocumentShareContext = async (
+  document: IDocument,
+  userId: string,
+  hasLegacyShare: boolean,
+): Promise<"SUBJECT_WORKSPACE" | "PERSONAL_SHARE"> => {
+  const subjectId = getDocumentSubjectId(document);
+  if (
+    subjectId &&
+    SubjectMember.db.readyState === 1 &&
+    Types.ObjectId.isValid(userId) &&
+    await SubjectMember.exists({ subjectId, userId })
+  ) {
+    return "SUBJECT_WORKSPACE";
+  }
+  return hasLegacyShare ? "PERSONAL_SHARE" : "SUBJECT_WORKSPACE";
+};
+
+const applySharedSubjectContext = (
+  options: DocumentResponseOptions,
+  context: DocumentAccessContext,
+): void => {
+  options.shareContext = context.shareContext;
+  if (context.shareContext === "PERSONAL_SHARE") {
+    options.subjectOverride = context.personalSubject ?? null;
+    options.personalSubject = context.personalSubject ?? null;
+  }
+};
 
 const toPersonalSubjectSummary = (
   share: Pick<IDocumentShare, "personalSubjectId">,
@@ -377,12 +446,26 @@ const buildAccessContextMap = async (
     .select("documentId permission personalSubjectId")
     .populate("personalSubjectId", "_id name description color code semester");
 
+  const workspaceSubjectIds = await getWorkspaceSubjectIdsForUser(
+    documents,
+    userId,
+  );
+  const documentsById = new Map(
+    documents.map((document) => [document._id.toString(), document]),
+  );
+
   for (const share of shares) {
+    const document = documentsById.get(share.documentId.toString());
+    const subjectId = document ? getDocumentSubjectId(document) : null;
     accessMap.set(
       share.documentId.toString(),
       {
         accessRole: permissionToAccessRole(share.permission),
         personalSubject: toPersonalSubjectSummary(share),
+        shareContext:
+          subjectId && workspaceSubjectIds.has(subjectId)
+            ? "SUBJECT_WORKSPACE"
+            : "PERSONAL_SHARE",
       },
     );
   }
@@ -394,7 +477,10 @@ const buildAccessContextMap = async (
     unresolvedDocuments.map(async (document) => {
       const accessRole = await getDocumentAccessRole(document, userId, role);
       if (accessRole) {
-        accessMap.set(document._id.toString(), { accessRole });
+        accessMap.set(document._id.toString(), {
+          accessRole,
+          shareContext: "SUBJECT_WORKSPACE",
+        });
       }
     }),
   );
@@ -539,9 +625,8 @@ export const getDocuments = async (
         ...getStarResponseOptions(starMap, document._id),
       };
 
-      if (isShared) {
-        responseOptions.subjectOverride = accessContext?.personalSubject ?? null;
-        responseOptions.personalSubject = accessContext?.personalSubject ?? null;
+      if (isShared && accessContext) {
+        applySharedSubjectContext(responseOptions, accessContext);
       }
 
       return toDocumentResponse(document, responseOptions);
@@ -600,8 +685,16 @@ export const getDocumentDetail = async (
 
   if (isShared) {
     const personalSubject = share ? toPersonalSubjectSummary(share) : null;
-    responseOptions.subjectOverride = personalSubject;
-    responseOptions.personalSubject = personalSubject;
+    const shareContext = await resolveSingleDocumentShareContext(
+      document,
+      userId,
+      Boolean(share),
+    );
+    applySharedSubjectContext(responseOptions, {
+      accessRole,
+      personalSubject,
+      shareContext,
+    });
     responseOptions.sharedBy = toSharedBySummary(share?.sharedBy);
   }
 
@@ -1197,8 +1290,16 @@ export const setDocumentStar = async (
   };
 
   if (isShared) {
-    responseOptions.subjectOverride = personalSubject;
-    responseOptions.personalSubject = personalSubject;
+    const shareContext = await resolveSingleDocumentShareContext(
+      document,
+      userId,
+      Boolean(share),
+    );
+    applySharedSubjectContext(responseOptions, {
+      accessRole,
+      personalSubject,
+      shareContext,
+    });
     responseOptions.sharedBy = toSharedBySummary(share?.sharedBy);
   }
 
@@ -1257,9 +1358,8 @@ export const getStarredDocuments = async (
         starredAt: star.createdAt,
       };
 
-      if (isShared) {
-        responseOptions.subjectOverride = accessContext?.personalSubject ?? null;
-        responseOptions.personalSubject = accessContext?.personalSubject ?? null;
+      if (isShared && accessContext) {
+        applySharedSubjectContext(responseOptions, accessContext);
       }
 
       return toDocumentResponse(document, responseOptions);

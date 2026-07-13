@@ -22,6 +22,7 @@ import {
   restoreDocumentFromTrash,
   setDocumentStar,
   softDeleteDocument,
+  toDocumentResponse,
   updateDocumentMetadata,
 } from "./document.service";
 
@@ -121,6 +122,21 @@ const fakeDocument = {
 };
 
 describe("document service", () => {
+  it("preserves the workspace subject for shared documents without a personal subject override", () => {
+    const result = toDocumentResponse(fakeDocument as never, {
+      accessRole: "VIEWER",
+      isShared: true,
+    });
+
+    assert.equal(result.subject?._id, subjectId.toString());
+    assert.equal(result.subject?.name, "PRM392");
+    assert.equal(
+      (result.subjectId as unknown as { _id: string })._id,
+      subjectId.toString(),
+    );
+    assert.equal(result.personalSubject, undefined);
+  });
+
   it("creates document metadata for an owned subject", async () => {
     let createPayload: unknown;
 

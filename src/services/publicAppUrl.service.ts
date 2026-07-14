@@ -45,6 +45,12 @@ export const validateProductionPublicUrls = (): void => {
 export const buildWebDocumentUrl = (documentId: string): string =>
   new URL(`/documents/${documentId}`, `${getWebAppBaseUrl()}/`).toString();
 
+export const buildWebSubjectUrl = (subjectId: string): string => {
+  const url = new URL("/subjects", `${getWebAppBaseUrl()}/`);
+  url.searchParams.set("subjectId", subjectId);
+  return url.toString();
+};
+
 export const buildWebRegistrationUrl = (
   token: string,
   email: string,

@@ -18,7 +18,11 @@ export interface IFlashcardItem {
 export interface IStudyMaterial extends Document {
   title: string;
   userId: Types.ObjectId;
-  documentId: Types.ObjectId;
+  documentId?: Types.ObjectId | null;
+  sourceDocumentId?: string;
+  sourceDocumentTitle?: string;
+  sourceStatus: "ACTIVE" | "DELETED";
+  sourceDeletedAt?: Date | null;
   type: MaterialType;
   status: MaterialStatus;
   error?: string;
@@ -53,9 +57,19 @@ const studyMaterialSchema = new Schema<IStudyMaterial>(
     documentId: {
       type: Schema.Types.ObjectId,
       ref: "Document",
+      default: null,
+      index: true,
+    },
+    sourceDocumentId: { type: String, trim: true },
+    sourceDocumentTitle: { type: String, trim: true },
+    sourceStatus: {
+      type: String,
+      enum: ["ACTIVE", "DELETED"],
+      default: "ACTIVE",
       required: true,
       index: true,
     },
+    sourceDeletedAt: { type: Date, default: null },
     type: {
       type: String,
       enum: ["MCQ", "FLASHCARD"],

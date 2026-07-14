@@ -30,7 +30,12 @@ export const uploadDocument = asyncHandler(async (
     userId: req.authUser?.id
   });
 
-  const data = await createDocument(req.body, req.file, req.authUser!.id);
+  const data = await createDocument(
+    req.body,
+    req.file,
+    req.authUser!.id,
+    req.authUser!.role,
+  );
 
   console.log("[uploadDocument Controller] Document creation pipeline completed. Document ID:", data.id);
 

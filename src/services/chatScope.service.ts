@@ -4,6 +4,7 @@ import { Subject } from "../models/subject.model";
 import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
 import { DocumentShare } from "../modules/documentShares/documentShare.model";
 import { getDocumentAccessRole } from "../modules/documentShares/documentShare.service";
+import { getReadableSubjectDocumentIds } from "../modules/subjects/subjectAccess.service";
 import { AskQuestionRequest } from "../types/api.types";
 import { AppError } from "../middlewares/error.middleware";
 import { VectorSearchFilters } from "./vector.service";
@@ -319,12 +320,19 @@ export const resolveChatScope = async (
   }
 
   if (payload.subjectId) {
-    const subject = (await getSubjectNameForUser(payload.subjectId, userId)) || payload.subject;
-    const sharedDocumentIds = await getSharedDocumentIds(userId, payload.subjectId);
+    const subject =
+      (await getSubjectNameForUser(payload.subjectId, userId)) ||
+      (await getSubjectNameById(payload.subjectId)) ||
+      payload.subject;
+    const [sharedDocumentIds, workspaceDocumentIds] = await Promise.all([
+      getSharedDocumentIds(userId, payload.subjectId),
+      getReadableSubjectDocumentIds(userId, "user", payload.subjectId),
+    ]);
+    const readableDocumentIds = [...new Set([...sharedDocumentIds, ...workspaceDocumentIds])];
     const documents = await StudyDocument.find({
       $or: [
         { ownerId: userId, subjectId: payload.subjectId },
-        { _id: { $in: sharedDocumentIds } },
+        { _id: { $in: readableDocumentIds } },
       ],
       status: { $ne: "DELETED" },
     }).select("_id title subjectId currentVersionId");
@@ -351,12 +359,16 @@ export const resolveChatScope = async (
   }
 
   const canQueryLibraryDocuments = Types.ObjectId.isValid(userId);
-  const sharedDocumentIds = canQueryLibraryDocuments
-    ? await getSharedDocumentIds(userId)
-    : [];
+  const [sharedDocumentIds, workspaceDocumentIds] = canQueryLibraryDocuments
+    ? await Promise.all([
+        getSharedDocumentIds(userId),
+        getReadableSubjectDocumentIds(userId),
+      ])
+    : [[], []];
+  const readableDocumentIds = [...new Set([...sharedDocumentIds, ...workspaceDocumentIds])];
   const accessibleDocuments = canQueryLibraryDocuments
     ? await StudyDocument.find({
-        $or: [{ ownerId: userId }, { _id: { $in: sharedDocumentIds } }],
+        $or: [{ ownerId: userId }, { _id: { $in: readableDocumentIds } }],
         status: { $ne: "DELETED" },
       }).select("_id currentVersionId")
     : [];

@@ -158,6 +158,22 @@ export interface DocumentShareEmailPayload {
   isPermissionUpdate?: boolean;
 }
 
+export interface SubjectWorkspaceEmailPayload {
+  to: string;
+  recipientName: string;
+  senderName: string;
+  subjectName: string;
+  subjectCode?: string;
+  role?: string;
+  workspaceUrl: string;
+  teamName?: string;
+  type:
+    | "WORKSPACE_MEMBER_ADDED"
+    | "TEAM_MEMBER_ADDED"
+    | "WORKSPACE_MEMBER_INVITED"
+    | "TEAM_MEMBER_INVITED";
+}
+
 export const sendDocumentShareEmail = async ({
   documentTitle,
   documentUrl,
@@ -288,6 +304,148 @@ export const sendDocumentShareEmail = async ({
       errorCode,
       to,
       documentTitle,
+    });
+
+    if (errorCode === "EMAIL_TIMEOUT") {
+      transporter?.close();
+      transporter = null;
+    }
+
+    return { status: "FAILED", errorCode };
+  }
+};
+
+export const sendSubjectWorkspaceEmail = async ({
+  recipientName,
+  role,
+  senderName,
+  subjectCode,
+  subjectName,
+  teamName,
+  to,
+  type,
+  workspaceUrl,
+}: SubjectWorkspaceEmailPayload): Promise<EmailDeliveryResult> => {
+  const mailer = getTransporter();
+  const from = process.env.SMTP_FROM;
+
+  if (!mailer || !from) {
+    console.warn("[email] SMTP is not configured; skipping subject workspace email", {
+      missing: getMissingSmtpVariables(),
+      to,
+      subjectName,
+      type,
+    });
+    return { status: "SKIPPED", errorCode: "SMTP_NOT_CONFIGURED" };
+  }
+
+  const safeRecipientName = escapeHtml(recipientName.trim() || "bạn");
+  const safeSenderName = escapeHtml(senderName);
+  const safeSubjectName = escapeHtml(subjectName);
+  const safeSubjectCode = escapeHtml(subjectCode || "");
+  const safeRole = escapeHtml(role || "MEMBER");
+  const safeTeamName = escapeHtml(teamName || "");
+  const safeWorkspaceUrl = escapeHtml(workspaceUrl);
+  const isTeamNotice = type === "TEAM_MEMBER_ADDED";
+  const isInvite =
+    type === "WORKSPACE_MEMBER_INVITED" || type === "TEAM_MEMBER_INVITED";
+  const isTeamInvite = type === "TEAM_MEMBER_INVITED";
+  const subject = isTeamNotice
+    ? `${senderName} đã thêm bạn vào team ${teamName} trong ${subjectName}`
+    : isTeamInvite
+      ? `${senderName} đã mời bạn vào team ${teamName} trong ${subjectName}`
+      : isInvite
+        ? `${senderName} đã mời bạn vào workspace ${subjectName}`
+    : `${senderName} đã thêm bạn vào workspace ${subjectName}`;
+  const headline = isTeamNotice
+    ? "Bạn đã được thêm vào team"
+    : isTeamInvite
+      ? "Bạn được mời vào team"
+      : isInvite
+        ? "Bạn được mời vào subject workspace"
+    : "Bạn đã được thêm vào subject workspace";
+  const intro = isTeamNotice
+    ? `${senderName} đã thêm bạn vào team "${teamName}" trong workspace "${subjectName}".`
+    : isTeamInvite
+      ? `${senderName} đã mời bạn vào team "${teamName}" trong workspace "${subjectName}". Hãy đăng ký tài khoản bằng email này để nhận quyền truy cập.`
+      : isInvite
+        ? `${senderName} đã mời bạn vào workspace "${subjectName}" với vai trò ${role || "MEMBER"}. Hãy đăng ký tài khoản bằng email này để nhận quyền truy cập.`
+    : `${senderName} đã thêm bạn vào workspace "${subjectName}" với vai trò ${role || "MEMBER"}.`;
+
+  try {
+    const info = await withTimeout(mailer.sendMail({
+      from,
+      to,
+      subject,
+      text: [
+        `Xin chào ${recipientName.trim() || "bạn"},`,
+        "",
+        intro,
+        subjectCode ? `Mã môn/workspace: ${subjectCode}` : "",
+        !isTeamNotice ? `Vai trò: ${role || "MEMBER"}` : "",
+        isTeamNotice ? `Team: ${teamName}` : "",
+        "",
+        `${isInvite ? "Đăng ký để tham gia" : "Mở workspace"}: ${workspaceUrl}`,
+        "",
+        "Email này được gửi tự động từ AI Study Hub.",
+      ].filter(Boolean).join("\n"),
+      html: `<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${escapeHtml(subject)}</title>
+  </head>
+  <body style="margin:0;background:#f3f6f4;color:#1f2937;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6f4;padding:32px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #dce5df;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="background:#173f35;padding:24px 32px;color:#ffffff;">
+              <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#b9d7ca;">AI Study Hub</div>
+              <div style="margin-top:8px;font-size:22px;font-weight:700;line-height:1.35;">${escapeHtml(headline)}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Xin chào ${safeRecipientName},</p>
+              <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#4b5563;">${escapeHtml(intro)}</p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-bottom:24px;border:1px solid #dce5df;border-radius:8px;background:#f8faf9;">
+                <tr><td style="padding:20px;">
+                  <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">Workspace</div>
+                  <div style="margin-top:6px;font-size:18px;font-weight:700;line-height:1.4;color:#173f35;">${safeSubjectName}</div>
+                  ${safeSubjectCode ? `<div style="margin-top:6px;font-size:13px;color:#64748b;">${safeSubjectCode}</div>` : ""}
+                  <div style="margin-top:16px;">
+                    ${isTeamNotice ? `<span style="display:inline-block;border-radius:999px;background:#e0eee8;color:#175441;padding:6px 10px;font-size:12px;font-weight:700;">Team: ${safeTeamName}</span>` : `<span style="display:inline-block;border-radius:999px;background:#e0eee8;color:#175441;padding:6px 10px;font-size:12px;font-weight:700;">Role: ${safeRole}</span>`}
+                  </div>
+                </td></tr>
+              </table>
+              <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px;">
+                <tr><td style="border-radius:6px;background:#1f6b52;">
+                  <a href="${safeWorkspaceUrl}" style="display:inline-block;padding:13px 22px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">${isInvite ? "Đăng ký để tham gia" : "Mở workspace"}</a>
+                </td></tr>
+              </table>
+              <p style="margin:0;font-size:12px;line-height:1.6;color:#64748b;">Nếu bạn không nhận ra ${safeSenderName}, bạn có thể bỏ qua email này.</p>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`,
+    }), getEmailTimeoutMs());
+
+    return {
+      status: "ACCEPTED",
+      messageId: typeof info.messageId === "string" ? info.messageId : undefined,
+    };
+  } catch (error) {
+    const errorCode = getErrorCode(error);
+    console.warn("[email] Subject workspace email delivery failed", {
+      errorCode,
+      to,
+      subjectName,
+      type,
     });
 
     if (errorCode === "EMAIL_TIMEOUT") {

@@ -209,10 +209,11 @@ export const removeDocument = asyncHandler(async (
   req: Request<{ id: string }>,
   res: Response,
 ): Promise<void> => {
-  await softDeleteDocument(req.params.id, req.authUser!.id, req.authUser!.role);
+  const data = await softDeleteDocument(req.params.id, req.authUser!.id, req.authUser!.role);
 
   sendResponse(res, 200, {
     success: true,
-    message: "Document deleted successfully",
+    message: data.warning || "Document moved to Trash successfully",
+    data,
   });
 });

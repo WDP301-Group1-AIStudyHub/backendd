@@ -19,6 +19,8 @@ export interface IChatThread extends Document {
   documentId?: Types.ObjectId;
   documentIds?: Types.ObjectId[];
   mode?: RagMode;
+  sourceStatus?: "ACTIVE" | "DELETED";
+  sourceDeletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -78,6 +80,13 @@ const chatThreadSchema = new Schema<IChatThread>(
       enum: ["dr-rag", "basic", "corrective", "agentic"],
       default: "dr-rag",
     },
+    sourceStatus: {
+      type: String,
+      enum: ["ACTIVE", "DELETED"],
+      default: "ACTIVE",
+      index: true,
+    },
+    sourceDeletedAt: { type: Date },
   },
   {
     timestamps: true,

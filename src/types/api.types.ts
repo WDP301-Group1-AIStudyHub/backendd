@@ -47,6 +47,7 @@ export interface AuthResponse {
   user: UserResponse;
   accessToken: string;
   redirectDocumentId?: string;
+  redirectSubjectId?: string;
 }
 
 export interface UploadDocumentRequest {
@@ -89,6 +90,13 @@ export interface ListDocumentQuery {
 export type DocumentVisibility = "PUBLIC" | "PRIVATE";
 export type DocumentStatus = "ACTIVE" | "ARCHIVED" | "DELETED";
 export type DocumentAccessRole = "OWNER" | "EDITOR" | "VIEWER";
+export type DocumentRagStatus =
+  | "INDEXED"
+  | "DELETE_PENDING"
+  | "DELETED"
+  | "INDEXING"
+  | "FAILED"
+  | "NOT_AVAILABLE";
 
 export interface DocumentResponse {
   _id?: string;
@@ -103,6 +111,9 @@ export interface DocumentResponse {
   totalViews?: number;
   totalDownloads?: number;
   totalChunks?: number;
+  ragStatus?: DocumentRagStatus;
+  ragError?: string;
+  ragStatusUpdatedAt?: Date | null;
   chunkingStrategy?: "heading-based" | "fixed-size-fallback";
   detectedSections?: string[];
   documentOutline?: DocumentOutlineNode[];
@@ -201,6 +212,8 @@ export interface DocumentListItemResponse {
   fileType?: string;
   fileSize?: number;
   totalChunks?: number;
+  ragStatus?: DocumentRagStatus;
+  ragError?: string;
   createdAt: Date;
   updatedAt: Date;
   accessRole?: DocumentAccessRole;
@@ -282,6 +295,8 @@ export interface ChatSource {
   chapterOrdinal?: string;
   contentPreview: string;
   relevanceScore?: number;
+  sourceStatus?: "ACTIVE" | "DELETED";
+  sourceDeletedAt?: Date;
 }
 
 export interface AskQuestionResponse {
@@ -292,6 +307,8 @@ export interface AskQuestionResponse {
   rewrittenQuery?: string;
   sources: ChatSource[];
   evaluation?: RagEvaluation;
+  sourceStatus?: "ACTIVE" | "DELETED";
+  sourceDeletedAt?: Date;
 }
 
 export interface AgentToolCallSummary {
@@ -337,6 +354,8 @@ export interface ChatHistoryResponse {
   subjectId?: string | Types.ObjectId;
   scope?: "single_document" | "subject_all" | "document_set" | "library_all";
   mode?: RagMode;
+  sourceStatus?: "ACTIVE" | "DELETED";
+  sourceDeletedAt?: Date;
   evaluation?: RagEvaluation;
   createdAt: Date;
   updatedAt: Date;
@@ -359,6 +378,8 @@ export interface ChatThreadResponse {
   documentId?: string | Types.ObjectId;
   documentIds?: Array<string | Types.ObjectId>;
   mode?: RagMode;
+  sourceStatus?: "ACTIVE" | "DELETED";
+  sourceDeletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -389,6 +410,10 @@ export interface BenchmarkQuestionResponse {
   expectedAnswer: string;
   subject?: string;
   documentId?: string | Types.ObjectId;
+  sourceDocumentId?: string;
+  sourceDocumentTitle?: string;
+  sourceStatus?: "ACTIVE" | "DELETED";
+  sourceDeletedAt?: Date;
   difficulty: BenchmarkDifficulty;
   createdBy: string | Types.ObjectId;
   createdAt: Date;

@@ -109,6 +109,10 @@ let sessions: FakeSession[];
 let emittedEvents: Array<{ event: string; progress: number }> = [];
 let upsertedChunks = 0;
 let deletedChunks = 0;
+let storageCalls: Array<{ userId: string; bytes: number }> = [];
+let storageCommits = 0;
+let storageReleases = 0;
+let quotaRejection: Error | null = null;
 
 const matches = (
   record: Record<string, unknown>,
@@ -314,6 +318,22 @@ const dependencies = {
   emitProgress: (event: string, payload: { progress: number }) => {
     emittedEvents.push({ event, progress: payload.progress });
   },
+  // Storage accounting is stubbed so these tests never reach a real database.
+  // reserveStorage records who was charged, which is what the owner-vs-editor
+  // test below asserts on.
+  reserveStorage: async (userId: string, bytes: number) => {
+    storageCalls.push({ userId, bytes });
+    if (quotaRejection) {
+      throw quotaRejection;
+    }
+    return { userId, bytes };
+  },
+  commitReservation: async () => {
+    storageCommits += 1;
+  },
+  releaseReservation: async () => {
+    storageReleases += 1;
+  },
 } as never;
 
 beforeEach(() => {
@@ -323,6 +343,10 @@ beforeEach(() => {
   emittedEvents = [];
   upsertedChunks = 0;
   deletedChunks = 0;
+  storageCalls = [];
+  storageCommits = 0;
+  storageReleases = 0;
+  quotaRejection = null;
   installMocks();
 });
 
@@ -447,6 +471,50 @@ describe("document version service", () => {
 
     assert.equal(result.uploadedBy.toString(), otherUserId.toString());
     assert.equal(result.processingStatus, "INDEXED");
+  });
+
+  it("charges storage to the document owner, not the shared editor", async () => {
+    DocumentShare.findOne = (() => ({
+      select: async () => ({ permission: "EDIT" }),
+    })) as unknown as typeof DocumentShare.findOne;
+
+    await uploadDocumentVersion(
+      documentId.toString(),
+      otherUserId.toString(),
+      { uploadMode: "APPEND", makeActive: false },
+      makeFile(),
+      { dependencies },
+    );
+
+    // The editor holds the request but the owner pays for the bytes; getting
+    // this backwards would let anyone spend someone else's quota.
+    assert.equal(storageCalls.length, 1);
+    assert.equal(storageCalls[0].userId, ownerId.toString());
+    assert.notEqual(storageCalls[0].userId, otherUserId.toString());
+    assert.equal(storageCommits, 1);
+    assert.equal(storageReleases, 0);
+  });
+
+  it("never touches Cloudinary when the quota check rejects", async () => {
+    quotaRejection = new Error("STORAGE_QUOTA_EXCEEDED");
+
+    await assert.rejects(
+      () =>
+        uploadDocumentVersion(
+          documentId.toString(),
+          ownerId.toString(),
+          { uploadMode: "OVERRIDE" },
+          makeFile(),
+          { dependencies },
+        ),
+      /STORAGE_QUOTA_EXCEEDED/,
+    );
+
+    // Rejecting before the upload is the whole point: no Cloudinary spend, no
+    // orphan version row, and nothing to release because nothing was reserved.
+    assert.equal(versions.length, 0);
+    assert.equal(storageCommits, 0);
+    assert.equal(storageReleases, 0);
   });
 
   it("denies private document version access for non-owner", async () => {

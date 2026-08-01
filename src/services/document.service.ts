@@ -15,6 +15,12 @@ import {
 } from "../types/api.types";
 import { AppError } from "../middlewares/error.middleware";
 import { assertSubjectManageAccess } from "../modules/subjects/subjectAccess.service";
+import {
+  createReservationSettler,
+  defaultStorageDependencies,
+  ReservationSettler,
+  StorageDependencies,
+} from "../modules/storage/storage.service";
 import { uploadDocumentToCloudinary } from "./cloudinary.service";
 import { extractDocumentText } from "./documentExtraction/extractDocumentText";
 import {
@@ -145,16 +151,42 @@ const getSubjectOwnedByUser = async (
   return subject;
 };
 
+/**
+ * Reserves quota before any expensive work, then commits once the document and
+ * its first version exist. The multer buffer has already arrived by this point
+ * (memoryStorage), so this cannot stop the bytes from reaching the server — it
+ * stops them from reaching Cloudinary, Pinecone and the extraction pipeline.
+ */
 export const createDocument = async (
   payload: UploadDocumentRequest,
   file: Express.Multer.File | undefined,
   userId: string,
   role = "user",
+  options: { storage?: Partial<StorageDependencies> } = {},
 ): Promise<DocumentResponse> => {
   if (!file) {
     throw new AppError("Document file is required", 400);
   }
 
+  const storage = { ...defaultStorageDependencies, ...options.storage };
+  const reservation = await storage.reserveStorage(userId, file.size);
+  const settler = createReservationSettler(storage, reservation);
+
+  try {
+    return await runCreateDocument(payload, file, userId, role, settler);
+  } catch (error) {
+    await settler.releaseIfPending();
+    throw error;
+  }
+};
+
+const runCreateDocument = async (
+  payload: UploadDocumentRequest,
+  file: Express.Multer.File,
+  userId: string,
+  role: string,
+  settler: ReservationSettler,
+): Promise<DocumentResponse> => {
   console.log("[document.service: createDocument] Starting document creation pipeline", {
     title: payload.title,
     fileName: file.originalname,
@@ -283,6 +315,10 @@ export const createDocument = async (
   document.totalVersions = 1;
   document.totalChunks = version.totalChunks;
   await document.save();
+
+  // The file is on Cloudinary and both records exist, so the bytes are real
+  // from here on. Indexing may still fail; that must not refund the storage.
+  await settler.commit();
 
   if (extractionStatus === "COMPLETED") {
     console.log("[document.service: createDocument] Triggering RAG indexing via indexDocumentForRag...");

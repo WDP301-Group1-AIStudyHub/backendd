@@ -3,8 +3,10 @@ import { afterEach, describe, it } from "node:test";
 import {
   buildMobileDocumentUrl,
   buildMobileRegistrationUrl,
+  buildMobileStorageReturnUrl,
   buildWebDocumentUrl,
   buildWebRegistrationUrl,
+  resolveMobileStorageReturnUrl,
   validateProductionPublicUrls,
 } from "./publicAppUrl.service";
 
@@ -52,5 +54,37 @@ describe("public app URL service", () => {
 
     process.env.FRONTEND_URL = "https://front-end-teal-rho.vercel.app";
     assert.doesNotThrow(validateProductionPublicUrls);
+  });
+
+  it("preserves the mobile runtime callback and adds the payment result", () => {
+    process.env.NODE_ENV = "development";
+    process.env.MOBILE_APP_SCHEME = "aistudyhub";
+
+    assert.equal(
+      resolveMobileStorageReturnUrl(
+        "aistudyhub://storage",
+        "SPTEST01",
+        "COMPLETED",
+      ),
+      "aistudyhub://storage?orderRef=SPTEST01&status=COMPLETED",
+    );
+
+    assert.equal(
+      resolveMobileStorageReturnUrl(
+        "exp://192.168.0.111:8081/--/storage",
+        "SPTEST02",
+        "COMPLETED",
+      ),
+      "exp://192.168.0.111:8081/--/storage?orderRef=SPTEST02&status=COMPLETED",
+    );
+
+    assert.equal(
+      resolveMobileStorageReturnUrl(
+        "https://attacker.example/redirect",
+        "SPTEST03",
+        "FAILED",
+      ),
+      buildMobileStorageReturnUrl("SPTEST03", "FAILED"),
+    );
   });
 });

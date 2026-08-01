@@ -4,6 +4,7 @@ import app from "./app";
 import { connectDatabase } from "./config/db";
 import { initializeUploadProgressSocket } from "./services/uploadProgress.socket";
 import { validateProductionPublicUrls } from "./services/publicAppUrl.service";
+import { logPaymentProviderSelection } from "./modules/storage/payment";
 import {
   validateEmailConfiguration,
   verifySmtpConnection,
@@ -15,6 +16,7 @@ const startServer = async (): Promise<void> => {
   try {
     validateProductionPublicUrls();
     validateEmailConfiguration();
+    logPaymentProviderSelection();
     await connectDatabase();
 
     const port = Number(process.env.PORT || 5000);

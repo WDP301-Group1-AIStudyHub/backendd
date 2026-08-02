@@ -17,6 +17,7 @@ Add these under **Settings → Environment** on the backend service.
 | `STORAGE_QUOTA_ENFORCED` | `true` | Set to `false` to disable quota blocking in seconds without a redeploy, if enforcement ever misbehaves in production. |
 | `FRONTEND_URL` | `https://<your-web-app>` | Already required; the payment return redirects here for web clients. |
 | `MOBILE_APP_SCHEME` | `aistudyhub` | Already required; used for the mobile deep link. |
+| `ALLOW_EXPO_GO_RETURN_URL` | `true` only for Expo Go testing | Allows private-network `exp://` callbacks from Expo Go. Keep `false` for normal production/release builds. |
 
 If `VNP_TMN_CODE` is set but `PUBLIC_API_URL` is missing or is not HTTPS, the
 server **refuses to start** with a clear message. That is deliberate: a silent

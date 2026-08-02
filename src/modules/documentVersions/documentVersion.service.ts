@@ -29,6 +29,11 @@ import {
 import { StudyDocument, IDocument } from "../documents/document.model";
 import { DocumentVersion, IDocumentVersion } from "./documentVersion.model";
 import {
+  createReservationSettler,
+  defaultStorageDependencies,
+  StorageDependencies,
+} from "../storage/storage.service";
+import {
   DocumentVersionResponse,
   DocumentVersionUploadMode,
   UploadDocumentVersionRequest,
@@ -44,7 +49,7 @@ interface GetDocumentVersionDetailQuery {
   includeText?: string | boolean;
 }
 
-interface VersioningDependencies {
+interface VersioningDependencies extends StorageDependencies {
   uploadFile: typeof uploadDocumentToCloudinary;
   reindexDocument: typeof reindexDocumentForRag;
   extractText: typeof extractDocumentText;
@@ -60,6 +65,7 @@ interface VersioningOptions {
 }
 
 const defaultDependencies: VersioningDependencies = {
+  ...defaultStorageDependencies,
   uploadFile: uploadDocumentToCloudinary,
   reindexDocument: reindexDocumentForRag,
   extractText: extractDocumentText,
@@ -622,42 +628,62 @@ export const uploadDocumentVersion = async (
   }).sort({ versionNumber: -1 });
   const versionNumber = (latestVersion?.versionNumber || 0) + 1;
   const dependencies = getDependencies(options);
-  const cloudinaryUpload = await dependencies.uploadFile(file);
+
+  // A shared EDITOR may upload versions to someone else's document, so quota is
+  // charged to the document owner, never to whoever is holding the request.
+  const reservation = await dependencies.reserveStorage(
+    document.ownerId.toString(),
+    file.size,
+  );
+  const settler = createReservationSettler(dependencies, reservation);
+
   const shouldActivate = makeActive;
+  let version;
 
-  if (shouldActivate) {
-    await DocumentVersion.updateMany(
-      { documentId, isActive: true },
-      { $set: { isActive: false } },
-    );
+  try {
+    const cloudinaryUpload = await dependencies.uploadFile(file);
+
+    if (shouldActivate) {
+      await DocumentVersion.updateMany(
+        { documentId, isActive: true },
+        { $set: { isActive: false } },
+      );
+    }
+
+    version = await DocumentVersion.create({
+      documentId,
+      versionNumber,
+      uploadMode,
+      fileUrl: cloudinaryUpload.result.secure_url,
+      filePublicId: cloudinaryUpload.result.public_id,
+      fileName: file.originalname,
+      originalFileName: cloudinaryUpload.originalFileName,
+      storedFileName: cloudinaryUpload.storedFileName,
+      fileType: file.mimetype,
+      mimeType: cloudinaryUpload.mimeType,
+      fileSize: file.size,
+      fileExtension: cloudinaryUpload.fileExtension,
+      extractedText: "",
+      extractionStatus: "PENDING",
+      extractionError: "",
+      processingStatus: "PENDING",
+      processingStage: "UPLOADED",
+      processingProgress: 0,
+      processingError: "",
+      totalChunks: 0,
+      indexedAt: null,
+      uploadedBy: new Types.ObjectId(userId),
+      uploadReason: payload.uploadReason,
+      isActive: shouldActivate,
+    });
+
+    // The file is on Cloudinary and the version row exists; processing that
+    // fails later must not refund bytes that are genuinely stored.
+    await settler.commit();
+  } catch (error) {
+    await settler.releaseIfPending();
+    throw error;
   }
-
-  const version = await DocumentVersion.create({
-    documentId,
-    versionNumber,
-    uploadMode,
-    fileUrl: cloudinaryUpload.result.secure_url,
-    filePublicId: cloudinaryUpload.result.public_id,
-    fileName: file.originalname,
-    originalFileName: cloudinaryUpload.originalFileName,
-    storedFileName: cloudinaryUpload.storedFileName,
-    fileType: file.mimetype,
-    mimeType: cloudinaryUpload.mimeType,
-    fileSize: file.size,
-    fileExtension: cloudinaryUpload.fileExtension,
-    extractedText: "",
-    extractionStatus: "PENDING",
-    extractionError: "",
-    processingStatus: "PENDING",
-    processingStage: "UPLOADED",
-    processingProgress: 0,
-    processingError: "",
-    totalChunks: 0,
-    indexedAt: null,
-    uploadedBy: new Types.ObjectId(userId),
-    uploadReason: payload.uploadReason,
-    isActive: shouldActivate,
-  });
 
   await StudyDocument.updateOne(
     { _id: documentId },

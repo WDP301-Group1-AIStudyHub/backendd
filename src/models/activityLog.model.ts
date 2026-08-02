@@ -7,6 +7,11 @@ export type ActivityAction =
   | "DOCUMENT_DELETE"
   | "SYSTEM_ERROR"
   | "SETTINGS_UPDATE"
+  // Storage packages. `action` is a plain String in Mongo, so widening this
+  // union needs no migration.
+  | "STORAGE_PACKAGE_PURCHASE_INITIATED"
+  | "STORAGE_PACKAGE_ACTIVATED"
+  | "STORAGE_PACKAGE_PURCHASE_FAILED"
   | "OTHER";
 
 export type EntityType = "User" | "Document" | "System" | "Other";

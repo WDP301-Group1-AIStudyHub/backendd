@@ -16,6 +16,7 @@ import subjectRoutes from "./routes/subject.routes";
 import studyMaterialRoutes from "./routes/studyMaterial.routes";
 import adminRoutes from "./routes/admin.routes";
 import { uploadSessionRouter } from "./modules/uploadSessions/uploadSession.routes";
+import { storageRouter } from "./modules/storage/storage.routes";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
 
 const app = express();
@@ -88,6 +89,7 @@ app.use("/api/evaluation", evaluationRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/subjects", subjectRoutes);
 app.use("/api/upload-sessions", uploadSessionRouter);
+app.use("/api/storage", storageRouter);
 app.use("/api/study-materials", studyMaterialRoutes);
 app.use("/api/admin", adminRoutes);
 

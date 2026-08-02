@@ -26,6 +26,7 @@ import {
   permissionToAccessRole,
 } from "../documentShares/documentShare.service";
 import { getReadableSubjectDocumentIds } from "../subjects/subjectAccess.service";
+import { releaseUsage } from "../storage/storage.service";
 import { SubjectMember } from "../subjects/subjectWorkspace.model";
 import {
   DocumentStatus,
@@ -1132,11 +1133,19 @@ export const permanentlyDeleteDocumentRecord = async (
 ): Promise<void> => {
   const versions = await DocumentVersion.find({
     documentId: document._id,
-  }).select("filePublicId");
+  }).select("filePublicId fileSize");
   const filePublicIds = [
     document.filePublicId,
     ...versions.map((version: IDocumentVersion) => version.filePublicId),
   ].filter((publicId): publicId is string => Boolean(publicId));
+  // Mirrors computeActualUsedBytes: sum versions, falling back to the document's
+  // own size only when it has no version rows at all.
+  const freedBytes = versions.length
+    ? versions.reduce(
+        (sum: number, version: IDocumentVersion) => sum + (version.fileSize || 0),
+        0,
+      )
+    : document.fileSize || 0;
 
   try {
     await vectorService.deleteDocumentChunks(document._id.toString());
@@ -1161,6 +1170,17 @@ export const permanentlyDeleteDocumentRecord = async (
     await StudyDocument.deleteOne({ _id: document._id });
   } catch (error) {
     throw new PermanentDeleteError("MONGODB", error);
+  }
+
+  // Only now are the bytes genuinely gone from Cloudinary. Soft delete and
+  // version delete deliberately do not refund, because they leave the files.
+  if (document.ownerId) {
+    try {
+      await releaseUsage(document.ownerId.toString(), freedBytes);
+    } catch (error) {
+      // Never fail a completed deletion over accounting; reconcile repairs it.
+      console.error("[document.service] releaseUsage failed after purge", error);
+    }
   }
 };
 

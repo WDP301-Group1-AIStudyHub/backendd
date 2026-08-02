@@ -5,10 +5,22 @@ import { ZodError } from "zod";
 
 export class AppError extends Error {
   statusCode: number;
+  // Machine-readable code and structured payload so clients can render a
+  // specific message instead of parsing prose. Both are optional; every
+  // existing throw leaves them undefined and serializes exactly as before.
+  code?: string;
+  details?: Record<string, unknown>;
 
-  constructor(message: string, statusCode = 500) {
+  constructor(
+    message: string,
+    statusCode = 500,
+    code?: string,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.statusCode = statusCode;
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -34,10 +46,14 @@ export const errorHandler = (
 
   let statusCode = 500;
   let message = "Internal server error";
+  let code: string | undefined;
+  let details: Record<string, unknown> | undefined;
 
   if (error instanceof AppError) {
     statusCode = error.statusCode;
     message = error.message;
+    code = error.code;
+    details = error.details;
   } else if (error instanceof ZodError) {
     statusCode = 400;
     message = error.issues.map((issue) => issue.message).join(", ");
@@ -58,6 +74,8 @@ export const errorHandler = (
   res.status(statusCode).json({
     success: false,
     message,
+    ...(code ? { code } : {}),
+    ...(details ? { details } : {}),
     debug: {
       name: error.name,
       message: error.message,

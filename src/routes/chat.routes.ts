@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   ask,
+  createChatThread,
   getChatHistory,
   getChatThread,
   listChatHistory,
@@ -14,6 +15,7 @@ import { validateRequest } from "../middlewares/validate.middleware";
 import {
   askQuestionSchema,
   chatHistoryIdSchema,
+  createChatThreadSchema,
   chatThreadIdSchema,
   listChatThreadsSchema,
   updateChatThreadSchema,
@@ -24,6 +26,11 @@ const router = Router();
 router.use(authMiddleware);
 
 router.post("/ask", validateRequest(askQuestionSchema), ask);
+router.post(
+  "/threads",
+  validateRequest(createChatThreadSchema),
+  createChatThread,
+);
 router.get("/threads", validateRequest(listChatThreadsSchema), listChatThreads);
 router.get("/threads/:threadId", validateRequest(chatThreadIdSchema), getChatThread);
 router.patch(

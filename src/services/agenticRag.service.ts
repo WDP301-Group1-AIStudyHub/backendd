@@ -26,6 +26,7 @@ import { resolveChatScope } from "./chatScope.service";
 import {
   DOCUMENT_PROCESSING_MESSAGE,
   buildContext,
+  chunkContentKey,
   dedupeChunks,
   retrieveDrRagContext,
   toSources,
@@ -33,6 +34,7 @@ import {
 import { initiateArtifactGeneration } from "./artifact.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
 import { generateFallbackAnswer } from "./fallbackAnswer.service";
+import { applyCitations } from "./citations.service";
 import { calculateAverageRelevance } from "./relevance.service";
 import { persistAndRespond } from "./chat.service";
 import { detectAnswerStyle } from "../utils/answerStyle";
@@ -53,12 +55,13 @@ Rules:
 - Use list_documents when the user asks what files or documents they have.
 - When the user asks you to create, make, or generate flashcards, a quiz, a mind map, a report/study guide, or a data/comparison table, call create_artifact with a fitting type, title, and instructions. Do NOT write the artifact content inline in your answer — the artifact is generated in the background and appears in the Artifacts panel. After calling it, tell the user the artifact is being generated and will appear there shortly.
 - Always answer in the same language as the user's question.
-- When you used search results, mention which document (and section, if available) the answer comes from.`;
+- Every passage returned by search_documents carries an "id". Whenever you use information from a passage, append an inline citation marker [id] at the end of the sentence that uses it (for example, "Photosynthesis takes place in chloroplasts [1]."). If multiple passages support a statement, append multiple markers (for example, [1][3]). Cite ONLY IDs that you actually received in tool results; never invent or guess IDs. Do NOT include citation markers in greetings, meta answers, or when no passages were used. Do NOT write a manual "Sources" or "References" section at the end of your response, as the system interface renders source chips automatically.`;
 
 type AgentRunContext = {
   collectedChunks: EvaluatedChunk[];
   retrievalQueries: string[];
   toolCalls: AgentToolCallSummary[];
+  citations: Map<string, number>;
 };
 
 const buildAgentTools = (
@@ -103,6 +106,14 @@ const buildAgentTools = (
       }
 
       run.collectedChunks.push(...result.chunks);
+      for (const chunk of result.chunks) {
+        const key = chunkContentKey(chunk);
+        if (!run.citations.has(key)) {
+          const newId = run.citations.size + 1;
+          run.citations.set(key, newId);
+        }
+      }
+
       const resultSummary = `${result.chunks.length} passages`;
       run.toolCalls.push({
         tool: "search_documents",
@@ -113,16 +124,20 @@ const buildAgentTools = (
 
       return JSON.stringify({
         status: "OK",
-        passages: result.chunks.map((chunk, index) => ({
-          index: index + 1,
-          document: chunk.metadata.title,
-          section:
-            chunk.metadata.sectionTitle ||
-            chunk.metadata.inferredSection ||
-            chunk.metadata.section ||
-            undefined,
-          content: chunk.content,
-        })),
+        passages: result.chunks.map((chunk) => {
+          const key = chunkContentKey(chunk);
+          const citationId = run.citations.get(key);
+          return {
+            id: citationId,
+            document: chunk.metadata.title,
+            section:
+              chunk.metadata.sectionTitle ||
+              chunk.metadata.inferredSection ||
+              chunk.metadata.section ||
+              undefined,
+            content: chunk.content,
+          };
+        }),
       });
     },
     {
@@ -343,6 +358,7 @@ export const askQuestionWithAgent = async (
       collectedChunks: [],
       retrievalQueries: [],
       toolCalls: [],
+      citations: new Map<string, number>(),
     };
     const tools = buildAgentTools(
       userId,
@@ -481,7 +497,18 @@ export const askQuestionWithAgent = async (
       throw new DOMException("AbortError", "AbortError");
     }
 
-    const sources: ChatSource[] = toSources(uniqueChunks);
+    const sources: ChatSource[] = toSources(uniqueChunks, run.citations);
+    let citedSources: ChatSource[] = [];
+
+    if (fallbackGenerated) {
+      answer = answer.replace(/\[\d+\]/g, "");
+      citedSources = [];
+    } else {
+      const citationResult = applyCitations({ answer, sources });
+      answer = citationResult.answer;
+      citedSources = citationResult.citedSources;
+    }
+
     const result = await persistAndRespond(
       userId,
       payload,
@@ -491,6 +518,7 @@ export const askQuestionWithAgent = async (
         mode: AGENT_MODE,
         originalQuestion: payload.question,
         sources,
+        citedSources,
         evaluation: {
           retrievedChunksCount: uniqueChunks.length,
           relevantChunksCount: uniqueChunks.filter((chunk) => chunk.isRelevant)
@@ -513,6 +541,7 @@ export const askQuestionWithAgent = async (
     const finalResponse: AgentAskResponse = {
       ...result,
       agent: { steps: agentSteps, toolCalls: run.toolCalls },
+      citedSources: result.citedSources ?? citedSources,
     };
 
     onEvent?.({ type: "final", data: finalResponse });

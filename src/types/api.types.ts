@@ -297,6 +297,7 @@ export interface ChatSource {
   relevanceScore?: number;
   sourceStatus?: "ACTIVE" | "DELETED";
   sourceDeletedAt?: Date;
+  citationId?: number;
 }
 
 export interface AskQuestionResponse {
@@ -306,6 +307,7 @@ export interface AskQuestionResponse {
   originalQuestion?: string;
   rewrittenQuery?: string;
   sources: ChatSource[];
+  citedSources?: ChatSource[];
   evaluation?: RagEvaluation;
   sourceStatus?: "ACTIVE" | "DELETED";
   sourceDeletedAt?: Date;

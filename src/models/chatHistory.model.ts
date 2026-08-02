@@ -12,6 +12,7 @@ export interface IChatHistory extends Document {
   rewrittenQuery?: string;
   answer: string;
   sources: ChatSource[];
+  citedSources?: ChatSource[];
   documentId?: Types.ObjectId;
   documentIds?: Types.ObjectId[];
   subjectId?: Types.ObjectId;
@@ -76,6 +77,9 @@ const chatSourceSchema = new Schema<ChatSource>(
       type: String,
     },
     relevanceScore: {
+      type: Number,
+    },
+    citationId: {
       type: Number,
     },
     sourceStatus: {
@@ -149,6 +153,10 @@ const chatHistorySchema = new Schema<IChatHistory>(
       required: true,
     },
     sources: {
+      type: [chatSourceSchema],
+      default: [],
+    },
+    citedSources: {
       type: [chatSourceSchema],
       default: [],
     },

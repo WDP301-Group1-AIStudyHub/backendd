@@ -6,6 +6,8 @@ import {
   purgeExpiredTrashDocuments,
   reconcileTrashVectors,
 } from "../modules/documents/document.service";
+import { reconcileAllUserStorage } from "../modules/storage/storage.service";
+import { expirePendingOrders } from "../modules/storage/storagePurchase.service";
 
 const router = Router();
 
@@ -58,6 +60,36 @@ router.post(
     sendResponse(res, 200, {
       success: true,
       message: "Expired trash documents purged successfully",
+      data,
+    });
+  }),
+);
+
+router.post(
+  "/reconcile-storage",
+  asyncHandler(async (req, res) => {
+    assertJobSecret(req);
+
+    const data = await reconcileAllUserStorage();
+
+    sendResponse(res, 200, {
+      success: true,
+      message: "Storage usage reconciled successfully",
+      data,
+    });
+  }),
+);
+
+router.post(
+  "/expire-storage-orders",
+  asyncHandler(async (req, res) => {
+    assertJobSecret(req);
+
+    const data = await expirePendingOrders();
+
+    sendResponse(res, 200, {
+      success: true,
+      message: "Expired storage orders swept successfully",
       data,
     });
   }),

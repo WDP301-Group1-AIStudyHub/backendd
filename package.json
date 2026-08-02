@@ -9,6 +9,8 @@
     "migrate:document-versions": "ts-node-dev --transpile-only --exit-child src/scripts/migrateExistingDocumentsToVersions.ts",
     "migrate:subject-owner-members": "ts-node-dev --transpile-only --exit-child src/scripts/migrateSubjectOwnerMembers.ts",
     "audit:document-deletion": "ts-node-dev --transpile-only --exit-child src/scripts/reconcileDocumentDeletion.ts",
+    "seed:storage-packages": "ts-node-dev --transpile-only --exit-child src/scripts/seedStoragePackages.ts",
+    "backfill:user-storage": "ts-node-dev --transpile-only --exit-child src/scripts/backfillUserStorage.ts",
     "build": "tsc",
     "test": "npm run build && node --test \"dist/**/*.test.js\"",
     "start": "node dist/server.js"

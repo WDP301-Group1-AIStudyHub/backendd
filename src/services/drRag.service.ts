@@ -71,7 +71,7 @@ const sectionKey = (chunk: EvaluatedChunk | RetrievedChunk): string =>
       "",
   ].join(":");
 
-const chunkContentKey = (chunk: RetrievedChunk): string =>
+export const chunkContentKey = (chunk: RetrievedChunk): string =>
   chunk.content.toLowerCase().replace(/\s+/g, " ").trim();
 
 export const dedupeChunks = <T extends RetrievedChunk>(chunks: T[]): T[] => {
@@ -313,28 +313,36 @@ export const buildContext = (chunks: EvaluatedChunk[]): string =>
     )
     .join("\n\n");
 
-export const toSources = (chunks: EvaluatedChunk[]): ChatSource[] =>
-  chunks.map((chunk) => ({
-    documentId: chunk.metadata.documentId,
-    title: chunk.metadata.title,
-    chunkIndex: chunk.metadata.chunkIndex,
-    section: chunk.metadata.section,
-    inferredSection: chunk.metadata.inferredSection,
-    semanticSectionLabel: chunk.metadata.semanticSectionLabel,
-    heading: chunk.metadata.heading,
-    sectionTitle: chunk.metadata.sectionTitle,
-    sectionIndex: chunk.metadata.sectionIndex,
-    outlineNodeId: chunk.metadata.outlineNodeId,
-    outlinePath: chunk.metadata.outlinePath,
-    outlineLevel: chunk.metadata.outlineLevel,
-    outlineType: chunk.metadata.outlineType,
-    chapterOrdinal: chunk.metadata.chapterOrdinal,
-    contentPreview:
-      chunk.content.length > 220
-        ? `${chunk.content.slice(0, 220)}...`
-        : chunk.content,
-    relevanceScore: chunk.relevanceScore,
-  }));
+export const toSources = (
+  chunks: EvaluatedChunk[],
+  citations?: Map<string, number>,
+): ChatSource[] =>
+  chunks.map((chunk) => {
+    const key = chunkContentKey(chunk);
+    const citationId = citations?.get(key);
+    return {
+      documentId: chunk.metadata.documentId,
+      title: chunk.metadata.title,
+      chunkIndex: chunk.metadata.chunkIndex,
+      section: chunk.metadata.section,
+      inferredSection: chunk.metadata.inferredSection,
+      semanticSectionLabel: chunk.metadata.semanticSectionLabel,
+      heading: chunk.metadata.heading,
+      sectionTitle: chunk.metadata.sectionTitle,
+      sectionIndex: chunk.metadata.sectionIndex,
+      outlineNodeId: chunk.metadata.outlineNodeId,
+      outlinePath: chunk.metadata.outlinePath,
+      outlineLevel: chunk.metadata.outlineLevel,
+      outlineType: chunk.metadata.outlineType,
+      chapterOrdinal: chunk.metadata.chapterOrdinal,
+      contentPreview:
+        chunk.content.length > 220
+          ? `${chunk.content.slice(0, 220)}...`
+          : chunk.content,
+      relevanceScore: chunk.relevanceScore,
+      ...(citationId !== undefined ? { citationId } : {}),
+    };
+  });
 
 export const getRetrievedSections = (chunks: EvaluatedChunk[]): string[] => [
   ...new Set(

@@ -3,6 +3,7 @@ import { AskQuestionRequest } from "../types/api.types";
 import {
   archiveChatThreadById,
   askQuestion,
+  createChatThreadForUser,
   deleteChatHistoryById,
   getChatHistories,
   getChatHistoryById,
@@ -35,6 +36,19 @@ export const listChatHistory = asyncHandler(async (
   sendResponse(res, 200, {
     success: true,
     message: "Chat history fetched successfully",
+    data,
+  });
+});
+
+export const createChatThread = asyncHandler(async (
+  req: Request<unknown, unknown, { title?: string } | undefined>,
+  res: Response,
+): Promise<void> => {
+  const data = await createChatThreadForUser(req.authUser!.id, req.body ?? {});
+
+  sendResponse(res, 201, {
+    success: true,
+    message: "Chat thread created successfully",
     data,
   });
 });

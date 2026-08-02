@@ -59,6 +59,10 @@ const toChatThreadResponse = (thread: IChatThread): ChatThreadResponse => ({
   updatedAt: thread.updatedAt,
 });
 
+// Placeholder title for threads created before their first question exists.
+// persistAndRespond replaces it once the first message lands.
+export const DEFAULT_THREAD_TITLE = "New chat";
+
 const buildThreadTitle = (question: string): string => {
   const normalized = question.trim().replace(/\s+/g, " ");
   return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
@@ -121,6 +125,13 @@ export const persistAndRespond = async (
     const thread = await getOrCreateThread(userId, payload);
     threadId = thread._id.toString();
 
+    // A thread created up-front (POST /threads) has no question to name itself
+    // from, so it carries the placeholder until its first message arrives.
+    // Only retitle while the placeholder is untouched — a user who renamed an
+    // empty thread keeps their name.
+    const shouldAutoTitle =
+      thread.messageCount === 0 && thread.title === DEFAULT_THREAD_TITLE;
+
     await ChatHistory.create({
       userId,
       threadId: thread._id,
@@ -129,6 +140,7 @@ export const persistAndRespond = async (
       rewrittenQuery: result.rewrittenQuery,
       answer: result.answer,
       sources: result.sources,
+      citedSources: result.citedSources,
       documentId: chatScope.documentId,
       documentIds: chatScope.documentIds,
       subjectId: chatScope.subjectId,
@@ -142,6 +154,9 @@ export const persistAndRespond = async (
       {
         $inc: { messageCount: 1 },
         $set: {
+          ...(shouldAutoTitle
+            ? { title: buildThreadTitle(payload.question) }
+            : {}),
           lastMessageAt: new Date(),
           scope: payload.scope || chatScope.scope,
           subjectId: chatScope.subjectId,
@@ -277,6 +292,21 @@ export const askQuestion = async (
   return persistAndRespond(userId, payload, chatScope, result, {
     persistHistory,
   });
+};
+
+export const createChatThreadForUser = async (
+  userId: string,
+  payload: { title?: string } = {},
+): Promise<ChatThreadResponse> => {
+  const thread = await ChatThread.create({
+    ownerId: userId,
+    title: payload.title?.trim() || DEFAULT_THREAD_TITLE,
+    lastMessageAt: new Date(),
+    messageCount: 0,
+    status: "ACTIVE",
+  });
+
+  return toChatThreadResponse(thread);
 };
 
 export const getChatThreads = async (

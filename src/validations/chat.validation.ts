@@ -58,6 +58,14 @@ export const chatThreadIdSchema = z.object({
   }),
 });
 
+export const createChatThreadSchema = z.object({
+  body: z
+    .object({
+      title: z.string().trim().min(1).max(120).optional(),
+    })
+    .optional(),
+});
+
 export const listChatThreadsSchema = z.object({
   query: z.object({
     status: z.enum(["ACTIVE", "ARCHIVED"]).optional(),

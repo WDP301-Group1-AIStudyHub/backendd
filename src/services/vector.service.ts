@@ -174,26 +174,34 @@ const ensurePineconeIndexDimension = async (): Promise<void> => {
     return pineconeDimensionCheck.promise;
   }
 
-  pineconeDimensionCheck = {
-    indexName,
-    promise: getPineconeClient()
-      .describeIndex(indexName)
-      .then((indexDescription) => {
-        const actualDimension = indexDescription.dimension;
+  const promise = getPineconeClient()
+    .describeIndex(indexName)
+    .then((indexDescription) => {
+      const actualDimension = indexDescription.dimension;
 
-        if (
-          typeof actualDimension === "number" &&
-          actualDimension !== JINA_EMBEDDING_DIMENSION
-        ) {
-          throw new AppError(
-            `Pinecone index "${indexName}" dimension is ${actualDimension}, but Jina ${process.env.JINA_EMBEDDING_MODEL || "jina-embeddings-v3"} requires ${JINA_EMBEDDING_DIMENSION}. Create a new Pinecone index with dimension ${JINA_EMBEDDING_DIMENSION} and update PINECONE_INDEX_NAME.`,
-            500,
-          );
-        }
-      }),
-  };
+      if (
+        typeof actualDimension === "number" &&
+        actualDimension !== JINA_EMBEDDING_DIMENSION
+      ) {
+        throw new AppError(
+          `Pinecone index "${indexName}" dimension is ${actualDimension}, but Jina ${process.env.JINA_EMBEDDING_MODEL || "jina-embeddings-v3"} requires ${JINA_EMBEDDING_DIMENSION}. Create a new Pinecone index with dimension ${JINA_EMBEDDING_DIMENSION} and update PINECONE_INDEX_NAME.`,
+          500,
+        );
+      }
+    })
+    .catch((error) => {
+      // Don't memoize a failed check (e.g. transient network timeout) —
+      // otherwise one blip permanently poisons every future Pinecone call
+      // for the life of the process.
+      if (pineconeDimensionCheck?.promise === promise) {
+        pineconeDimensionCheck = undefined;
+      }
+      throw error;
+    });
 
-  return pineconeDimensionCheck.promise;
+  pineconeDimensionCheck = { indexName, promise };
+
+  return promise;
 };
 
 const getPineconeIndex = async () => {

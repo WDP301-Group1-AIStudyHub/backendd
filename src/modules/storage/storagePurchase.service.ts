@@ -67,7 +67,7 @@ export const toTransactionResponse = (transaction: IStorageTransaction) => ({
   createdAt: transaction.createdAt.toISOString(),
 });
 
-const assertUpgradeIsPossible = async (
+export const assertUpgradeIsPossible = async (
   userId: string,
   targetPackage: IStoragePackage,
   stage: "ORDER" | "ACTIVATION",

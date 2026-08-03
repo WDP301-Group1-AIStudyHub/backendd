@@ -8,22 +8,17 @@ import type { AnswerProfile } from "../utils/answerProfile";
 import { retryAsync } from "../utils/retry";
 import type { SemanticQuestionIntent } from "./intentClassifier.service";
 
+import { markCredentialInvalid } from "./aiCredential.service";
+import { hasCredentialContext, requireCredential } from "./aiCredentialContext";
+
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 
-let geminiClient: GoogleGenAI | null = null;
-
 const getGeminiClient = (): GoogleGenAI => {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new AppError("GEMINI_API_KEY is required for answer generation", 500);
+  const credential = requireCredential();
+  if (!credential.apiKey) {
+    throw new AppError("Gemini API key is required for answer generation", 500);
   }
-
-  if (!geminiClient) {
-    geminiClient = new GoogleGenAI({ apiKey });
-  }
-
-  return geminiClient;
+  return new GoogleGenAI({ apiKey: credential.apiKey });
 };
 
 const isRetryableGeminiError = (error: any): boolean => {
@@ -138,6 +133,19 @@ export const generateGeminiText = async (
 
     return completion.text?.trim() ?? "";
   } catch (error) {
+    if (hasCredentialContext()) {
+      const cred = requireCredential();
+      const status = getGeminiHttpStatus(error);
+      if (
+        cred.source === "user" &&
+        cred.userId &&
+        (status === 400 || status === 401 || status === 403)
+      ) {
+        await markCredentialInvalid(cred.userId, getGeminiErrorMessage(error)).catch(
+          () => {},
+        );
+      }
+    }
     throw new AppError(
       `Gemini answer generation failed: ${getGeminiErrorMessage(error)}`,
       getGeminiHttpStatus(error),

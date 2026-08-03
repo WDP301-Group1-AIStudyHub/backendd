@@ -300,56 +300,63 @@ const assembleArtifactContext = async (
   return null;
 };
 
+import { resolveCredentialForUser, runWithCredential } from "./aiCredentialContext";
+
 export const runArtifactGenerationWorker = async (
   artifactId: string,
   type: ArtifactType,
   vectorFilters: VectorSearchFilters,
   instructions?: string
 ): Promise<void> => {
-  try {
-    await Artifact.findByIdAndUpdate(artifactId, { status: "GENERATING" });
+  const artifactDoc = await Artifact.findById(artifactId).select("userId");
+  const credential = await resolveCredentialForUser(artifactDoc?.userId?.toString());
 
-    const assembled = await assembleArtifactContext(
-      type,
-      vectorFilters,
-      instructions
-    );
-
-    // Grounding guard: without any document content the LLM would have to
-    // invent everything, so fail instead of generating from model knowledge.
-    if (!assembled) {
-      throw new Error(
-        "No relevant content found in the selected documents for this topic"
-      );
-    }
-
-    const { context, sources } = assembled;
-    const systemPrompt = buildSystemPrompt(type, instructions);
-
-    // Model JSON output can occasionally fail validation, so retry once.
-    let content: unknown;
+  return runWithCredential(credential, async () => {
     try {
-      content = await generateAndValidate(type, systemPrompt, context);
-    } catch (firstError) {
-      console.warn(
-        `Artifact ${artifactId}: first generation attempt failed, retrying once.`,
-        firstError
-      );
-      content = await generateAndValidate(type, systemPrompt, context);
-    }
+      await Artifact.findByIdAndUpdate(artifactId, { status: "GENERATING" });
 
-    await Artifact.findByIdAndUpdate(artifactId, {
-      status: "COMPLETED",
-      content,
-      sources,
-    });
-  } catch (error: any) {
-    const errorMessage =
-      error?.message || "Unknown error occurred during artifact generation";
-    console.error(`Worker error generating artifact ${artifactId}:`, error);
-    await Artifact.findByIdAndUpdate(artifactId, {
-      status: "FAILED",
-      error: errorMessage,
-    });
-  }
+      const assembled = await assembleArtifactContext(
+        type,
+        vectorFilters,
+        instructions
+      );
+
+      // Grounding guard: without any document content the LLM would have to
+      // invent everything, so fail instead of generating from model knowledge.
+      if (!assembled) {
+        throw new Error(
+          "No relevant content found in the selected documents for this topic"
+        );
+      }
+
+      const { context, sources } = assembled;
+      const systemPrompt = buildSystemPrompt(type, instructions);
+
+      // Model JSON output can occasionally fail validation, so retry once.
+      let content: unknown;
+      try {
+        content = await generateAndValidate(type, systemPrompt, context);
+      } catch (firstError) {
+        console.warn(
+          `Artifact ${artifactId}: first generation attempt failed, retrying once.`,
+          firstError
+        );
+        content = await generateAndValidate(type, systemPrompt, context);
+      }
+
+      await Artifact.findByIdAndUpdate(artifactId, {
+        status: "COMPLETED",
+        content,
+        sources,
+      });
+    } catch (error: any) {
+      const errorMessage =
+        error?.message || "Unknown error occurred during artifact generation";
+      console.error(`Worker error generating artifact ${artifactId}:`, error);
+      await Artifact.findByIdAndUpdate(artifactId, {
+        status: "FAILED",
+        error: errorMessage,
+      });
+    }
+  });
 };

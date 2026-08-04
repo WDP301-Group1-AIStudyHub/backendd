@@ -1,10 +1,11 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import type { AIMessage, BaseMessage } from "@langchain/core/messages";
+import type { AIMessage, AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { requireCredential } from "./aiCredentialContext";
 
 export type BoundAgentModel = {
   invoke: (messages: BaseMessage[], options?: { signal?: AbortSignal }) => Promise<AIMessage>;
+  stream: (messages: BaseMessage[], options?: { signal?: AbortSignal }) => Promise<AsyncIterable<AIMessageChunk>>;
 };
 
 export type AgentChatModel = {
@@ -31,6 +32,7 @@ export const getAgentModel = (): AgentChatModel => {
     model: process.env.GEMINI_MODEL || DEFAULT_AGENT_MODEL,
     apiKey,
     temperature: 0,
+    thinkingConfig: { includeThoughts: true, thinkingLevel: "LOW" },
   });
 
   return model as unknown as AgentChatModel;

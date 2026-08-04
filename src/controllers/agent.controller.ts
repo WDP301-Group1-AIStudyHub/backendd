@@ -47,6 +47,10 @@ export const askStream = asyncHandler(async (
       abortController.abort();
     });
 
+    const pingInterval = setInterval(() => {
+      res.write(": ping\n\n");
+    }, 15000);
+
     try {
       if (credential.degraded) {
         res.write(
@@ -78,6 +82,7 @@ export const askStream = asyncHandler(async (
         })}\n\n`,
       );
     } finally {
+      clearInterval(pingInterval);
       res.end();
     }
   });

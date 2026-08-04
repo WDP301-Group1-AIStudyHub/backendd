@@ -29,6 +29,7 @@ const toChatHistoryResponse = (
   rewrittenQuery: history.rewrittenQuery,
   answer: history.answer,
   sources: history.sources,
+  citedSources: history.citedSources,
   documentId: history.documentId,
   documentIds: history.documentIds,
   subjectId: history.subjectId,

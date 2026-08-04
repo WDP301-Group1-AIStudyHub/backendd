@@ -7,11 +7,14 @@ import {
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import {
   AIMessage,
+  AIMessageChunk,
   BaseMessage,
   HumanMessage,
   SystemMessage,
 } from "@langchain/core/messages";
+import { concat } from "@langchain/core/utils/stream";
 import { tool } from "@langchain/core/tools";
+import { isValidObjectId } from "mongoose";
 import { z } from "zod";
 import {
   AgentAskResponse,
@@ -31,7 +34,10 @@ import {
   retrieveDrRagContext,
   toSources,
 } from "./drRag.service";
-import { initiateArtifactGeneration } from "./artifact.service";
+import {
+  initiateArtifactGeneration,
+  listArtifacts,
+} from "./artifact.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
 import { generateFallbackAnswer } from "./fallbackAnswer.service";
 import { applyCitations } from "./citations.service";
@@ -40,6 +46,10 @@ import { persistAndRespond } from "./chat.service";
 import { detectAnswerStyle } from "../utils/answerStyle";
 import { ChatHistory } from "../models/chatHistory.model";
 import { StudyDocument } from "../models/document.model";
+import { getSubjectsByUser } from "../modules/subjects/subject.service";
+import { getDocumentAccessRole } from "../modules/documentShares/documentShare.service";
+import { DocumentVersion } from "../modules/documentVersions/documentVersion.model";
+import { summarizeDocumentOutline } from "../utils/documentOutline";
 
 const AGENT_MODE = "agentic" as const;
 const MAX_HISTORY_TURNS = 6;
@@ -53,6 +63,11 @@ Rules:
 - If search_documents returns NO_MATCHES, retry once with a rephrased, more specific query. If it still returns NO_MATCHES, tell the user their documents do not seem to cover this topic and suggest asking more specifically or uploading a relevant document.
 - Questions about you or this platform (greetings, "what can you do?") may be answered directly without tools: you answer questions about the user's uploaded documents, summarize and compare them, and extract facts from them.
 - Use list_documents when the user asks what files or documents they have.
+- Use list_subjects when the user refers to a course or subject rather than a file.
+- When the user names specific documents or a subject for an artifact, call list_documents (or list_subjects) first and pass the resolved ids to create_artifact as documentIds / subjectId. Never guess or invent an id.
+- Use get_document_outline when the user asks about a document's structure, or scopes a request to a chapter or section, so the artifact instructions can name that section.
+- Call list_artifacts before creating an artifact the user may already have; if a matching one exists, point them to it instead of generating a duplicate.
+- If a tool returns ERROR or NOT_FOUND, do not retry with the same arguments — re-resolve the id or tell the user what you could not find.
 - When the user asks you to create, make, or generate flashcards, a quiz, a mind map, a report/study guide, or a data/comparison table, call create_artifact with a fitting type, title, and instructions. Do NOT write the artifact content inline in your answer — the artifact is generated in the background and appears in the Artifacts panel. After calling it, tell the user the artifact is being generated and will appear there shortly.
 - Always answer in the same language as the user's question.
 - Every passage returned by search_documents carries an "id". Whenever you use information from a passage, append an inline citation marker [id] at the end of the sentence that uses it (for example, "Photosynthesis takes place in chloroplasts [1]."). If multiple passages support a statement, append multiple markers (for example, [1][3]). Cite ONLY IDs that you actually received in tool results; never invent or guess IDs. Do NOT include citation markers in greetings, meta answers, or when no passages were used. Do NOT write a manual "Sources" or "References" section at the end of your response, as the system interface renders source chips automatically.`;
@@ -72,15 +87,43 @@ const buildAgentTools = (
   onEvent?: (event: AgentEvent) => void,
   signal?: AbortSignal,
 ) => {
+  let toolCallCounter = 0;
+  // LangChain hands tools a ToolRunnableConfig, which carries the model's own
+  // call id at `config.toolCall.id` — not `config.toolCallId`
+  // (@langchain/core/dist/tools/types.d.ts:79). Reading the wrong key here is
+  // silent: the synthetic fallback below is still unique, so tool_start and
+  // tool_end match up and nothing looks broken, but the id no longer
+  // corresponds to anything the model emitted.
+  const getToolCallId = (
+    config?: Record<string, any>,
+    toolName?: string,
+  ) => {
+    const fromConfig = config?.toolCall?.id;
+    if (typeof fromConfig === "string" && fromConfig) {
+      return fromConfig;
+    }
+    toolCallCounter += 1;
+    return `${toolName ?? "tool"}-${toolCallCounter}`;
+  };
+
   const searchDocuments = tool(
-    async ({ query }: { query: string }) => {
+    async ({ query }: { query: string }, config) => {
       if (signal?.aborted) {
         throw new DOMException("AbortError", "AbortError");
       }
+      const toolCallId = getToolCallId(config, "search_documents");
       onEvent?.({
         type: "tool_start",
         tool: "search_documents",
+        toolCallId,
         input: { query },
+      });
+      onEvent?.({
+        type: "phase",
+        phase: "retrieving",
+        // The model often quotes its own query, which would otherwise render
+        // as doubled quotes inside the narration.
+        detail: `Searching your documents for "${query.replace(/^["']+|["']+$/g, "")}"`,
       });
       const result = await retrieveDrRagContext(query, vectorFilters);
       run.retrievalQueries.push(...result.retrievalQueries);
@@ -95,6 +138,7 @@ const buildAgentTools = (
         onEvent?.({
           type: "tool_end",
           tool: "search_documents",
+          toolCallId,
           resultSummary: "NO_MATCHES",
         });
 
@@ -120,7 +164,12 @@ const buildAgentTools = (
         input: { query },
         resultSummary,
       });
-      onEvent?.({ type: "tool_end", tool: "search_documents", resultSummary });
+      onEvent?.({
+        type: "tool_end",
+        tool: "search_documents",
+        toolCallId,
+        resultSummary,
+      });
 
       return JSON.stringify({
         status: "OK",
@@ -155,16 +204,23 @@ const buildAgentTools = (
   );
 
   const listDocuments = tool(
-    async () => {
+    async (_input, config) => {
       if (signal?.aborted) {
         throw new DOMException("AbortError", "AbortError");
       }
-      onEvent?.({ type: "tool_start", tool: "list_documents", input: {} });
+      const toolCallId = getToolCallId(config, "list_documents");
+      onEvent?.({
+        type: "tool_start",
+        tool: "list_documents",
+        toolCallId,
+        input: {},
+      });
       const documents = await StudyDocument.find({
         ownerId: userId,
         status: { $ne: "DELETED" },
       })
-        .select("title status")
+        .select("title status subjectId updatedAt")
+        .populate("subjectId", "_id name")
         .limit(50);
 
       const resultSummary = `${documents.length} documents`;
@@ -173,76 +229,336 @@ const buildAgentTools = (
         input: {},
         resultSummary,
       });
-      onEvent?.({ type: "tool_end", tool: "list_documents", resultSummary });
+      onEvent?.({
+        type: "tool_end",
+        tool: "list_documents",
+        toolCallId,
+        resultSummary,
+      });
 
       return JSON.stringify({
-        documents: documents.map((document) => ({
-          id: document._id.toString(),
-          title: document.title,
-          status: document.status,
-        })),
+        documents: documents.map((document: any) => {
+          const subject = document.subjectId;
+          const subjectObj =
+            subject && typeof subject === "object" && "_id" in subject
+              ? (subject as { _id: { toString(): string }; name?: string })
+              : null;
+          return {
+            id: document._id.toString(),
+            title: document.title,
+            status: document.status,
+            subjectId: subjectObj
+              ? subjectObj._id.toString()
+              : document.subjectId?.toString(),
+            subject: subjectObj?.name,
+            updatedAt: document.updatedAt,
+          };
+        }),
       });
     },
     {
       name: "list_documents",
       description:
-        "List the study documents the user has uploaded, with their titles and processing status.",
+        "List the study documents the user has uploaded, with their titles, processing status, subject, and update time. Returns document ids that can be passed to create_artifact or get_document_outline.",
       schema: z.object({}),
     },
   );
 
-  const createArtifact = tool(
-    async ({
-      type,
-      title,
-      instructions,
-    }: {
-      type: "FLASHCARD" | "QUIZ" | "MINDMAP" | "REPORT" | "DATA_TABLE";
-      title: string;
-      instructions: string;
-    }) => {
+  const listSubjectsTool = tool(
+    async (_input, config) => {
       if (signal?.aborted) {
         throw new DOMException("AbortError", "AbortError");
       }
+      const toolCallId = getToolCallId(config, "list_subjects");
       onEvent?.({
         type: "tool_start",
-        tool: "create_artifact",
-        input: { type, title, instructions },
+        tool: "list_subjects",
+        toolCallId,
+        input: {},
+      });
+      // Without an explicit limit this paginates at 10, which silently hides
+      // later subjects from the agent (paginate's maxLimit is 50).
+      const { items } = await getSubjectsByUser(userId, { limit: "50" });
+
+      const resultSummary = `${items.length} subjects`;
+      run.toolCalls.push({
+        tool: "list_subjects",
+        input: {},
+        resultSummary,
+      });
+      onEvent?.({
+        type: "tool_end",
+        tool: "list_subjects",
+        toolCallId,
+        resultSummary,
       });
 
-      const artifact = await initiateArtifactGeneration(userId, {
+      return JSON.stringify({
+        subjects: items.map((item) => ({
+          id: item._id.toString(),
+          name: item.name,
+          code: item.code,
+          semester: item.semester,
+          documentCount: item.documentCount,
+        })),
+      });
+    },
+    {
+      name: "list_subjects",
+      description:
+        "List the user's subjects (courses) with how many documents each contains. Use the returned subject id with create_artifact to scope an artifact to a whole subject.",
+      schema: z.object({}),
+    },
+  );
+
+  const listArtifactsTool = tool(
+    async (_input, config) => {
+      if (signal?.aborted) {
+        throw new DOMException("AbortError", "AbortError");
+      }
+      const toolCallId = getToolCallId(config, "list_artifacts");
+      onEvent?.({
+        type: "tool_start",
+        tool: "list_artifacts",
+        toolCallId,
+        input: {},
+      });
+      const artifacts = await listArtifacts(
+        userId,
+        payload.threadId ? { threadId: payload.threadId } : {},
+      );
+
+      const capped = artifacts.slice(0, 20);
+      const resultSummary = `${capped.length} artifacts`;
+      run.toolCalls.push({
+        tool: "list_artifacts",
+        input: {},
+        resultSummary,
+      });
+      onEvent?.({
+        type: "tool_end",
+        tool: "list_artifacts",
+        toolCallId,
+        resultSummary,
+      });
+
+      return JSON.stringify({
+        artifacts: capped.map((artifact) => ({
+          id: artifact._id.toString(),
+          type: artifact.type,
+          title: artifact.title,
+          status: artifact.status,
+        })),
+      });
+    },
+    {
+      name: "list_artifacts",
+      description:
+        "List study artifacts already generated in this conversation, with their type and generation status. Check this before creating a new artifact so you do not duplicate one that already exists.",
+      schema: z.object({}),
+    },
+  );
+
+  const getDocumentOutline = tool(
+    async ({ documentId }: { documentId: string }, config) => {
+      if (signal?.aborted) {
+        throw new DOMException("AbortError", "AbortError");
+      }
+      const toolCallId = getToolCallId(config, "get_document_outline");
+      onEvent?.({
+        type: "tool_start",
+        tool: "get_document_outline",
+        toolCallId,
+        input: { documentId },
+      });
+
+      const respond = (
+        resultSummary: string,
+        result: Record<string, unknown>,
+      ): string => {
+        run.toolCalls.push({
+          tool: "get_document_outline",
+          input: { documentId },
+          resultSummary,
+        });
+        onEvent?.({
+          type: "tool_end",
+          tool: "get_document_outline",
+          toolCallId,
+          resultSummary,
+        });
+        return JSON.stringify(result);
+      };
+
+      // The model supplies this id, so a hallucinated one is expected. Left to
+      // Mongoose it becomes a CastError that escapes the tool and aborts the
+      // whole agent run; NOT_FOUND lets the model re-resolve and continue.
+      if (!isValidObjectId(documentId)) {
+        return respond("NOT_FOUND", { status: "NOT_FOUND" });
+      }
+
+      const document = await StudyDocument.findOne({
+        _id: documentId,
+        status: { $ne: "DELETED" },
+      }).select("_id ownerId visibility title currentVersionId subjectId");
+
+      if (!document) {
+        return respond("NOT_FOUND", { status: "NOT_FOUND" });
+      }
+
+      const role = await getDocumentAccessRole(document, userId);
+      if (!role) {
+        return respond("NOT_FOUND", { status: "NOT_FOUND" });
+      }
+
+      const version = document.currentVersionId
+        ? await DocumentVersion.findOne({
+            _id: document.currentVersionId,
+            documentId: document._id,
+            isActive: true,
+            deletedAt: null,
+          }).select("documentOutline")
+        : null;
+
+      if (!version || !version.documentOutline || version.documentOutline.length === 0) {
+        return respond("NO_OUTLINE", {
+          status: "NO_OUTLINE",
+          message:
+            "This document has no extracted outline; use search_documents instead.",
+        });
+      }
+
+      const summarized = summarizeDocumentOutline(version.documentOutline);
+      const chapters = summarized.chapterSections.slice(0, 40);
+      const parts = summarized.partSections.slice(0, 40);
+      // sectionSections, not detectedSections: the latter is every node title
+      // unfiltered, so it repeats the chapters and parts above and drags in
+      // low-confidence table-of-contents entries.
+      const sections = summarized.sectionSections.slice(0, 40);
+      const n = new Set([...chapters, ...parts, ...sections]).size;
+
+      return respond(`${n} outline sections`, {
+        status: "OK",
+        title: document.title,
+        chapters,
+        parts,
+        sections,
+      });
+    },
+    {
+      name: "get_document_outline",
+      description:
+        "Get the hierarchical section/chapter outline of a study document by its document id. Returns chapters, parts, and sections, or NO_MATCHES / NO_OUTLINE when no outline is extracted.",
+      schema: z.object({
+        documentId: z
+          .string()
+          .describe("A document id returned by list_documents."),
+      }),
+    },
+  );
+
+  const createArtifact = tool(
+    async (
+      {
         type,
         title,
         instructions,
-        threadId: payload.threadId,
-        documentId: payload.documentId,
-        documentIds: payload.documentIds,
-        subject: payload.subject,
-        subjectId: payload.subjectId,
-        scope: payload.scope,
-      });
-
-      const artifactId = artifact._id.toString();
+        documentIds,
+        subjectId,
+      }: {
+        type: "FLASHCARD" | "QUIZ" | "MINDMAP" | "REPORT" | "DATA_TABLE";
+        title: string;
+        instructions: string;
+        documentIds?: string[];
+        subjectId?: string;
+      },
+      config,
+    ) => {
+      if (signal?.aborted) {
+        throw new DOMException("AbortError", "AbortError");
+      }
+      const toolCallId = getToolCallId(config, "create_artifact");
       onEvent?.({
-        type: "artifact_created",
-        artifactId,
-        artifactType: type,
-        title: artifact.title,
-      });
-
-      const resultSummary = `${type} artifact "${artifact.title}" started`;
-      run.toolCalls.push({
+        type: "tool_start",
         tool: "create_artifact",
-        input: { type, title, instructions },
-        resultSummary,
+        toolCallId,
+        input: { type, title, instructions, documentIds, subjectId },
       });
-      onEvent?.({ type: "tool_end", tool: "create_artifact", resultSummary });
 
-      return JSON.stringify({
-        artifactId,
-        status: "GENERATING",
-        note: `The ${type.toLowerCase().replace("_", " ")} is being generated in the background. Tell the user it will appear in the Artifacts panel shortly — do not write its content yourself.`,
-      });
+      try {
+        let finalDocumentId: string | undefined = payload.documentId;
+        let finalDocumentIds: string[] | undefined = payload.documentIds;
+
+        if (documentIds && documentIds.length > 0) {
+          if (documentIds.length === 1) {
+            finalDocumentId = documentIds[0];
+            finalDocumentIds = undefined;
+          } else {
+            finalDocumentId = undefined;
+            finalDocumentIds = documentIds;
+          }
+        }
+
+        const finalSubjectId = subjectId || payload.subjectId;
+        const finalScope = subjectId ? "subject_all" : payload.scope;
+
+        const artifact = await initiateArtifactGeneration(userId, {
+          type,
+          title,
+          instructions,
+          threadId: payload.threadId,
+          documentId: finalDocumentId,
+          documentIds: finalDocumentIds,
+          subject: payload.subject,
+          subjectId: finalSubjectId,
+          scope: finalScope,
+        });
+
+        const artifactId = artifact._id.toString();
+        onEvent?.({
+          type: "artifact_created",
+          artifactId,
+          artifactType: type,
+          title: artifact.title,
+        });
+
+        const resultSummary = `${type} artifact "${artifact.title}" started`;
+        run.toolCalls.push({
+          tool: "create_artifact",
+          input: { type, title, instructions, documentIds, subjectId },
+          resultSummary,
+        });
+        onEvent?.({
+          type: "tool_end",
+          tool: "create_artifact",
+          toolCallId,
+          resultSummary,
+        });
+
+        return JSON.stringify({
+          artifactId,
+          status: "GENERATING",
+          note: `The ${type.toLowerCase().replace("_", " ")} is being generated in the background. Tell the user it will appear in the Artifacts panel shortly — do not write its content yourself.`,
+        });
+      } catch (err: any) {
+        const resultSummary = "ERROR";
+        run.toolCalls.push({
+          tool: "create_artifact",
+          input: { type, title, instructions, documentIds, subjectId },
+          resultSummary,
+        });
+        onEvent?.({
+          type: "tool_end",
+          tool: "create_artifact",
+          toolCallId,
+          resultSummary,
+        });
+
+        return JSON.stringify({
+          status: "ERROR",
+          message: err.message || "Failed to initiate artifact generation",
+        });
+      }
     },
     {
       name: "create_artifact",
@@ -262,11 +578,30 @@ const buildAgentTools = (
           .describe(
             "The topic or focus for the artifact, in the language of the documents. Be specific: include the subject area and any constraints the user gave.",
           ),
+        documentIds: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Ids from list_documents, when the user named specific documents. Omit to use the documents already attached to the conversation.",
+          ),
+        subjectId: z
+          .string()
+          .optional()
+          .describe(
+            "A subject id from list_subjects, when the user asked for a whole subject. Omit to use the conversation's own scope.",
+          ),
       }),
     },
   );
 
-  return [searchDocuments, listDocuments, createArtifact];
+  return [
+    searchDocuments,
+    listDocuments,
+    listSubjectsTool,
+    listArtifactsTool,
+    getDocumentOutline,
+    createArtifact,
+  ];
 };
 
 const loadThreadHistory = async (
@@ -377,8 +712,80 @@ export const askQuestionWithAgent = async (
       }
       agentSteps += 1;
       onEvent?.({ type: "agent_step", step: agentSteps });
-      const response = await boundModel.invoke(state.messages, { signal });
-      return { messages: [response] };
+
+      const stream = await boundModel.stream(state.messages, { signal });
+      let accumulated: AIMessageChunk | undefined;
+
+      for await (const chunk of stream) {
+        if (signal?.aborted) {
+          throw new DOMException("AbortError", "AbortError");
+        }
+        accumulated = accumulated ? concat(accumulated, chunk) : chunk;
+
+        if (typeof chunk.content === "string") {
+          if (chunk.content) {
+            onEvent?.({
+              type: "answer_delta",
+              step: agentSteps,
+              text: chunk.content,
+            });
+          }
+        } else if (Array.isArray(chunk.content)) {
+          for (const part of chunk.content) {
+            if (typeof part === "string") {
+              if (part) {
+                onEvent?.({
+                  type: "answer_delta",
+                  step: agentSteps,
+                  text: part,
+                });
+              }
+            } else if (typeof part === "object" && part !== null) {
+              if (
+                "type" in part &&
+                part.type === "thinking" &&
+                "thinking" in part &&
+                typeof part.thinking === "string"
+              ) {
+                if (part.thinking) {
+                  onEvent?.({
+                    type: "thought",
+                    step: agentSteps,
+                    text: part.thinking,
+                  });
+                }
+              } else if (
+                "type" in part &&
+                part.type === "text" &&
+                "text" in part &&
+                typeof part.text === "string"
+              ) {
+                if (part.text) {
+                  onEvent?.({
+                    type: "answer_delta",
+                    step: agentSteps,
+                    text: part.text,
+                  });
+                }
+              } else if ("text" in part && typeof part.text === "string") {
+                if (part.text) {
+                  onEvent?.({
+                    type: "answer_delta",
+                    step: agentSteps,
+                    text: part.text,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (!accumulated) {
+        accumulated = new AIMessageChunk({ content: "" });
+      }
+
+      return { messages: [accumulated] };
     };
 
     // The agent loop: the model either requests tools (→ tools → agent again)
@@ -451,6 +858,7 @@ export const askQuestionWithAgent = async (
       fallbackReason = "empty_answer";
       isGrounded = false;
       confidenceScore = 0;
+      onEvent?.({ type: "answer_revised", reason: "empty_answer" });
       answer = await generateFallbackAnswer({
         question: payload.question,
         language: answerStyle.language,
@@ -466,7 +874,7 @@ export const askQuestionWithAgent = async (
       if (signal?.aborted) {
         throw new DOMException("AbortError", "AbortError");
       }
-      onEvent?.({ type: "grounding_check" });
+      onEvent?.({ type: "phase", phase: "verifying" });
       const grounding = await checkAnswerGrounding(
         answer,
         buildContext(uniqueChunks),
@@ -478,6 +886,7 @@ export const askQuestionWithAgent = async (
       if (!grounding.isGrounded) {
         fallbackGenerated = true;
         fallbackReason = "grounding_failed";
+        onEvent?.({ type: "answer_revised", reason: "grounding_failed" });
         answer = await generateFallbackAnswer({
           question: payload.question,
           language: answerStyle.language,
@@ -504,6 +913,7 @@ export const askQuestionWithAgent = async (
       answer = answer.replace(/\[\d+\]/g, "");
       citedSources = [];
     } else {
+      onEvent?.({ type: "phase", phase: "citing" });
       const citationResult = applyCitations({ answer, sources });
       answer = citationResult.answer;
       citedSources = citationResult.citedSources;

@@ -8,6 +8,9 @@ import {
   getStorageTransaction,
   handlePaymentIpn,
   handlePaymentReturn,
+  handlePayosCancel,
+  handlePayosReturn,
+  handlePayosWebhook,
   listStorageTransactions,
   purchaseStoragePackage,
   reconcileMyStorage,
@@ -49,6 +52,10 @@ storageRouter.get("/payments/vnpay/return", handlePaymentReturn);
  *         description: VNPay RspCode envelope
  */
 storageRouter.get("/payments/vnpay/ipn", handlePaymentIpn);
+
+storageRouter.post("/payments/payos/webhook", handlePayosWebhook);
+storageRouter.get("/payments/payos/return", handlePayosReturn);
+storageRouter.get("/payments/payos/cancel", handlePayosCancel);
 
 /**
  * @swagger

@@ -81,13 +81,24 @@ export const validateProductionPublicUrls = (): void => {
     throw new Error("MOBILE_APP_SCHEME is invalid");
   }
 
-  // Only required once a real payment provider is configured; the MOCK provider
-  // works fine against localhost.
-  if (process.env.VNP_TMN_CODE?.trim()) {
+  // A real gateway requires a public HTTPS API origin for return URLs/webhooks.
+  if (
+    process.env.PAYMENT_PROVIDER?.trim().toUpperCase() === "PAYOS" ||
+    process.env.PAYOS_CLIENT_ID?.trim()
+  ) {
+    if (
+      !process.env.PAYOS_CLIENT_ID?.trim() ||
+      !process.env.PAYOS_API_KEY?.trim() ||
+      !process.env.PAYOS_CHECKSUM_KEY?.trim()
+    ) {
+      throw new Error(
+        "PAYOS_CLIENT_ID, PAYOS_API_KEY and PAYOS_CHECKSUM_KEY are required",
+      );
+    }
     const publicApiUrl = process.env.PUBLIC_API_URL?.trim();
 
     if (!publicApiUrl) {
-      throw new Error("PUBLIC_API_URL is required when VNPay is configured");
+      throw new Error("PUBLIC_API_URL is required when PayOS is configured");
     }
 
     const parsedApiUrl = new URL(publicApiUrl);

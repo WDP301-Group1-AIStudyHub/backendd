@@ -78,6 +78,7 @@ const toAdminTransaction = (
 ) => ({
   id: transaction._id.toString(),
   orderRef: transaction.orderRef,
+  providerOrderCode: transaction.providerOrderCode || null,
   status: transaction.status,
   provider: transaction.provider,
   clientPlatform: transaction.clientPlatform,
@@ -86,6 +87,7 @@ const toAdminTransaction = (
   packageId: transaction.packageId?.toString() || "",
   package: transaction.packageSnapshot,
   providerTxnRef: transaction.providerTxnRef || "",
+  paymentLinkId: transaction.paymentLinkId || "",
   providerResponseCode: transaction.providerResponseCode || "",
   bankCode: transaction.bankCode || "",
   settledBy: transaction.settledBy || null,

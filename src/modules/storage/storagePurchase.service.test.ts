@@ -10,6 +10,7 @@ import {
   activatePackage,
   createPurchaseOrder,
   generateOrderRef,
+  settlePayosTransaction,
   settleTransaction,
 } from "./storagePurchase.service";
 
@@ -60,6 +61,7 @@ type Ctx = {
 };
 
 const setup = (overrides: Partial<Ctx["storage"]> = {}): Ctx => {
+  process.env.PAYMENT_PROVIDER = "MOCK";
   const ctx: Ctx = {
     storage: {
       userId: USER_ID,
@@ -132,6 +134,7 @@ afterEach(() => {
   StorageTransaction.findOneAndUpdate = originalTransactionFindOneAndUpdate;
   StorageTransaction.updateOne = originalTransactionUpdateOne;
   StudyDocument.aggregate = originalDocumentAggregate;
+  delete process.env.PAYMENT_PROVIDER;
   delete process.env.VNP_TMN_CODE;
   delete process.env.VNP_HASH_SECRET;
 });
@@ -411,6 +414,107 @@ describe("callback settlement", () => {
 
     assert.equal(result.code, "00");
     assert.equal(result.transaction?.status, "FAILED");
+    assert.equal(ctx.activations, 0);
+  });
+});
+
+describe("PayOS webhook settlement", () => {
+  const pendingTransaction = () => ({
+    _id: new Types.ObjectId(),
+    orderRef: "SPPAYOS01",
+    providerOrderCode: 123456789,
+    status: "PENDING",
+    amountVnd: 49000,
+    userId: new Types.ObjectId(USER_ID),
+    packageId: PRO_ID,
+    paymentLinkId: "link-1",
+  });
+
+  it("activates a package once for a verified, exact-amount webhook", async () => {
+    const ctx = setup();
+    let claimed = false;
+    StorageTransaction.findOne = (async () =>
+      pendingTransaction()) as unknown as typeof StorageTransaction.findOne;
+    StorageTransaction.findOneAndUpdate = (async () => {
+      if (claimed) return null;
+      claimed = true;
+      return { ...pendingTransaction(), status: "COMPLETED" };
+    }) as unknown as typeof StorageTransaction.findOneAndUpdate;
+
+    const callback = {
+      orderRef: "",
+      providerOrderCode: 123456789,
+      success: true,
+      amountVnd: 49000,
+      providerTxnRef: "REF-1",
+      paymentLinkId: "link-1",
+      responseCode: "00",
+      bankCode: "9704",
+      signatureValid: true,
+      raw: { orderCode: "123456789" },
+    };
+    const first = await settlePayosTransaction(callback);
+    const duplicate = await settlePayosTransaction(callback);
+
+    assert.equal(first.code, "00");
+    assert.equal(duplicate.code, "02");
+    assert.equal(ctx.activations, 1);
+  });
+
+  it("rejects a PayOS webhook whose amount differs from the order", async () => {
+    const ctx = setup();
+    let updateCalled = false;
+    StorageTransaction.findOne = (async () =>
+      pendingTransaction()) as unknown as typeof StorageTransaction.findOne;
+    StorageTransaction.findOneAndUpdate = (async () => {
+      updateCalled = true;
+      return null;
+    }) as unknown as typeof StorageTransaction.findOneAndUpdate;
+
+    const result = await settlePayosTransaction({
+      orderRef: "",
+      providerOrderCode: 123456789,
+      success: true,
+      amountVnd: 1,
+      providerTxnRef: "REF-1",
+      responseCode: "00",
+      bankCode: "",
+      signatureValid: true,
+      raw: {},
+    });
+
+    assert.equal(result.code, "04");
+    assert.equal(updateCalled, false);
+    assert.equal(ctx.activations, 0);
+  });
+
+  it("expires a stale PayOS order without activating its package", async () => {
+    const ctx = setup();
+    let expired = false;
+    StorageTransaction.findOne = (async () => ({
+      ...pendingTransaction(),
+      expiresAt: new Date(Date.now() - 1_000),
+    })) as unknown as typeof StorageTransaction.findOne;
+    StorageTransaction.updateOne = (async () => {
+      expired = true;
+      return { acknowledged: true, modifiedCount: 1 };
+    }) as unknown as typeof StorageTransaction.updateOne;
+
+    const result = await settlePayosTransaction({
+      orderRef: "",
+      providerOrderCode: 123456789,
+      success: true,
+      amountVnd: 49000,
+      providerTxnRef: "REF-LATE",
+      responseCode: "00",
+      bankCode: "",
+      signatureValid: true,
+      raw: {},
+    });
+
+    assert.equal(result.code, "02");
+    assert.equal(result.message, "Order expired");
+    assert.equal(expired, true);
     assert.equal(ctx.activations, 0);
   });
 });

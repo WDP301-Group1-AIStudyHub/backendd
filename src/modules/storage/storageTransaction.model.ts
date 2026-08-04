@@ -7,7 +7,7 @@ export type StorageTransactionStatus =
   | "CANCELLED"
   | "EXPIRED";
 
-export type StoragePaymentProvider = "VNPAY" | "MOCK";
+export type StoragePaymentProvider = "PAYOS" | "VNPAY" | "MOCK";
 
 export type StorageClientPlatform = "WEB" | "MOBILE";
 
@@ -25,15 +25,17 @@ export interface IStorageTransaction extends Document {
   provider: StoragePaymentProvider;
   status: StorageTransactionStatus;
   orderRef: string;
+  providerOrderCode?: number | null;
   clientPlatform: StorageClientPlatform;
   clientReturnUrl: string;
   paymentUrl: string;
+  paymentLinkId: string;
   providerTxnRef: string;
   bankCode: string;
   providerResponseCode: string;
   ipnReceivedAt?: Date | null;
   ipnRawQuery?: Record<string, unknown> | null;
-  settledBy?: "RETURN" | "IPN" | "INLINE" | null;
+  settledBy?: "RETURN" | "IPN" | "WEBHOOK" | "INLINE" | null;
   completedAt?: Date | null;
   failureReason: string;
   previousPackageId?: Types.ObjectId | null;
@@ -73,7 +75,7 @@ const storageTransactionSchema = new Schema<IStorageTransaction>(
     },
     provider: {
       type: String,
-      enum: ["VNPAY", "MOCK"],
+      enum: ["PAYOS", "VNPAY", "MOCK"],
       required: true,
     },
     status: {
@@ -90,6 +92,12 @@ const storageTransactionSchema = new Schema<IStorageTransaction>(
       unique: true,
       trim: true,
     },
+    providerOrderCode: {
+      type: Number,
+      index: true,
+      unique: true,
+      sparse: true,
+    },
     // Chosen at order creation, never read back from the gateway response, so
     // the return redirect target always comes from our own database.
     clientPlatform: {
@@ -104,6 +112,10 @@ const storageTransactionSchema = new Schema<IStorageTransaction>(
       maxlength: 2048,
     },
     paymentUrl: {
+      type: String,
+      default: "",
+    },
+    paymentLinkId: {
       type: String,
       default: "",
     },
@@ -132,7 +144,7 @@ const storageTransactionSchema = new Schema<IStorageTransaction>(
     // you whether the IPN URL registered with the gateway is correct.
     settledBy: {
       type: String,
-      enum: ["RETURN", "IPN", "INLINE", null],
+      enum: ["RETURN", "IPN", "WEBHOOK", "INLINE", null],
       default: null,
     },
     completedAt: {

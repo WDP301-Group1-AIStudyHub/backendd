@@ -16,12 +16,15 @@ import {
 import {
   cancelTransaction,
   createPurchaseOrder,
+  getTransactionByProviderOrderCode,
   getTransactionForUser,
   listUserTransactions,
   settleTransaction,
+  settlePayosTransaction,
 } from "./storagePurchase.service";
 import { getPaymentProvider } from "./payment";
 import { renderMockCheckoutPage } from "./payment/mock.provider";
+import { verifyPayosWebhook } from "./payment/payos.provider";
 import { StorageTransaction } from "./storageTransaction.model";
 
 const RECONCILE_COOLDOWN_MS = 60 * 1000;
@@ -221,6 +224,41 @@ export const handlePaymentIpn = asyncHandler(async (
   const result = await settleTransaction(req.query as Record<string, string>);
 
   res.status(200).json({ RspCode: result.code, Message: result.message });
+});
+
+const providerOrderCodeFromRequest = (req: Request): number => {
+  const value = Number(req.query.orderCode || req.body?.data?.orderCode || 0);
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
+};
+
+const redirectPayosClient = (res: Response, transaction: Awaited<ReturnType<typeof getTransactionByProviderOrderCode>>, status: string): void => {
+  const orderRef = transaction?.orderRef || "";
+  const target = transaction?.clientPlatform === "MOBILE"
+    ? resolveMobileStorageReturnUrl(transaction.clientReturnUrl, orderRef, status)
+    : buildWebStorageReturnUrl(orderRef, status);
+  res.redirect(302, target);
+};
+
+export const handlePayosWebhook = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await verifyPayosWebhook(req.body);
+    const settled = await settlePayosTransaction(result, "WEBHOOK");
+    res.status(200).json({ code: settled.code, desc: settled.message });
+  } catch (error) {
+    console.error("[storage] Invalid PayOS webhook", error);
+    res.status(400).json({ code: "97", desc: "Invalid webhook" });
+  }
+});
+
+export const handlePayosReturn = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const transaction = await getTransactionByProviderOrderCode(providerOrderCodeFromRequest(req));
+  redirectPayosClient(res, transaction, transaction?.status || "PENDING");
+});
+
+export const handlePayosCancel = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const providerOrderCode = providerOrderCodeFromRequest(req);
+  const transaction = await getTransactionByProviderOrderCode(providerOrderCode);
+  redirectPayosClient(res, transaction, "CANCELLED");
 });
 
 export const renderMockCheckout = asyncHandler(async (

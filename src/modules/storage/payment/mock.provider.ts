@@ -12,7 +12,7 @@ import {
  * exercised end to end without credentials. Only the HMAC maths and VNPay's own
  * hosted page go untested.
  */
-export const mockProvider: PaymentProvider = {
+export const mockProvider = {
   name: "MOCK",
 
   createPaymentUrl(input: CreatePaymentInput): string {
@@ -32,6 +32,7 @@ export const mockProvider: PaymentProvider = {
 
     return {
       orderRef: query.vnp_TxnRef || query.orderRef || "",
+      providerOrderCode: query.orderCode ? Number(query.orderCode) : undefined,
       success,
       amountVnd: Number(query.vnp_Amount || 0),
       providerTxnRef: query.vnp_TransactionNo || `MOCK-${Date.now()}`,
@@ -43,7 +44,7 @@ export const mockProvider: PaymentProvider = {
       raw: query,
     };
   },
-};
+} satisfies PaymentProvider;
 
 export const renderMockCheckoutPage = (
   orderRef: string,

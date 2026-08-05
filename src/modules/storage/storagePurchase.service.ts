@@ -92,16 +92,19 @@ export const assertUpgradeIsPossible = async (
     );
   }
 
+  // A purchase REPLACES quota rather than adding to it (see activatePackage),
+  // so buying anything with less capacity than the current plan is always a
+  // paid self-downgrade — never a legitimate upgrade. This also covers the
+  // free-after-paid case, since Free is always the smallest plan.
   const currentPackage = await StoragePackage.findById(storage.packageId);
   if (
-    targetPackage.priceVnd === 0 &&
     currentPackage &&
-    currentPackage.priceVnd > 0
+    targetPackage.capacityBytes < currentPackage.capacityBytes
   ) {
     throw new AppError(
-      "The Free plan cannot be selected after upgrading.",
+      "Downgrading to a smaller plan isn't supported. Contact support if you need to reduce your plan.",
       409,
-      "STORAGE_FREE_PLAN_REACTIVATION_NOT_ALLOWED",
+      "STORAGE_DOWNGRADE_NOT_ALLOWED",
       {
         currentPackageName: currentPackage.name,
         targetPackageName: targetPackage.name,

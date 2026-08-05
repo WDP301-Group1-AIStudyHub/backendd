@@ -31,6 +31,29 @@ export const getMobileAppScheme = (): string =>
     .trim()
     .replace(/:\/\/?$/, "");
 
+const isPrivateExpoHost = (hostname: string): boolean => {
+  const normalized = hostname.toLowerCase();
+  if (
+    normalized === "localhost" ||
+    normalized === "u.expo.dev" ||
+    normalized.endsWith(".expo.dev")
+  ) {
+    return true;
+  }
+
+  const octets = normalized.split(".").map((part) => Number(part));
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) {
+    return false;
+  }
+
+  return (
+    octets[0] === 10 ||
+    octets[0] === 127 ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168)
+  );
+};
+
 export const validateProductionPublicUrls = (): void => {
   if (process.env.NODE_ENV !== "production") {
     return;
@@ -58,13 +81,24 @@ export const validateProductionPublicUrls = (): void => {
     throw new Error("MOBILE_APP_SCHEME is invalid");
   }
 
-  // Only required once a real payment provider is configured; the MOCK provider
-  // works fine against localhost.
-  if (process.env.VNP_TMN_CODE?.trim()) {
+  // A real gateway requires a public HTTPS API origin for return URLs/webhooks.
+  if (
+    process.env.PAYMENT_PROVIDER?.trim().toUpperCase() === "PAYOS" ||
+    process.env.PAYOS_CLIENT_ID?.trim()
+  ) {
+    if (
+      !process.env.PAYOS_CLIENT_ID?.trim() ||
+      !process.env.PAYOS_API_KEY?.trim() ||
+      !process.env.PAYOS_CHECKSUM_KEY?.trim()
+    ) {
+      throw new Error(
+        "PAYOS_CLIENT_ID, PAYOS_API_KEY and PAYOS_CHECKSUM_KEY are required",
+      );
+    }
     const publicApiUrl = process.env.PUBLIC_API_URL?.trim();
 
     if (!publicApiUrl) {
-      throw new Error("PUBLIC_API_URL is required when VNPay is configured");
+      throw new Error("PUBLIC_API_URL is required when PayOS is configured");
     }
 
     const parsedApiUrl = new URL(publicApiUrl);
@@ -131,8 +165,10 @@ export const resolveMobileStorageReturnUrl = (
     const appProtocol = `${getMobileAppScheme().toLowerCase()}:`;
     const isInstalledApp = url.protocol.toLowerCase() === appProtocol;
     const isExpoDevelopment =
-      process.env.NODE_ENV !== "production" &&
-      ["exp:", "exps:"].includes(url.protocol.toLowerCase());
+      ["exp:", "exps:"].includes(url.protocol.toLowerCase()) &&
+      isPrivateExpoHost(url.hostname) &&
+      (process.env.NODE_ENV !== "production" ||
+        process.env.ALLOW_EXPO_GO_RETURN_URL === "true");
 
     if (!isInstalledApp && !isExpoDevelopment) {
       return buildMobileStorageReturnUrl(orderRef, status);

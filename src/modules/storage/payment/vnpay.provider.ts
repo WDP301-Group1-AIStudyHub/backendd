@@ -67,7 +67,7 @@ const safeCompareHex = (left: string, right: string): boolean => {
   }
 };
 
-export const vnpayProvider: PaymentProvider = {
+export const vnpayProvider = {
   name: "VNPAY",
 
   createPaymentUrl(input: CreatePaymentInput): string {
@@ -113,6 +113,7 @@ export const vnpayProvider: PaymentProvider = {
 
     return {
       orderRef: query.vnp_TxnRef || "",
+      providerOrderCode: undefined,
       success:
         signatureValid &&
         query.vnp_ResponseCode === "00" &&
@@ -125,4 +126,4 @@ export const vnpayProvider: PaymentProvider = {
       raw: query,
     };
   },
-};
+} satisfies PaymentProvider;

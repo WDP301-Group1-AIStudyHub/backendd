@@ -12,6 +12,8 @@ const cleanJson = (text: string): string => {
   return cleaned.trim();
 };
 
+import { resolveCredentialForUser, runWithCredential } from "./aiCredentialContext";
+
 export const runMaterialGenerationWorker = async (
   materialId: string,
   userId: string,
@@ -21,8 +23,10 @@ export const runMaterialGenerationWorker = async (
   difficulty?: string,
   topicFocus?: string
 ): Promise<void> => {
-  try {
-    // 1. Update status to GENERATING
+  const credential = await resolveCredentialForUser(userId);
+  return runWithCredential(credential, async () => {
+    try {
+      // 1. Update status to GENERATING
     await StudyMaterial.findByIdAndUpdate(materialId, { status: "GENERATING" });
 
     // 2. Fetch the document text
@@ -169,13 +173,14 @@ export const runMaterialGenerationWorker = async (
       error: errorMessage,
     });
 
-    // Broadcast failure event
-    emitUploadProgress("study-material:update", {
-      documentId,
-      status: "failed" as any,
-      step: "generation",
-      progress: 0,
-      message: `Failed to generate: ${errorMessage}`,
-    } as any);
-  }
+      // Broadcast failure event
+      emitUploadProgress("study-material:update", {
+        documentId,
+        status: "failed" as any,
+        step: "generation",
+        progress: 0,
+        message: `Failed to generate: ${errorMessage}`,
+      } as any);
+    }
+  });
 };

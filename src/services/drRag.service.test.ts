@@ -198,6 +198,7 @@ describe("DR-RAG retrieval", () => {
     ).resolveChatScope = async () => ({
       scope: "library_all",
       hasProcessingDocument: false,
+      emptyDocumentTitles: [],
       vectorFilters: { userId: "user-1" },
       isMultiDocumentScope: false,
     });

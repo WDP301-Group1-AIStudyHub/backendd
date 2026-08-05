@@ -19,6 +19,7 @@ import {
   updateDocumentStar,
 } from "./document.controller";
 import documentShareRoutes from "../documentShares/documentShare.routes";
+import { createSummary } from "../../controllers/documentSummary.controller";
 
 const objectIdSchema = z.string().trim().regex(/^[0-9a-fA-F]{24}$/, {
   message: "Invalid ObjectId",
@@ -116,6 +117,9 @@ router.patch(
   editSharedDocumentProfile,
 );
 router.use("/:id/share", documentShareRoutes);
+// No request body: one fixed summary style, no options to pass (RULE-02 does
+// not apply — there is no text field for the user to type into).
+router.post("/:id/summaries", validateRequest(documentIdSchema), createSummary);
 router.get("/:id", validateRequest(documentIdSchema), getDocument);
 router.put("/:id", validateRequest(updateDocumentSchema), editDocument);
 router.delete("/:id", validateRequest(documentIdSchema), removeDocument);

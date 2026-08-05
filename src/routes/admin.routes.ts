@@ -8,6 +8,33 @@ import {
   unbanUser,
 } from "../controllers/admin.controller";
 import { authMiddleware, isAdminMiddleware } from "../middlewares/auth.middleware";
+import {
+  cancelAdminPaymentTransaction,
+  getAdminPaymentTransactionDetail,
+  getAdminPaymentTransactions,
+  getAdminPaymentsOverview,
+  getAdminStoragePackages,
+  getAdminStorageOverview,
+  getAdminStorageUserDetail,
+  getAdminStorageUsers,
+  patchAdminStoragePackage,
+  patchAdminStorageUserPackage,
+  postAdminStoragePackage,
+  reconcileAdminStorageHandler,
+  reconcileAdminStorageUserHandler,
+} from "../controllers/adminStorage.controller";
+import { validateRequest } from "../middlewares/validate.middleware";
+import {
+  adminPaymentCancelSchema,
+  adminPaymentOrderRefSchema,
+  adminPaymentsOverviewSchema,
+  adminPaymentsTransactionsSchema,
+  adminStoragePackageChangeSchema,
+  adminStoragePackageCreateSchema,
+  adminStoragePackageUpdateSchema,
+  adminStorageUserParamSchema,
+  adminStorageUsersSchema,
+} from "../modules/storage/adminStorage.validation";
 
 const router = Router();
 
@@ -143,5 +170,60 @@ router.put("/users/:id/ban", banUser);
  *         description: User unbanned successfully
  */
 router.put("/users/:id/unban", unbanUser);
+
+// Storage management. These routes intentionally live under the existing
+// admin middleware so a normal user receives the same 403 as other admin APIs.
+router.get("/storage/overview", getAdminStorageOverview);
+router.get("/storage/users", validateRequest(adminStorageUsersSchema), getAdminStorageUsers);
+router.get(
+  "/storage/users/:userId",
+  validateRequest(adminStorageUserParamSchema),
+  getAdminStorageUserDetail,
+);
+router.patch(
+  "/storage/users/:userId/package",
+  validateRequest(adminStoragePackageChangeSchema),
+  patchAdminStorageUserPackage,
+);
+router.post(
+  "/storage/users/:userId/reconcile",
+  validateRequest(adminStorageUserParamSchema),
+  reconcileAdminStorageUserHandler,
+);
+router.post("/storage/reconcile", reconcileAdminStorageHandler);
+router.get("/storage/packages", getAdminStoragePackages);
+router.post(
+  "/storage/packages",
+  validateRequest(adminStoragePackageCreateSchema),
+  postAdminStoragePackage,
+);
+router.patch(
+  "/storage/packages/:packageId",
+  validateRequest(adminStoragePackageUpdateSchema),
+  patchAdminStoragePackage,
+);
+
+// Payment audit and controlled cancellation. Completed transactions are
+// intentionally read-only because VNPay refund is outside this integration.
+router.get(
+  "/payments/overview",
+  validateRequest(adminPaymentsOverviewSchema),
+  getAdminPaymentsOverview,
+);
+router.get(
+  "/payments/transactions",
+  validateRequest(adminPaymentsTransactionsSchema),
+  getAdminPaymentTransactions,
+);
+router.get(
+  "/payments/transactions/:orderRef",
+  validateRequest(adminPaymentOrderRefSchema),
+  getAdminPaymentTransactionDetail,
+);
+router.post(
+  "/payments/transactions/:orderRef/cancel",
+  validateRequest(adminPaymentCancelSchema),
+  cancelAdminPaymentTransaction,
+);
 
 export default router;

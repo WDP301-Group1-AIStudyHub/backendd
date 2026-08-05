@@ -5,6 +5,12 @@ import {
   initiateArtifactGeneration,
   listArtifacts,
 } from "../services/artifact.service";
+import {
+  listArtifactShares,
+  listArtifactsSharedWithMe,
+  revokeArtifactShare,
+  shareArtifact,
+} from "../services/artifactShare.service";
 import { sendResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 
@@ -43,11 +49,70 @@ export const getArtifactDetail = asyncHandler(
     const userId = req.authUser!.id;
     const { id } = req.params;
 
-    const data = await getArtifactById(userId, id);
+    const { artifact, isOwner } = await getArtifactById(userId, id);
 
     sendResponse(res, 200, {
       success: true,
       message: "Artifact fetched successfully",
+      // Spread rather than nest: existing flashcard/quiz clients read the
+      // artifact fields straight off `data`, and isOwner is additive.
+      data: { ...artifact.toJSON(), isOwner },
+    });
+  }
+);
+
+export const shareArtifactWithUser = asyncHandler(
+  async (
+    req: Request<{ id: string }, unknown, { email: string; permission: "VIEW" }>,
+    res: Response
+  ): Promise<void> => {
+    const data = await shareArtifact(req.params.id, req.authUser!.id, req.body);
+
+    sendResponse(res, 201, {
+      success: true,
+      message: "Summary shared successfully",
+      data,
+    });
+  }
+);
+
+export const getArtifactShares = asyncHandler(
+  async (req: Request<{ id: string }>, res: Response): Promise<void> => {
+    const data = await listArtifactShares(req.params.id, req.authUser!.id);
+
+    sendResponse(res, 200, {
+      success: true,
+      message: "Artifact shares fetched successfully",
+      data,
+    });
+  }
+);
+
+export const removeArtifactShare = asyncHandler(
+  async (
+    req: Request<{ id: string; shareId: string }>,
+    res: Response
+  ): Promise<void> => {
+    await revokeArtifactShare(
+      req.params.id,
+      req.params.shareId,
+      req.authUser!.id
+    );
+
+    sendResponse(res, 200, {
+      success: true,
+      message: "Artifact share revoked successfully",
+    });
+  }
+);
+
+export const getArtifactsSharedWithMe = asyncHandler(
+  async (req: Request, res: Response): Promise<void> => {
+    const data = await listArtifactsSharedWithMe(req.authUser!.id);
+
+    sendResponse(res, 200, {
+      success: true,
+      message: "Shared summaries fetched successfully",
       data,
     });
   }

@@ -38,6 +38,24 @@ import {
 } from "../utils/documentOutline";
 
 const MAX_DOCUMENT_LIST_LIMIT = 50;
+
+export const computeIndexingStatus = (
+  chunksCreated: number,
+  extractedText?: string,
+): { status: "INDEXED" | "FAILED"; error: string } => {
+  if (chunksCreated > 0) {
+    return { status: "INDEXED", error: "" };
+  }
+  const hasText = Boolean(extractedText && extractedText.trim().length > 0);
+  // States what happened, not what to do about it. The remedy is worded by
+  // whichever surface displays this (see `getDocumentIndexIssue` on the
+  // client) — baking advice in here means every UI that adds its own ends up
+  // printing the same suggestion twice.
+  const error = hasText
+    ? "Indexing produced no searchable content."
+    : "No readable text found — this file appears to be scanned images.";
+  return { status: "FAILED", error };
+};
 const DEFAULT_DOCUMENT_LIST_LIMIT = 10;
 const DEFAULT_DOCUMENT_LIST_PAGE = 1;
 const DOCUMENT_LIST_SORT_FIELDS = new Set([
@@ -87,6 +105,12 @@ export const toDocumentResponse = (document: IDocument): DocumentResponse => {
     extractedText: document.extractedText,
     extractionStatus: document.extractionStatus || "COMPLETED",
     extractionError: document.extractionError || "",
+    // Carried so the upload response can tell the client the file produced
+    // nothing searchable. Without these the caller sees only HTTP 201 and
+    // reports a clean success for a document that cannot answer anything.
+    ragStatus: document.ragStatus,
+    ragError: document.ragError || "",
+    lastIndexedAt: document.lastIndexedAt,
     totalChunks: document.totalChunks || 0,
     chunkingStrategy: document.chunkingStrategy,
     detectedSections: document.detectedSections || [],
@@ -323,11 +347,33 @@ const runCreateDocument = async (
   if (extractionStatus === "COMPLETED") {
     console.log("[document.service: createDocument] Triggering RAG indexing via indexDocumentForRag...");
     const indexResult = await indexDocumentForRag(document._id.toString(), userId);
-    console.log("[document.service: createDocument] RAG indexing completed successfully", {
+    console.log("[document.service: createDocument] RAG indexing completed", {
       chunksCreated: indexResult.chunksCreated,
       chunkingStrategy: indexResult.chunkingStrategy
     });
     const indexedAt = new Date();
+    const { status: indexingStatus, error: indexingError } = computeIndexingStatus(
+      indexResult.chunksCreated,
+      extractedText,
+    );
+
+    // Zero chunks means nothing reached the vector store, so the document
+    // cannot answer anything. The line above reads like success on its own —
+    // this is the one that says the upload is unusable.
+    if (indexingStatus === "FAILED") {
+      console.warn(
+        "[document.service: createDocument] Document is NOT searchable — no chunks were indexed",
+        {
+          documentId: document._id.toString(),
+          title: document.title,
+          fileName: document.fileName,
+          extractedTextLength: extractedText?.length ?? 0,
+          chunksCreated: indexResult.chunksCreated,
+          ragStatus: indexingStatus,
+          reason: indexingError,
+        },
+      );
+    }
 
     version.indexedAt = indexedAt;
     version.totalChunks = indexResult.chunksCreated;
@@ -337,15 +383,15 @@ const runCreateDocument = async (
     version.chapterCount = indexResult.chapterCount || 0;
     version.partCount = indexResult.partCount || 0;
     version.sectionCount = indexResult.sectionCount || 0;
-    version.processingStatus = "INDEXED";
+    version.processingStatus = indexingStatus;
     version.processingStage = "COMPLETED";
     version.processingProgress = 100;
-    version.processingError = "";
+    version.processingError = indexingError;
     version.processingCompletedAt = indexedAt;
     await version.save();
     document.lastIndexedAt = indexedAt;
-    document.ragStatus = "INDEXED";
-    document.ragError = "";
+    document.ragStatus = indexingStatus;
+    document.ragError = indexingError;
     document.ragStatusUpdatedAt = indexedAt;
     document.totalChunks = indexResult.chunksCreated;
     document.chunkingStrategy = indexResult.chunkingStrategy;
@@ -467,6 +513,10 @@ export const reindexUserDocument = async (
 
   const result = await reembedDocumentForRag(document._id.toString(), userId);
   const indexedAt = new Date();
+  const { status: indexingStatus, error: indexingError } = computeIndexingStatus(
+    result.chunksCreated,
+    document.extractedText,
+  );
 
   await StudyDocument.updateOne(
     { _id: document._id, ownerId: userId },
@@ -480,8 +530,8 @@ export const reindexUserDocument = async (
         partCount: result.partCount || 0,
         sectionCount: result.sectionCount || 0,
         lastIndexedAt: indexedAt,
-        ragStatus: "INDEXED",
-        ragError: "",
+        ragStatus: indexingStatus,
+        ragError: indexingError,
         ragStatusUpdatedAt: indexedAt,
       },
     },
@@ -505,10 +555,10 @@ export const reindexUserDocument = async (
           partCount: result.partCount || 0,
           sectionCount: result.sectionCount || 0,
           indexedAt,
-          processingStatus: "INDEXED",
+          processingStatus: indexingStatus,
           processingStage: "COMPLETED",
           processingProgress: 100,
-          processingError: "",
+          processingError: indexingError,
           processingCompletedAt: indexedAt,
         },
       },

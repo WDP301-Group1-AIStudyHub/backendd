@@ -1,28 +1,38 @@
 import { mockProvider } from "./mock.provider";
-import { vnpayProvider } from "./vnpay.provider";
+import { isPayosConfigured, payosProvider } from "./payos.provider";
 import { PaymentProvider } from "./payment.types";
 
-export const isVnpayConfigured = (): boolean =>
-  Boolean(process.env.VNP_TMN_CODE?.trim() && process.env.VNP_HASH_SECRET?.trim());
-
 /**
- * Auto-selects the provider from configuration. Absent credentials means MOCK,
- * so development is never blocked on merchant registration.
+ * PayOS is the only real provider for new orders. MOCK is available only when
+ * explicitly selected for tests or isolated development.
  */
 export const getPaymentProvider = (): PaymentProvider =>
-  isVnpayConfigured() ? vnpayProvider : mockProvider;
+  (() => {
+    const requested = process.env.PAYMENT_PROVIDER?.trim().toUpperCase();
+    if (requested === "MOCK") return mockProvider;
+    if (requested === "PAYOS") {
+      if (!isPayosConfigured()) {
+        throw new Error(
+          "PAYOS_CLIENT_ID, PAYOS_API_KEY and PAYOS_CHECKSUM_KEY are required",
+        );
+      }
+      return payosProvider;
+    }
+    if (!requested && isPayosConfigured()) return payosProvider;
+    throw new Error("PAYMENT_PROVIDER must be PAYOS or explicit MOCK");
+  })();
 
 export const logPaymentProviderSelection = (): void => {
   const provider = getPaymentProvider();
 
   if (provider.name === "MOCK") {
     console.warn(
-      "[storage] Payment provider: MOCK (VNP_TMN_CODE/VNP_HASH_SECRET not set). No real payment will be taken.",
+      "[storage] Payment provider: MOCK (explicit test/development mode). No real payment will be taken.",
     );
     return;
   }
 
-  console.log("[storage] Payment provider: VNPAY");
+  console.log(`[storage] Payment provider: ${provider.name}`);
 };
 
 export { PaymentProvider } from "./payment.types";

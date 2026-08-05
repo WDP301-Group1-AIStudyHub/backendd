@@ -4,6 +4,7 @@ import {
   extractDocumentOutline,
 } from "../utils/documentOutline";
 import { generateGeminiText } from "./gemini.service";
+import { requireCredential } from "./aiCredentialContext";
 
 type LlmOutlineCacheEntry = {
   hash: string;
@@ -42,9 +43,13 @@ export const extractOutlineWithLlmFallback = async ({
   text: string;
   cacheKey: string;
 }): Promise<DocumentOutlineNode[]> => {
+  // Only ever reached inside a chat turn (langgraph → documentStructureAnswer),
+  // which the controllers wrap. Fail loudly if that ever stops being true
+  // rather than silently disabling outline extraction.
+  const apiKey = requireCredential().apiKey;
   if (
     process.env.NODE_ENV === "test" ||
-    !process.env.GEMINI_API_KEY ||
+    !apiKey ||
     !text.trim()
   ) {
     return [];

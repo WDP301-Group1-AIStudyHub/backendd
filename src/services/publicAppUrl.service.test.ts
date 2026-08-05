@@ -14,6 +14,7 @@ const originalEnv = {
   CLIENT_URL: process.env.CLIENT_URL,
   FRONTEND_URL: process.env.FRONTEND_URL,
   MOBILE_APP_SCHEME: process.env.MOBILE_APP_SCHEME,
+  ALLOW_EXPO_GO_RETURN_URL: process.env.ALLOW_EXPO_GO_RETURN_URL,
   NODE_ENV: process.env.NODE_ENV,
 };
 
@@ -85,6 +86,40 @@ describe("public app URL service", () => {
         "FAILED",
       ),
       buildMobileStorageReturnUrl("SPTEST03", "FAILED"),
+    );
+  });
+
+  it("allows a private Expo Go callback in production only when explicitly enabled", () => {
+    process.env.NODE_ENV = "production";
+    process.env.MOBILE_APP_SCHEME = "aistudyhub";
+    delete process.env.ALLOW_EXPO_GO_RETURN_URL;
+
+    assert.equal(
+      resolveMobileStorageReturnUrl(
+        "exp://192.168.0.111:8081/--/storage",
+        "SPPROD01",
+        "COMPLETED",
+      ),
+      "aistudyhub://storage?orderRef=SPPROD01&status=COMPLETED",
+    );
+
+    process.env.ALLOW_EXPO_GO_RETURN_URL = "true";
+    assert.equal(
+      resolveMobileStorageReturnUrl(
+        "exp://192.168.0.111:8081/--/storage",
+        "SPPROD02",
+        "COMPLETED",
+      ),
+      "exp://192.168.0.111:8081/--/storage?orderRef=SPPROD02&status=COMPLETED",
+    );
+
+    assert.equal(
+      resolveMobileStorageReturnUrl(
+        "exp://attacker.example:8081/--/storage",
+        "SPPROD03",
+        "COMPLETED",
+      ),
+      "aistudyhub://storage?orderRef=SPPROD03&status=COMPLETED",
     );
   });
 });

@@ -6,6 +6,9 @@ const objectIdSchema = z.string().trim().regex(/^[0-9a-fA-F]{24}$/, {
 
 export const createArtifactSchema = z.object({
   body: z.object({
+    // SUMMARY is deliberately absent: it is owner-gated and must be created
+    // through POST /api/documents/:id/summaries. Accepting it here would be a
+    // way to summarize someone else's shared document and dodge that check.
     type: z.enum(["FLASHCARD", "QUIZ", "MINDMAP", "REPORT", "DATA_TABLE"]),
     title: z.string().trim().max(120).optional(),
     instructions: z.string().trim().max(500).optional(),
@@ -31,5 +34,24 @@ export const listArtifactsSchema = z.object({
 export const artifactByIdSchema = z.object({
   params: z.object({
     id: objectIdSchema,
+  }),
+});
+
+export const createArtifactShareSchema = z.object({
+  params: z.object({
+    id: objectIdSchema,
+  }),
+  body: z.object({
+    email: z.string().trim().email().toLowerCase(),
+    // VIEW is the only permission a summary supports; accepting the field at
+    // all keeps the payload shaped like the document-share one.
+    permission: z.literal("VIEW").default("VIEW"),
+  }),
+});
+
+export const artifactShareParamsSchema = z.object({
+  params: z.object({
+    id: objectIdSchema,
+    shareId: objectIdSchema,
   }),
 });

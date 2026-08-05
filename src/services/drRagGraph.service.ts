@@ -57,6 +57,7 @@ type AnswerStyleDetection = ReturnType<typeof detectAnswerStyle>;
 
 type DrRagFallbackReason =
   | "document_processing"
+  | "document_empty"
   | "no_relevant_chunks_found"
   | "out_of_scope"
   | "empty_answer"
@@ -135,6 +136,10 @@ const prepareNode = async (
 
   if (chatScope.hasProcessingDocument) {
     return { chatScope, fallbackReason: "document_processing" };
+  }
+
+  if (chatScope.emptyDocumentTitles && chatScope.emptyDocumentTitles.length > 0) {
+    return { chatScope, fallbackReason: "document_empty" };
   }
 
   const intentClassification = await classifyQuestionIntent(

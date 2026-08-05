@@ -34,25 +34,27 @@ const getOrderTtlMinutes = (): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TTL_MINUTES;
 };
 
-/**
- * VNPay requires vnp_TxnRef to be alphanumeric and at most 34 characters, and to
- * be unique per merchant. `SP` + timestamp + 6 random hex satisfies all three.
- */
+/** Internal, gateway-neutral reference kept stable in APIs and history. */
 export const generateOrderRef = (): string =>
   `SP${formatVnpayDate(new Date())}${crypto
     .randomBytes(3)
     .toString("hex")
     .toUpperCase()}`;
 
+export const generateProviderOrderCode = (): number =>
+  Number(`${Date.now()}`.slice(-8) + crypto.randomInt(10, 99));
+
 export const toTransactionResponse = (transaction: IStorageTransaction) => ({
   id: transaction._id.toString(),
   orderRef: transaction.orderRef,
+  providerOrderCode: transaction.providerOrderCode || null,
   status: transaction.status,
   provider: transaction.provider,
   amountVnd: transaction.amountVnd,
   currency: transaction.currency,
   clientPlatform: transaction.clientPlatform,
   paymentUrl: transaction.paymentUrl,
+  paymentLinkId: transaction.paymentLinkId,
   package: transaction.packageSnapshot,
   packageId: transaction.packageId?.toString() || "",
   providerTxnRef: transaction.providerTxnRef,
@@ -67,7 +69,7 @@ export const toTransactionResponse = (transaction: IStorageTransaction) => ({
   createdAt: transaction.createdAt.toISOString(),
 });
 
-const assertUpgradeIsPossible = async (
+export const assertUpgradeIsPossible = async (
   userId: string,
   targetPackage: IStoragePackage,
   stage: "ORDER" | "ACTIVATION",
@@ -188,8 +190,7 @@ export const createPurchaseOrder = async ({
 
   const provider = getPaymentProvider();
   const orderRef = generateOrderRef();
-  // One TTL drives both our expiry and vnp_ExpireDate, so the gateway can never
-  // accept a payment for an order we have already expired.
+  // One TTL drives both our expiry and the hosted payment link expiry.
   const expiresAt = new Date(Date.now() + getOrderTtlMinutes() * 60 * 1000);
 
   const transaction = await StorageTransaction.create({
@@ -205,6 +206,7 @@ export const createPurchaseOrder = async ({
     provider: provider.name,
     status: "PENDING",
     orderRef,
+    providerOrderCode: generateProviderOrderCode(),
     clientPlatform: platform,
     clientReturnUrl: platform === "MOBILE" ? clientReturnUrl || "" : "",
     previousPackageId: storage.packageId || null,
@@ -232,6 +234,7 @@ export const createPurchaseOrder = async ({
 
     return {
       orderRef,
+      providerOrderCode: transaction.providerOrderCode || null,
       requiresPayment: false,
       paymentUrl: "",
       provider: provider.name,
@@ -241,27 +244,37 @@ export const createPurchaseOrder = async ({
     };
   }
 
-  const paymentUrl = provider.createPaymentUrl({
+  const paymentInput: import("./payment/payment.types").CreatePaymentInput = {
     orderRef,
+    providerOrderCode: transaction.providerOrderCode || generateProviderOrderCode(),
     amountVnd: pkg.priceVnd,
-    // ASCII only: VNPay rejects diacritics in vnp_OrderInfo.
-    orderInfo: `Upgrade storage plan ${pkg.code}`,
+    orderInfo: `UP ${pkg.code}`,
     ipAddress,
     locale: "vn",
     returnUrl: new URL(
-      "/api/storage/payments/vnpay/return",
+      `/api/storage/payments/${provider.name.toLowerCase()}/return`,
+      `${getPublicApiBaseUrl()}/`,
+    ).toString(),
+    cancelUrl: new URL(
+      `/api/storage/payments/${provider.name.toLowerCase()}/cancel`,
       `${getPublicApiBaseUrl()}/`,
     ).toString(),
     expiresAt,
-  });
+  };
+  const payment = provider.createPayment
+    ? await provider.createPayment(paymentInput)
+    : { paymentUrl: await provider.createPaymentUrl(paymentInput) };
 
-  transaction.paymentUrl = paymentUrl;
+  transaction.paymentUrl = payment.paymentUrl;
+  transaction.paymentLinkId = payment.paymentLinkId || "";
   await transaction.save();
 
   return {
     orderRef,
+    providerOrderCode: transaction.providerOrderCode || null,
     requiresPayment: true,
-    paymentUrl,
+    paymentUrl: payment.paymentUrl,
+    paymentLinkId: transaction.paymentLinkId,
     provider: provider.name,
     amountVnd: pkg.priceVnd,
     expiresAt: expiresAt.toISOString(),
@@ -312,6 +325,7 @@ export const settleTransaction = async (
         ipnReceivedAt: new Date(),
         ipnRawQuery: result.raw,
         providerTxnRef: result.providerTxnRef,
+        paymentLinkId: result.paymentLinkId || existing.paymentLinkId,
         providerResponseCode: result.responseCode,
         bankCode: result.bankCode,
         completedAt: result.success ? new Date() : null,
@@ -362,6 +376,76 @@ export const settleTransaction = async (
 
   return { code: "00", message: "Confirm Success", transaction: claimed };
 };
+
+export const settlePayosTransaction = async (
+  result: import("./payment/payment.types").PaymentCallbackResult,
+  source: "WEBHOOK" | "RETURN" = "WEBHOOK",
+): Promise<SettlementResult> => {
+  if (!result.signatureValid || !result.providerOrderCode) {
+    return { code: "97", message: "Invalid PayOS webhook", transaction: null };
+  }
+
+  const existing = await StorageTransaction.findOne({
+    providerOrderCode: result.providerOrderCode,
+    provider: "PAYOS",
+  });
+  if (!existing) return { code: "01", message: "Order not found", transaction: null };
+  if (result.amountVnd !== existing.amountVnd) {
+    return { code: "04", message: "Invalid amount", transaction: existing };
+  }
+  if (existing.status !== "PENDING") {
+    return { code: "02", message: "Order already confirmed", transaction: existing };
+  }
+  if (existing.expiresAt && existing.expiresAt.getTime() <= Date.now()) {
+    await StorageTransaction.updateOne(
+      { _id: existing._id, status: "PENDING" },
+      { $set: { status: "EXPIRED", failureReason: "ORDER_EXPIRED" } },
+    );
+    return { code: "02", message: "Order expired", transaction: existing };
+  }
+
+  const claimed = await StorageTransaction.findOneAndUpdate(
+    { _id: existing._id, status: "PENDING" },
+    {
+      $set: {
+        status: result.success ? "COMPLETED" : "FAILED",
+        settledBy: source,
+        ipnReceivedAt: new Date(),
+        ipnRawQuery: result.raw,
+        providerTxnRef: result.providerTxnRef,
+        paymentLinkId: result.paymentLinkId || existing.paymentLinkId,
+        providerResponseCode: result.responseCode,
+        bankCode: result.bankCode,
+        completedAt: result.success ? new Date() : null,
+        failureReason: result.success
+          ? ""
+          : `PROVIDER_RESPONSE_${result.responseCode || "UNKNOWN"}`,
+      },
+    },
+    { new: true },
+  );
+
+  if (!claimed) {
+    return { code: "02", message: "Order already confirmed", transaction: existing };
+  }
+
+  if (result.success) {
+    try {
+      await activatePackage(claimed);
+    } catch (error) {
+      await StorageTransaction.updateOne(
+        { _id: claimed._id },
+        { $set: { status: "FAILED", failureReason: "DOWNGRADE_BELOW_USAGE_AT_ACTIVATION" } },
+      );
+      console.error(`[storage] PayOS activation failed for order ${claimed.orderRef}`, error);
+    }
+  }
+
+  return { code: "00", message: "Confirm Success", transaction: claimed };
+};
+
+export const getTransactionByProviderOrderCode = async (providerOrderCode: number) =>
+  StorageTransaction.findOne({ providerOrderCode, provider: "PAYOS" });
 
 /** Lazily expires a stale PENDING order so a late callback cannot revive it. */
 const expireIfStale = async (

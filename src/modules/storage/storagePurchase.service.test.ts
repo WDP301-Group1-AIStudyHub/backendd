@@ -27,6 +27,7 @@ const originalDocumentAggregate = StudyDocument.aggregate;
 const USER_ID = new Types.ObjectId().toString();
 const FREE_ID = new Types.ObjectId();
 const PRO_ID = new Types.ObjectId();
+const ULTRA_ID = new Types.ObjectId();
 
 const MB = 1024 * 1024;
 
@@ -45,6 +46,15 @@ const proPackage = {
   name: "Gói Pro",
   capacityBytes: 500 * MB,
   priceVnd: 49000,
+  isActive: true,
+};
+
+const ultraPackage = {
+  _id: ULTRA_ID,
+  code: "ULTRA",
+  name: "Gói Ultra",
+  capacityBytes: 1024 * MB,
+  priceVnd: 99000,
   isActive: true,
 };
 
@@ -79,12 +89,14 @@ const setup = (overrides: Partial<Ctx["storage"]> = {}): Ctx => {
     const id = String(filter._id);
     if (id === String(PRO_ID)) return proPackage;
     if (id === String(FREE_ID)) return freePackage;
+    if (id === String(ULTRA_ID)) return ultraPackage;
     return null;
   }) as unknown as typeof StoragePackage.findOne;
 
   StoragePackage.findById = (async (id: unknown) => {
     if (String(id) === String(PRO_ID)) return proPackage;
     if (String(id) === String(FREE_ID)) return freePackage;
+    if (String(id) === String(ULTRA_ID)) return ultraPackage;
     return null;
   }) as unknown as typeof StoragePackage.findById;
 
@@ -228,7 +240,28 @@ describe("purchase order creation", () => {
       (error: unknown) =>
         error instanceof AppError &&
         error.statusCode === 409 &&
-        error.code === "STORAGE_FREE_PLAN_REACTIVATION_NOT_ALLOWED" &&
+        error.code === "STORAGE_DOWNGRADE_NOT_ALLOWED" &&
+        error.details?.stage === "ORDER",
+    );
+
+    assert.equal(ctx.activations, 0);
+  });
+
+  it("refuses to buy a smaller paid plan than the current one", async () => {
+    const ctx = setup({ packageId: ULTRA_ID, quotaBytes: 1024 * MB, usedBytes: 10 * MB });
+
+    await assert.rejects(
+      () =>
+        createPurchaseOrder({
+          userId: USER_ID,
+          packageId: String(PRO_ID),
+          platform: "WEB",
+          ipAddress: "127.0.0.1",
+        }),
+      (error: unknown) =>
+        error instanceof AppError &&
+        error.statusCode === 409 &&
+        error.code === "STORAGE_DOWNGRADE_NOT_ALLOWED" &&
         error.details?.stage === "ORDER",
     );
 
@@ -299,7 +332,7 @@ describe("package activation", () => {
         } as never),
       (error: unknown) =>
         error instanceof AppError &&
-        error.code === "STORAGE_FREE_PLAN_REACTIVATION_NOT_ALLOWED" &&
+        error.code === "STORAGE_DOWNGRADE_NOT_ALLOWED" &&
         error.details?.stage === "ACTIVATION",
     );
   });

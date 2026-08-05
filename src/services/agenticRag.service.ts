@@ -689,6 +689,35 @@ export const askQuestionWithAgent = async (
       return finalRes;
     }
 
+    if (chatScope.emptyDocumentTitles && chatScope.emptyDocumentTitles.length > 0) {
+      const titles = chatScope.emptyDocumentTitles.join(", ");
+      const answer = chatScope.emptyDocumentTitles.length === 1
+        ? `"${titles}" has no readable text — it looks like a scanned PDF or empty file, so there is nothing to search. Try running OCR or uploading a text-based copy.`
+        : `The following documents have no readable text: "${titles}" — they look like scanned PDFs or empty files, so there is nothing to search. Try running OCR or uploading text-based copies.`;
+
+      const finalRes: AgentAskResponse = {
+        answer,
+        mode: AGENT_MODE,
+        originalQuestion: payload.question,
+        sources: [],
+        evaluation: {
+          retrievedChunksCount: 0,
+          relevantChunksCount: 0,
+          averageRelevanceScore: 0,
+          isGrounded: false,
+          confidenceScore: 0,
+          responseTimeMs: Date.now() - startedAt,
+          fallbackGenerated: true,
+          fallbackReason: "document_empty",
+          retrievalQueries: [],
+          contextChunksUsed: 0,
+        },
+        agent: { steps: 0, toolCalls: [] },
+      };
+      onEvent?.({ type: "final", data: finalRes });
+      return finalRes;
+    }
+
     const run: AgentRunContext = {
       collectedChunks: [],
       retrievalQueries: [],
@@ -823,16 +852,54 @@ export const askQuestionWithAgent = async (
       contextPrompt = `\n\nActive Context:\n- Scope: Library-wide (All uploaded documents)`;
     }
 
-    const finalState = await graph.invoke(
-      {
-        messages: [
-          new SystemMessage(SYSTEM_PROMPT + contextPrompt),
-          ...history,
-          new HumanMessage(payload.question),
-        ],
-      },
-      { recursionLimit: RECURSION_LIMIT, signal },
-    );
+    let finalState;
+    try {
+      finalState = await graph.invoke(
+        {
+          messages: [
+            new SystemMessage(SYSTEM_PROMPT + contextPrompt),
+            ...history,
+            new HumanMessage(payload.question),
+          ],
+        },
+        { recursionLimit: RECURSION_LIMIT, signal },
+      );
+    } catch (err: any) {
+      if (
+        err?.lc_error_code === "GRAPH_RECURSION_LIMIT" ||
+        err?.name === "GraphRecursionError" ||
+        err?.message?.includes("GRAPH_RECURSION_LIMIT") ||
+        err?.message?.includes("Recursion limit")
+      ) {
+        const uniqueChunks = dedupeChunks(run.collectedChunks);
+        const fallbackAnswer = "I searched your documents several times but could not find anything relevant to that question.";
+        const finalRes: AgentAskResponse = {
+          answer: fallbackAnswer,
+          mode: AGENT_MODE,
+          originalQuestion: payload.question,
+          sources: toSources(uniqueChunks, run.citations),
+          evaluation: {
+            retrievedChunksCount: uniqueChunks.length,
+            relevantChunksCount: uniqueChunks.filter((chunk) => chunk.isRelevant).length,
+            averageRelevanceScore: calculateAverageRelevance(uniqueChunks),
+            isGrounded: false,
+            confidenceScore: 0,
+            responseTimeMs: Date.now() - startedAt,
+            fallbackGenerated: true,
+            fallbackReason: "recursion_limit",
+            retrievalQueries: run.retrievalQueries,
+            contextChunksUsed: 0,
+          },
+          agent: {
+            steps: RECURSION_LIMIT,
+            toolCalls: run.toolCalls,
+          },
+        };
+        onEvent?.({ type: "final", data: finalRes });
+        return finalRes;
+      }
+      throw err;
+    }
 
     if (signal?.aborted) {
       throw new DOMException("AbortError", "AbortError");
@@ -957,7 +1024,11 @@ export const askQuestionWithAgent = async (
     onEvent?.({ type: "final", data: finalResponse });
     return finalResponse;
   } catch (err: any) {
-    onEvent?.({ type: "error", message: err.message || "Unknown error" });
+    // Deliberately no `error` event here. This rethrows, and the streaming
+    // controller emits one from its own catch — emitting here too rendered the
+    // same failure twice in the thread. The controller is also the only layer
+    // that knows which key the request ran on, which the user-facing wording
+    // depends on.
     throw err;
   }
 };

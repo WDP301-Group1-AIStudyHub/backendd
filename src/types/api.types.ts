@@ -114,6 +114,7 @@ export interface DocumentResponse {
   ragStatus?: DocumentRagStatus;
   ragError?: string;
   ragStatusUpdatedAt?: Date | null;
+  lastIndexedAt?: Date | null;
   chunkingStrategy?: "heading-based" | "fixed-size-fallback";
   detectedSections?: string[];
   documentOutline?: DocumentOutlineNode[];

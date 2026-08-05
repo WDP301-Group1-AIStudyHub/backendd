@@ -43,6 +43,13 @@ export const initiateArtifactGeneration = async (
     );
   }
 
+  if (chatScope.emptyDocumentTitles && chatScope.emptyDocumentTitles.length > 0) {
+    throw new AppError(
+      `Selected document(s) have no readable text: "${chatScope.emptyDocumentTitles.join(", ")}". Try running OCR or uploading a text-based copy.`,
+      400
+    );
+  }
+
   const title =
     params.title?.trim() ||
     (params.instructions?.trim()

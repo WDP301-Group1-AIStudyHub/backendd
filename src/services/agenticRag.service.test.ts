@@ -88,6 +88,7 @@ const mockScope = () => {
   ).resolveChatScope = async () => ({
     scope: "library_all",
     hasProcessingDocument: false,
+    emptyDocumentTitles: [],
     vectorFilters: { userId: "user-1" },
     isMultiDocumentScope: false,
   });
@@ -696,6 +697,114 @@ describe("agentic RAG loop", () => {
       "tool_start should carry the provider's own call id",
     );
     assert.equal(result.answer, "It happens in the thylakoid.");
+  });
+});
+
+describe("agentic RAG guards", () => {
+  it("refuses an empty document by name without invoking the model", async () => {
+    (
+      chatScopeService as unknown as {
+        resolveChatScope: typeof chatScopeService.resolveChatScope;
+      }
+    ).resolveChatScope = async () => ({
+      scope: "single_document",
+      documentId: "doc-empty",
+      hasProcessingDocument: false,
+      emptyDocumentTitles: ["Chương 4 MLN122"],
+      vectorFilters: { userId: "user-1" },
+      isMultiDocumentScope: false,
+    });
+
+    // Any model call here is a bug: the guard must short-circuit first.
+    (
+      agentModel as unknown as {
+        getAgentModel: typeof agentModel.getAgentModel;
+      }
+    ).getAgentModel = () => {
+      throw new Error("model must not be invoked for an empty document");
+    };
+
+    const events: any[] = [];
+    const result = await askQuestionWithAgent(
+      "user-1",
+      { question: "tóm tắt chương này", documentId: "doc-empty" },
+      { persistHistory: false, onEvent: (event) => events.push(event) },
+    );
+
+    assert.equal(result.evaluation?.fallbackReason, "document_empty");
+    assert.equal(result.evaluation?.fallbackGenerated, true);
+    assert.equal(result.agent.steps, 0);
+    assert.deepEqual(result.sources, []);
+    // Names the offending file, so the user knows which upload to fix.
+    assert.match(result.answer, /Chương 4 MLN122/);
+    assert.equal(events.filter((e) => e.type === "final").length, 1);
+  });
+
+  it("turns a recursion limit into a graceful answer instead of throwing", async () => {
+    mockScope();
+    mockGrounding({ isGrounded: true, confidenceScore: 0.9 });
+    // Retrieval never finds anything, and the model never stops asking — the
+    // exact shape that exhausted the graph against an empty index.
+    (
+      vectorService as unknown as {
+        searchRelevantChunks: typeof vectorService.searchRelevantChunks;
+      }
+    ).searchRelevantChunks = async () => [];
+    let step = 0;
+    (
+      agentModel as unknown as {
+        getAgentModel: typeof agentModel.getAgentModel;
+      }
+    ).getAgentModel = () => ({
+      bindTools: () => ({
+        invoke: async () => {
+          step += 1;
+          return new AIMessage({
+            content: "",
+            tool_calls: [
+              {
+                id: `call_${step}`,
+                name: "search_documents",
+                args: { query: `attempt ${step}` },
+              },
+            ],
+          });
+        },
+        stream: async () => {
+          step += 1;
+          const message = new AIMessage({
+            content: "",
+            tool_calls: [
+              {
+                id: `call_${step}`,
+                name: "search_documents",
+                args: { query: `attempt ${step}` },
+              },
+            ],
+          });
+          return (async function* () {
+            yield toChunk(message);
+          })();
+        },
+      }),
+    });
+
+    const events: any[] = [];
+    const result = await askQuestionWithAgent(
+      "user-1",
+      { question: "what does chapter 4 say?" },
+      { persistHistory: false, onEvent: (event) => events.push(event) },
+    );
+
+    assert.equal(result.evaluation?.fallbackReason, "recursion_limit");
+    assert.equal(result.evaluation?.fallbackGenerated, true);
+    assert.equal(result.mode, "agentic");
+    // The trace is preserved rather than discarded with the error.
+    assert.ok(
+      result.agent.toolCalls.length > 0,
+      "tool calls made before the limit should survive",
+    );
+    assert.equal(events.filter((e) => e.type === "final").length, 1);
   });
 });
 

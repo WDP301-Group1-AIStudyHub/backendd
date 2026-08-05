@@ -1,6 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { getCredentialStatus, getDecryptedKey } from './aiCredential.service';
+import {
+  getCredentialStatus,
+  getDecryptedKey,
+  markCredentialInvalid,
+} from './aiCredential.service';
 import { AppError } from '../middlewares/error.middleware';
+import { isProviderAuthFailure } from '../utils/providerError';
 
 export interface ResolvedAiCredential {
   apiKey: string;
@@ -83,4 +88,30 @@ export async function resolveCredentialForUser(
   // Otherwise the platform key carries the request. A stored key that is
   // failing means this is declared degraded mode rather than plain free-tier.
   return platformCredential(userId, credStatus.status === 'invalid');
+}
+
+/**
+ * Flips a user's stored key to `invalid` when the provider rejects it, which is
+ * what puts the account into degraded mode on the next request. Every model
+ * caller routes failures here so the rule has one implementation — the direct
+ * `@google/genai` path and the LangChain agent path report the same way.
+ *
+ * Never throws: a bookkeeping failure must not replace the real error the
+ * caller is about to surface.
+ */
+export async function reportCredentialFailure(error: unknown): Promise<void> {
+  if (!hasCredentialContext()) return;
+
+  const cred = requireCredential();
+  // The platform key failing is an operations problem, not the user's.
+  if (cred.source !== 'user' || !cred.userId) return;
+
+  // A 429 spend cap is not a bad key: disabling the credential over one would
+  // strand the user on the free allowance until they noticed and re-saved it.
+  if (!isProviderAuthFailure(error)) return;
+
+  await markCredentialInvalid(
+    cred.userId,
+    error instanceof Error ? error.message : 'Unknown provider error',
+  ).catch(() => {});
 }

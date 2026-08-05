@@ -5,6 +5,7 @@ import { sendResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 import { resolveCredentialForUser, runWithCredential } from "../services/aiCredentialContext";
 import { assertQuotaAvailable, recordMessage } from "../services/aiUsage.service";
+import { describeProviderError } from "../utils/providerError";
 
 export const ask = asyncHandler(async (
   req: Request<unknown, unknown, AskQuestionRequest>,
@@ -74,11 +75,21 @@ export const askStream = asyncHandler(async (
         // Stream aborted by client - nothing to write since connection is closed
         return;
       }
+      // Raw provider errors carry the request URL, the internal model id, and
+      // billing console links, so they are rewritten rather than forwarded.
+      // The original is on `err` and reaches the log; only this crosses the
+      // wire. An AppError that already carries its own code was raised by us
+      // and is safe to send as-is.
+      console.error("askStream failed:", err);
+      const described = err.code
+        ? { code: err.code, message: err.message }
+        : describeProviderError(err, credential.source);
+
       res.write(
         `data: ${JSON.stringify({
           type: "error",
-          code: err.code || "UNKNOWN_ERROR",
-          message: err.message || "Unknown error",
+          code: described.code,
+          message: described.message,
         })}\n\n`,
       );
     } finally {

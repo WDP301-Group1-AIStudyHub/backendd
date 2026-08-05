@@ -19,6 +19,7 @@ import {
 } from "../utils/documentOutline";
 import { extractOutlineWithLlmFallback } from "./documentOutlineLlm.service";
 import { getDocumentAccessRole } from "../modules/documentShares/documentShare.service";
+import { isActiveVersionReadyForChat } from "./chatScope.service";
 
 const DOCUMENT_PROCESSING_MESSAGE =
   "Tài liệu đang được xử lý, vui lòng thử lại sau.";
@@ -28,24 +29,6 @@ type ActiveVersionProcessingSnapshot = {
   indexedAt?: Date | null;
   totalChunks?: number;
   documentOutline?: DocumentOutlineNode[];
-};
-
-const isActiveVersionReadyForChat = (
-  activeVersion: ActiveVersionProcessingSnapshot | null,
-): boolean => {
-  if (!activeVersion) {
-    return true;
-  }
-
-  if (activeVersion.processingStatus === "INDEXED") {
-    return true;
-  }
-
-  if (activeVersion.indexedAt) {
-    return true;
-  }
-
-  return (activeVersion.totalChunks ?? 0) > 0;
 };
 
 const buildEvaluation = ({

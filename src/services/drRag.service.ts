@@ -44,6 +44,8 @@ const DETAILED_CONTEXT_CHUNK_LIMIT = 16;
 const EXPANDED_QUERY_CONTENT_LIMIT = 700;
 export const DOCUMENT_PROCESSING_MESSAGE =
   "Tài liệu đang được xử lý, vui lòng thử lại sau.";
+export const DOCUMENT_EMPTY_MESSAGE =
+  "Tài liệu không chứa nội dung có thể tìm kiếm (có thể là file PDF scan hoặc file rỗng). Vui lòng thử OCR hoặc tải lên bản văn bản.";
 
 export type DynamicCandidateGroup = {
   seed: EvaluatedChunk;
@@ -388,6 +390,44 @@ const buildProcessingResult = (
   },
 });
 
+const buildEmptyDocumentResult = (
+  question: string,
+  startedAt: number,
+  titles: string[],
+): RagAnswerResult => {
+  const fileNames = titles.join(", ");
+  const answer = titles.length === 1
+    ? `"${fileNames}" has no readable text — it looks like a scanned PDF or empty file, so there is nothing to search. Try running OCR or uploading a text-based copy.`
+    : `The following documents have no readable text: "${fileNames}" — they look like scanned PDFs or empty files, so there is nothing to search. Try running OCR or uploading text-based copies.`;
+
+  return {
+    answer,
+    mode: DR_RAG_MODE,
+    originalQuestion: question,
+    sources: [],
+    evaluation: {
+      retrievedChunksCount: 0,
+      relevantChunksCount: 0,
+      averageRelevanceScore: 0,
+      isGrounded: false,
+      confidenceScore: 0,
+      responseTimeMs: Date.now() - startedAt,
+      stageOneChunksCount: 0,
+      stageTwoChunksCount: 0,
+      selectedStaticChunksCount: 0,
+      selectedDynamicChunksCount: 0,
+      dynamicRetrievalAttempted: false,
+      selectionStrategy: SELECTION_STRATEGY,
+      retrievalQueries: [],
+      fallbackGenerated: true,
+      fallbackReason: "document_empty",
+      retrievedSections: [],
+      usedSectionExpansion: false,
+      contextChunksUsed: 0,
+    },
+  };
+};
+
 export const selectContextLimit = (
   intent: SemanticQuestionIntent,
   wantsShortAnswer: boolean,
@@ -530,6 +570,10 @@ export const askQuestionWithDrRag = async (
 
   if (chatScope.hasProcessingDocument) {
     return buildProcessingResult(payload.question, startedAt);
+  }
+
+  if (chatScope.emptyDocumentTitles && chatScope.emptyDocumentTitles.length > 0) {
+    return buildEmptyDocumentResult(payload.question, startedAt, chatScope.emptyDocumentTitles);
   }
 
   const intentClassification = await classifyQuestionIntent(payload.question);

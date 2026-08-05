@@ -14,16 +14,26 @@ import {
 import { sendResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 
+import { resolveCredentialForUser, runWithCredential } from "../services/aiCredentialContext";
+import { assertQuotaAvailable, recordMessage } from "../services/aiUsage.service";
+
 export const ask = asyncHandler(async (
   req: Request<unknown, unknown, AskQuestionRequest>,
   res: Response,
 ): Promise<void> => {
-  const data = await askQuestion(req.authUser!.id, req.body);
+  const isAdmin = String(req.authUser?.role).toLowerCase() === "admin";
+  const credential = await resolveCredentialForUser(req.authUser?.id);
+  await assertQuotaAvailable(req.authUser!.id, credential, isAdmin);
 
-  sendResponse(res, 200, {
-    success: true,
-    message: "Question answered successfully",
-    data,
+  await runWithCredential(credential, async () => {
+    const data = await askQuestion(req.authUser!.id, req.body);
+    await recordMessage(req.authUser!.id, { degraded: credential.degraded });
+
+    sendResponse(res, 200, {
+      success: true,
+      message: "Question answered successfully",
+      data,
+    });
   });
 });
 

@@ -82,16 +82,21 @@ export const removeQuestion = asyncHandler(async (
   });
 });
 
+import { resolveCredentialForUser, runWithCredential } from "../services/aiCredentialContext";
+
 export const runQuestionBenchmark = asyncHandler(async (
   req: Request<{ questionId: string }>,
   res: Response,
 ): Promise<void> => {
-  const data = await runBenchmarkQuestion(req.authUser!.id, req.params.questionId);
+  const credential = await resolveCredentialForUser(req.authUser?.id);
+  await runWithCredential(credential, async () => {
+    const data = await runBenchmarkQuestion(req.authUser!.id, req.params.questionId);
 
-  sendResponse(res, 201, {
-    success: true,
-    message: "Benchmark run completed successfully",
-    data,
+    sendResponse(res, 201, {
+      success: true,
+      message: "Benchmark run completed successfully",
+      data,
+    });
   });
 });
 

@@ -4,6 +4,7 @@ import type { AnswerLanguage } from "../utils/answerStyle";
 
 export type FallbackReason =
   | "document_processing"
+  | "document_empty"
   | "no_relevant_chunks_found"
   | "out_of_scope"
   | "retrieved_chunks_not_relevant_enough"

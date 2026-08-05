@@ -110,6 +110,11 @@ export interface DocumentResponse {
   createdAt: Date;
   updatedAt: Date;
   accessRole?: DocumentAccessRole;
+  // Strictly "the caller uploaded this document". Narrower than
+  // accessRole === "OWNER", which is also true for admins and for subject
+  // workspace owners; the Summarize button keys off this one because only the
+  // uploader may spend quota on the document (RULE-01 anti-evasion).
+  isOwner?: boolean;
   isShared?: boolean;
   sharedBy?: {
     id: string;
@@ -171,6 +176,8 @@ const toSubjectSummary = (subject: unknown): SubjectSummaryResponse | null => {
 
 interface DocumentResponseOptions {
   accessRole?: DocumentAccessRole;
+  /** Caller's user id; supplying it populates `isOwner` on the response. */
+  viewerId?: string;
   isShared?: boolean;
   sharedBy?: {
     id: string;
@@ -255,6 +262,9 @@ export const toDocumentResponse = (
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
     accessRole: options.accessRole,
+    isOwner: options.viewerId
+      ? document.ownerId.toString() === options.viewerId
+      : undefined,
     isShared: options.isShared,
     sharedBy: options.sharedBy,
     personalSubjectId: personalSubject?._id,
@@ -677,6 +687,7 @@ export const getDocumentDetail = async (
     : null;
   const responseOptions: DocumentResponseOptions = {
     accessRole,
+    viewerId: userId,
     isShared,
     ...getStarResponseOptions(
       await buildStarMap([document._id], userId),

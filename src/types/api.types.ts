@@ -114,6 +114,7 @@ export interface DocumentResponse {
   ragStatus?: DocumentRagStatus;
   ragError?: string;
   ragStatusUpdatedAt?: Date | null;
+  lastIndexedAt?: Date | null;
   chunkingStrategy?: "heading-based" | "fixed-size-fallback";
   detectedSections?: string[];
   documentOutline?: DocumentOutlineNode[];
@@ -328,9 +329,21 @@ export interface AgentAskResponse extends AskQuestionResponse {
 
 export type AgentEvent =
   | { type: "agent_step"; step: number }
-  | { type: "tool_start"; tool: string; input: unknown }
-  | { type: "tool_end"; tool: string; resultSummary: string }
-  | { type: "grounding_check" }
+  | { type: "thought"; step: number; text: string }
+  | { type: "answer_delta"; step: number; text: string }
+  | {
+      type: "phase";
+      phase: "retrieving" | "verifying" | "citing";
+      detail?: string;
+    }
+  | { type: "answer_revised"; reason: "grounding_failed" | "empty_answer" }
+  | { type: "tool_start"; tool: string; toolCallId: string; input: unknown }
+  | {
+      type: "tool_end";
+      tool: string;
+      toolCallId: string;
+      resultSummary: string;
+    }
   | {
       type: "artifact_created";
       artifactId: string;
@@ -350,6 +363,7 @@ export interface ChatHistoryResponse {
   rewrittenQuery?: string;
   answer: string;
   sources: ChatSource[];
+  citedSources?: ChatSource[];
   documentId?: string | Types.ObjectId;
   documentIds?: Array<string | Types.ObjectId>;
   subject?: string;

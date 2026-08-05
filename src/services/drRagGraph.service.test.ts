@@ -69,6 +69,7 @@ const mockScope = () => {
   ).resolveChatScope = async () => ({
     scope: "library_all",
     hasProcessingDocument: false,
+    emptyDocumentTitles: [],
     vectorFilters: { userId: "user-1" },
     isMultiDocumentScope: false,
   });
@@ -299,6 +300,7 @@ describe("DR-RAG graph", () => {
     ).resolveChatScope = async () => ({
       scope: "library_all",
       hasProcessingDocument: true,
+      emptyDocumentTitles: [],
       vectorFilters: { userId: "user-1" },
       isMultiDocumentScope: false,
     });

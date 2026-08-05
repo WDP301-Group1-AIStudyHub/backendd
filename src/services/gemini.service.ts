@@ -8,22 +8,21 @@ import type { AnswerProfile } from "../utils/answerProfile";
 import { retryAsync } from "../utils/retry";
 import type { SemanticQuestionIntent } from "./intentClassifier.service";
 
+import {
+  hasCredentialContext,
+  reportCredentialFailure,
+  requireCredential,
+} from "./aiCredentialContext";
+import { describeProviderError } from "../utils/providerError";
+
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 
-let geminiClient: GoogleGenAI | null = null;
-
 const getGeminiClient = (): GoogleGenAI => {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new AppError("GEMINI_API_KEY is required for answer generation", 500);
+  const credential = requireCredential();
+  if (!credential.apiKey) {
+    throw new AppError("Gemini API key is required for answer generation", 500);
   }
-
-  if (!geminiClient) {
-    geminiClient = new GoogleGenAI({ apiKey });
-  }
-
-  return geminiClient;
+  return new GoogleGenAI({ apiKey: credential.apiKey });
 };
 
 const isRetryableGeminiError = (error: any): boolean => {
@@ -138,9 +137,24 @@ export const generateGeminiText = async (
 
     return completion.text?.trim() ?? "";
   } catch (error) {
+    // Must see the raw error: getGeminiHttpStatus collapses everything that is
+    // not a 429 into 502, so the auth codes are only visible before that.
+    await reportCredentialFailure(error);
+
+    // The raw message names the endpoint, the model, and Google's billing
+    // console. It goes to the log; the client gets the rewritten version.
+    console.error(
+      "Gemini answer generation failed:",
+      getGeminiErrorMessage(error),
+    );
+    const described = describeProviderError(
+      error,
+      hasCredentialContext() ? requireCredential().source : "platform",
+    );
     throw new AppError(
-      `Gemini answer generation failed: ${getGeminiErrorMessage(error)}`,
+      described.message,
       getGeminiHttpStatus(error),
+      described.code,
     );
   }
 };

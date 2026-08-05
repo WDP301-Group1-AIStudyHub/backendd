@@ -29,22 +29,15 @@ export interface ResolvedChatScope {
   subject?: string;
   documentTitle?: string;
   hasProcessingDocument: boolean;
+  emptyDocumentTitles: string[];
   vectorFilters: VectorSearchFilters;
   isMultiDocumentScope: boolean;
 }
 
-const isActiveVersionReadyForChat = (
+export const isActiveVersionReadyForChat = (
   activeVersion: ActiveVersionProcessingSnapshot | null,
 ): boolean => {
   if (!activeVersion) {
-    return true;
-  }
-
-  if (activeVersion.processingStatus === "INDEXED") {
-    return true;
-  }
-
-  if (activeVersion.indexedAt) {
     return true;
   }
 
@@ -166,25 +159,82 @@ const getSharedDocumentIds = async (
   );
 };
 
-const areAllActiveVersionsReady = async (
-  documents: Array<{ _id: Types.ObjectId; currentVersionId?: Types.ObjectId | null }>,
-): Promise<boolean> => {
-  const versionChecks = await Promise.all(
-    documents
-      .filter((document) => document.currentVersionId)
-      .map((document) =>
-        DocumentVersion.findOne({
-          _id: document.currentVersionId,
-          documentId: document._id,
-          isActive: true,
-          deletedAt: null,
-        }).select("processingStatus indexedAt totalChunks"),
-      ),
+/**
+ * Splits a document set into three states: ready to search, still indexing, and
+ * finished-but-empty.
+ *
+ * The order of the checks matters. A positive `totalChunks` wins before
+ * `processingStatus` is consulted, because a large part of the existing corpus
+ * carries real chunk counts on versions still marked `PENDING` — checking
+ * status first would report those as "still processing" and lock them out of
+ * chat. Exported for tests, which pin exactly that ordering.
+ */
+export const checkDocumentsReadiness = async (
+  documents: Array<{
+    _id: Types.ObjectId;
+    title?: string;
+    ragStatus?: string;
+    totalChunks?: number;
+    currentVersionId?: Types.ObjectId | null;
+  }>,
+): Promise<{ hasProcessingDocument: boolean; emptyDocumentTitles: string[] }> => {
+  if (documents.length === 0) {
+    return { hasProcessingDocument: false, emptyDocumentTitles: [] };
+  }
+
+  let hasProcessingDocument = false;
+  const emptyDocumentTitles: string[] = [];
+
+  const checks = await Promise.all(
+    documents.map(async (document) => {
+      const docTitle = document.title || "Untitled Document";
+      if (!document.currentVersionId) {
+        const totalChunks = document.totalChunks ?? 0;
+        if (document.ragStatus === "INDEXING" || document.ragStatus === "PENDING") {
+          return { status: "PROCESSING", title: docTitle };
+        }
+        if (totalChunks === 0 || document.ragStatus === "FAILED") {
+          return { status: "EMPTY", title: docTitle };
+        }
+        return { status: "READY", title: docTitle };
+      }
+
+      const activeVersion = await DocumentVersion.findOne({
+        _id: document.currentVersionId,
+        documentId: document._id,
+        isActive: true,
+        deletedAt: null,
+      }).select("processingStatus indexedAt totalChunks");
+
+      if (!activeVersion) {
+        return { status: "READY", title: docTitle };
+      }
+
+      if ((activeVersion.totalChunks ?? 0) > 0) {
+        return { status: "READY", title: docTitle };
+      }
+
+      if (
+        activeVersion.processingStatus === "PENDING" ||
+        activeVersion.processingStatus === "PROCESSING" ||
+        activeVersion.processingStatus === "INDEXING"
+      ) {
+        return { status: "PROCESSING", title: docTitle };
+      }
+
+      return { status: "EMPTY", title: docTitle };
+    }),
   );
 
-  return versionChecks.every((activeVersion) =>
-    isActiveVersionReadyForChat(activeVersion),
-  );
+  for (const item of checks) {
+    if (item.status === "PROCESSING") {
+      hasProcessingDocument = true;
+    } else if (item.status === "EMPTY") {
+      emptyDocumentTitles.push(item.title);
+    }
+  }
+
+  return { hasProcessingDocument, emptyDocumentTitles };
 };
 
 export const resolveChatScope = async (
@@ -201,7 +251,7 @@ export const resolveChatScope = async (
     const document = await StudyDocument.findOne({
       _id: payload.documentId,
       status: { $ne: "DELETED" },
-    }).select("_id ownerId visibility title subjectId currentVersionId");
+    }).select("_id ownerId visibility title subjectId currentVersionId ragStatus totalChunks");
 
     if (!document) {
       throw new AppError("Document not found", 404);
@@ -233,7 +283,7 @@ export const resolveChatScope = async (
           ? await getSubjectNameForUser(subjectId, userId)
           : await getSubjectNameById(subjectId)
         : getPersonalSubjectName(share)) || payload.subject;
-    const hasProcessingDocument = !(await areAllActiveVersionsReady([document]));
+    const { hasProcessingDocument, emptyDocumentTitles } = await checkDocumentsReadiness([document]);
 
     return {
       scope: "single_document",
@@ -242,6 +292,7 @@ export const resolveChatScope = async (
       subject,
       documentTitle: document.title,
       hasProcessingDocument,
+      emptyDocumentTitles,
       isMultiDocumentScope: false,
       vectorFilters: {
         documentId: document._id.toString(),
@@ -253,7 +304,7 @@ export const resolveChatScope = async (
     const documents = await StudyDocument.find({
       _id: { $in: documentIds },
       status: { $ne: "DELETED" },
-    }).select("_id ownerId visibility title subjectId currentVersionId");
+    }).select("_id ownerId visibility title subjectId currentVersionId ragStatus totalChunks");
 
     if (documents.length !== documentIds.length) {
       throw new AppError("One or more selected documents were not found", 404);
@@ -300,7 +351,7 @@ export const resolveChatScope = async (
     const subject = subjectId
       ? (await getSubjectNameForUser(subjectId, userId)) || payload.subject
       : payload.subject;
-    const hasProcessingDocument = !(await areAllActiveVersionsReady(documents));
+    const { hasProcessingDocument, emptyDocumentTitles } = await checkDocumentsReadiness(documents);
 
     return {
       scope: "document_set",
@@ -308,6 +359,7 @@ export const resolveChatScope = async (
       subjectId,
       subject,
       hasProcessingDocument,
+      emptyDocumentTitles,
       isMultiDocumentScope: true,
       vectorFilters: {
         documentIds: orderedDocumentIds,
@@ -335,11 +387,9 @@ export const resolveChatScope = async (
         { _id: { $in: readableDocumentIds } },
       ],
       status: { $ne: "DELETED" },
-    }).select("_id title subjectId currentVersionId");
+    }).select("_id title subjectId currentVersionId ragStatus totalChunks");
 
-    const hasProcessingDocument = documents.length > 0
-      ? !(await areAllActiveVersionsReady(documents))
-      : false;
+    const { hasProcessingDocument, emptyDocumentTitles } = await checkDocumentsReadiness(documents);
 
     const documentIds = documents.map((doc) => doc._id.toString());
 
@@ -348,6 +398,7 @@ export const resolveChatScope = async (
       subjectId: payload.subjectId,
       subject,
       hasProcessingDocument,
+      emptyDocumentTitles,
       isMultiDocumentScope: true,
       documentIds,
       vectorFilters: {
@@ -370,18 +421,19 @@ export const resolveChatScope = async (
     ? await StudyDocument.find({
         $or: [{ ownerId: userId }, { _id: { $in: readableDocumentIds } }],
         status: { $ne: "DELETED" },
-      }).select("_id currentVersionId")
+      }).select("_id title currentVersionId ragStatus totalChunks")
     : [];
   const accessibleDocumentIds = accessibleDocuments.map((document) =>
     document._id.toString(),
   );
 
+  const { hasProcessingDocument, emptyDocumentTitles } = await checkDocumentsReadiness(accessibleDocuments);
+
   return {
     scope: "library_all",
     subject: payload.subject,
-    hasProcessingDocument: accessibleDocuments.length > 0
-      ? !(await areAllActiveVersionsReady(accessibleDocuments))
-      : false,
+    hasProcessingDocument,
+    emptyDocumentTitles,
     isMultiDocumentScope: true,
     vectorFilters: {
       documentIds: accessibleDocumentIds.length > 0 ? accessibleDocumentIds : undefined,

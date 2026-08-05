@@ -7,21 +7,57 @@ export interface AiUsageResponse {
   period: string;
   used: number;
   limit: number;
+  remaining: number;
+  resetAt: Date;
   unlimited: boolean;
   degraded: boolean;
   unlimitedReason?: 'byok' | 'exempt';
 }
 
-export function getCurrentPeriod(): string {
-  return new Date().toISOString().slice(0, 7);
+/**
+ * ISO-8601 week key, e.g. "2026-W32". The allowance is per week (RULE-01), so
+ * the period key has to change weekly — a calendar-month key would let a user
+ * spend a whole month's worth in the last days of it.
+ *
+ * ISO weeks start on Monday and week 1 is the one containing the first
+ * Thursday, which is why the day is snapped to Thursday before counting.
+ */
+export function getCurrentPeriod(now: Date = new Date()): string {
+  const date = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  // getUTCDay() is 0 for Sunday; ISO numbers Sunday as 7.
+  const isoDay = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - isoDay);
+
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(
+    ((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7,
+  );
+
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+/**
+ * Start of the next ISO week (Monday 00:00 UTC) — the moment `used` returns to
+ * zero. The frontend shows this as the countdown next to the remaining count.
+ */
+export function getPeriodResetAt(now: Date = new Date()): Date {
+  const date = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const isoDay = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + (8 - isoDay));
+
+  return date;
 }
 
 export function getFreeTierLimit(): number {
-  const envVal = process.env.FREE_TIER_MONTHLY_MESSAGES;
+  const envVal = process.env.FREE_TIER_WEEKLY_MESSAGES;
   if (envVal && !isNaN(Number(envVal))) {
     return Number(envVal);
   }
-  return 20;
+  return 15;
 }
 
 export async function getUsage(
@@ -57,6 +93,8 @@ export async function getUsage(
     period,
     used,
     limit,
+    remaining: unlimited ? limit : Math.max(0, limit - used),
+    resetAt: getPeriodResetAt(),
     unlimited,
     degraded,
     unlimitedReason,
@@ -117,19 +155,24 @@ export async function assertQuotaAvailable(
   const used = usageDoc?.messageCount ?? 0;
 
   if (used >= limit) {
+    // Every 429 carries the same shape so the client can render the countdown
+    // without caring which of the two reasons it hit.
+    const details = { remaining: 0, limit, resetAt: getPeriodResetAt() };
     const credStatus = await getCredentialStatus(userId);
     if (credStatus.status === 'invalid') {
       throw new AppError(
-        'Monthly free quota exhausted and your custom API key is invalid.',
+        'Weekly free quota exhausted and your custom API key is invalid.',
         429,
         'QUOTA_EXHAUSTED_INVALID_KEY',
+        details,
       );
     }
 
     throw new AppError(
-      'Monthly free quota exhausted. Add an API key to continue.',
+      'Weekly free quota exhausted. Add an API key to continue.',
       429,
       'QUOTA_EXHAUSTED_NO_KEY',
+      details,
     );
   }
 }

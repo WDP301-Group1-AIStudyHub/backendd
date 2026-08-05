@@ -2,6 +2,8 @@ import { Artifact, ArtifactType, IArtifact } from "../models/artifact.model";
 import { AppError } from "../middlewares/error.middleware";
 import { resolveChatScope } from "./chatScope.service";
 import { runArtifactGenerationWorker } from "./artifact.worker";
+import { resolveArtifactAccess } from "./artifactShare.service";
+import { ArtifactShare } from "../models/artifactShare.model";
 
 export interface InitiateArtifactParams {
   type: ArtifactType;
@@ -21,6 +23,7 @@ const DEFAULT_TITLES: Record<ArtifactType, string> = {
   MINDMAP: "Mind map",
   REPORT: "Report",
   DATA_TABLE: "Data table",
+  SUMMARY: "Summary",
 };
 
 export const initiateArtifactGeneration = async (
@@ -101,15 +104,23 @@ export const listArtifacts = async (
   return Artifact.find(query).sort({ createdAt: -1 });
 };
 
+export interface ArtifactDetail {
+  artifact: IArtifact;
+  /** False for a recipient reading a summary that was shared with them. */
+  isOwner: boolean;
+}
+
 export const getArtifactById = async (
   userId: string,
   id: string
-): Promise<IArtifact> => {
-  const artifact = await Artifact.findOne({ _id: id, userId });
-  if (!artifact) {
+): Promise<ArtifactDetail> => {
+  // Share-aware: recipients of a shared summary poll this same endpoint, so an
+  // owner-only lookup here would 404 them out of the content they were given.
+  const access = await resolveArtifactAccess(id, userId);
+  if (!access) {
     throw new AppError("Artifact not found", 404);
   }
-  return artifact;
+  return access;
 };
 
 export const deleteArtifact = async (
@@ -120,4 +131,8 @@ export const deleteArtifact = async (
   if (!result) {
     throw new AppError("Artifact not found or access denied", 404);
   }
+
+  // Shares would otherwise linger and surface as blank rows in every
+  // recipient's "shared with me" list.
+  await ArtifactShare.deleteMany({ artifactId: id });
 };

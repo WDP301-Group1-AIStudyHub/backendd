@@ -52,6 +52,7 @@ const CONTENT_SCHEMAS: Record<ArtifactType, z.ZodTypeAny> = {
   }),
   MINDMAP: z.object({ root: mindmapNodeSchema }),
   REPORT: z.object({ markdown: z.string().min(1) }),
+  SUMMARY: z.object({ markdown: z.string().min(1) }),
   DATA_TABLE: z.object({
     columns: z.array(z.string().min(1)).min(1),
     rows: z.array(z.array(z.string())).min(1),
@@ -97,6 +98,17 @@ const buildSystemPrompt = (type: ArtifactType, instructions?: string): string =>
         "Keep every label short (at most 8 words).",
         JSON_RULES,
         'JSON structure: { "root": { "label": "Central topic", "children": [ { "label": "Branch", "children": [ { "label": "Sub-branch" } ] } ] } }',
+      ].join(" ");
+    case "SUMMARY":
+      // The Summarize button takes no user input (RULE-02 does not apply), so
+      // this prompt is fixed — `instructions` is always absent for SUMMARY.
+      return [
+        "You are summarizing a study document for the person who uploaded it.",
+        "Based on the provided CONTEXT, write a faithful summary in GitHub-flavored markdown: a one-paragraph overview of what the document is about, then a '## Key points' section of 5-8 bullets covering the most important content, then a one-sentence takeaway.",
+        "Keep it substantially shorter than the source. Do not restate the document section by section, and do not pad with filler.",
+        "Write the summary in the same language as the CONTEXT (e.g. Vietnamese documents produce a Vietnamese summary), preserving accents and subject-specific terms.",
+        "Base every statement strictly on the CONTEXT. Never invent facts that are not supported by the CONTEXT.",
+        "Return ONLY the markdown summary. Do not wrap it in JSON or code fences, and do not add any introductory or concluding remarks outside the summary itself.",
       ].join(" ");
     case "REPORT":
       // Raw markdown, not JSON: LLMs reliably emit literal newlines inside
@@ -181,6 +193,7 @@ const MAX_TOKENS: Record<ArtifactType, number> = {
   MINDMAP: 1200,
   REPORT: 2500,
   DATA_TABLE: 1200,
+  SUMMARY: 1800,
 };
 
 const DEFAULT_RETRIEVAL_QUERY: Record<ArtifactType, string> = {
@@ -189,7 +202,15 @@ const DEFAULT_RETRIEVAL_QUERY: Record<ArtifactType, string> = {
   MINDMAP: "main topics, subtopics and how concepts relate",
   REPORT: "main topics, key facts and important details",
   DATA_TABLE: "comparable facts, categories, figures and properties",
+  SUMMARY: "overall purpose, main points and conclusions of the document",
 };
+
+// Raw-markdown types skip JSON forcing and JSON.parse: LLMs reliably emit
+// literal newlines inside JSON string values, which JSON.parse rejects.
+const MARKDOWN_TYPES: ReadonlySet<ArtifactType> = new Set<ArtifactType>([
+  "REPORT",
+  "SUMMARY",
+]);
 
 const generateAndValidate = async (
   type: ArtifactType,
@@ -204,16 +225,17 @@ const generateAndValidate = async (
     {
       temperature: 0.4,
       maxTokens: MAX_TOKENS[type],
-      responseMimeType: type === "REPORT" ? undefined : "application/json",
+      responseMimeType: MARKDOWN_TYPES.has(type)
+        ? undefined
+        : "application/json",
       responseSchema: RESPONSE_SCHEMAS[type],
     }
   );
 
-  // REPORT is raw markdown (see buildSystemPrompt); everything else is JSON.
-  const parsed =
-    type === "REPORT"
-      ? { markdown: cleanJson(responseText) }
-      : JSON.parse(cleanJson(responseText));
+  // REPORT/SUMMARY are raw markdown (see buildSystemPrompt); the rest is JSON.
+  const parsed = MARKDOWN_TYPES.has(type)
+    ? { markdown: cleanJson(responseText) }
+    : JSON.parse(cleanJson(responseText));
   const content = CONTENT_SCHEMAS[type].parse(parsed);
 
   // QUIZ: correctIndex must point inside options; zod can't cross-validate.

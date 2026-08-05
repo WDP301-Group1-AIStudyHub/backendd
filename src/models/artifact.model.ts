@@ -6,7 +6,8 @@ export type ArtifactType =
   | "QUIZ"
   | "MINDMAP"
   | "REPORT"
-  | "DATA_TABLE";
+  | "DATA_TABLE"
+  | "SUMMARY";
 export type ArtifactStatus = "PENDING" | "GENERATING" | "COMPLETED" | "FAILED";
 
 export interface IMindmapNode {
@@ -40,6 +41,10 @@ export interface IArtifact extends Document {
   instructions?: string;
   content?: ArtifactContent;
   sourceDocumentIds: Types.ObjectId[];
+  // SUMMARY only: the document this is the summary of. Separate from
+  // sourceDocumentIds because it is the cache key — a unique index on it is
+  // what makes "one summary per document" hold under concurrent requests.
+  summaryDocumentId?: Types.ObjectId;
   subjectId?: Types.ObjectId;
   scope?: string;
   sources?: ChatSource[];
@@ -62,7 +67,7 @@ const artifactSchema = new Schema<IArtifact>(
     },
     type: {
       type: String,
-      enum: ["FLASHCARD", "QUIZ", "MINDMAP", "REPORT", "DATA_TABLE"],
+      enum: ["FLASHCARD", "QUIZ", "MINDMAP", "REPORT", "DATA_TABLE", "SUMMARY"],
       required: true,
     },
     status: {
@@ -89,6 +94,10 @@ const artifactSchema = new Schema<IArtifact>(
       ref: "Document",
       default: [],
     },
+    summaryDocumentId: {
+      type: Schema.Types.ObjectId,
+      ref: "Document",
+    },
     subjectId: {
       type: Schema.Types.ObjectId,
       ref: "Subject",
@@ -112,5 +121,18 @@ const artifactSchema = new Schema<IArtifact>(
 );
 
 artifactSchema.index({ userId: 1, threadId: 1 });
+
+// One summary per document, enforced by the database rather than by a
+// read-then-write in the service: two rapid presses of the Summarize button
+// would otherwise both miss the cache and both spend a prompt from the quota.
+// Partial, so the millions of non-SUMMARY artifacts (all with the field
+// absent) do not collide with each other on null.
+artifactSchema.index(
+  { summaryDocumentId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { summaryDocumentId: { $exists: true } },
+  }
+);
 
 export const Artifact = mongoose.model<IArtifact>("Artifact", artifactSchema);

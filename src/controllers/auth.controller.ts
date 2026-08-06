@@ -11,6 +11,11 @@ import {
   registerUser,
   updateUserProfile,
 } from "../services/auth.service";
+import {
+  changePassword as changePasswordService,
+  requestPasswordReset,
+  resetPassword as resetPasswordService,
+} from "../services/passwordReset.service";
 import { sendResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ActivityLogService } from "../services/activityLog.service";
@@ -95,16 +100,58 @@ export const updateProfile = asyncHandler(async (
   });
 });
 
-export const forgotPassword = async (
+export const forgotPassword = asyncHandler(async (
   req: Request<unknown, unknown, ForgotPasswordRequest>,
   res: Response,
 ): Promise<void> => {
+  await requestPasswordReset(req.body.email);
+
+  // Identical response whether or not the email exists — never let this
+  // route reveal which emails have accounts.
   sendResponse(res, 200, {
     success: true,
     message:
-      "If the email exists, password reset instructions will be sent later.",
+      "If the email exists, password reset instructions have been sent.",
     data: {
       email: req.body.email,
     },
   });
-};
+});
+
+export const resetPassword = asyncHandler(async (
+  req: Request<unknown, unknown, { token: string; password: string }>,
+  res: Response,
+): Promise<void> => {
+  await resetPasswordService(req.body.token, req.body.password);
+
+  sendResponse(res, 200, {
+    success: true,
+    message: "Password reset successfully. You can now sign in.",
+  });
+});
+
+export const changePassword = asyncHandler(async (
+  req: Request<unknown, unknown, { currentPassword: string; newPassword: string }>,
+  res: Response,
+): Promise<void> => {
+  await changePasswordService(
+    req.authUser!.id,
+    req.body.currentPassword,
+    req.body.newPassword,
+  );
+
+  await ActivityLogService.log({
+    userId: req.authUser!.id,
+    action: "PASSWORD_CHANGED",
+    entityType: "User",
+    entityId: req.authUser!.id,
+    details: {},
+    ipAddress: getIpAddress(req),
+    userAgent: req.headers["user-agent"],
+  });
+
+  sendResponse(res, 200, {
+    success: true,
+    message: "Password changed successfully.",
+  });
+});

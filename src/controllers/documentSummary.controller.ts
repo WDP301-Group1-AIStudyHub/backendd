@@ -1,7 +1,25 @@
 import { Request, Response } from "express";
-import { createDocumentSummary } from "../services/documentSummary.service";
+import {
+  createDocumentSummary,
+  getExistingDocumentSummary,
+} from "../services/documentSummary.service";
 import { sendResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
+
+export const getSummary = asyncHandler(
+  async (req: Request<{ id: string }>, res: Response): Promise<void> => {
+    const artifact = await getExistingDocumentSummary(
+      req.authUser!.id,
+      req.params.id
+    );
+
+    sendResponse(res, 200, {
+      success: true,
+      message: artifact ? "Summary found" : "No summary yet",
+      data: artifact ? artifact.toJSON() : null,
+    });
+  }
+);
 
 export const createSummary = asyncHandler(
   async (req: Request<{ id: string }>, res: Response): Promise<void> => {

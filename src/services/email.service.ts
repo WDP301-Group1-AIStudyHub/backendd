@@ -456,3 +456,115 @@ export const sendSubjectWorkspaceEmail = async ({
     return { status: "FAILED", errorCode };
   }
 };
+
+export interface PasswordResetEmailPayload {
+  to: string;
+  recipientName: string;
+  resetUrl: string;
+  mobileResetUrl?: string;
+}
+
+export const sendPasswordResetEmail = async ({
+  mobileResetUrl,
+  recipientName,
+  resetUrl,
+  to,
+}: PasswordResetEmailPayload): Promise<EmailDeliveryResult> => {
+  const mailer = getTransporter();
+  const from = process.env.SMTP_FROM;
+
+  if (!mailer || !from) {
+    console.warn("[email] SMTP is not configured; skipping password reset email", {
+      missing: getMissingSmtpVariables(),
+      to,
+    });
+    return { status: "SKIPPED", errorCode: "SMTP_NOT_CONFIGURED" };
+  }
+
+  const safeResetUrl = escapeHtml(resetUrl);
+  const greeting = recipientName.trim()
+    ? `Xin chào ${recipientName},`
+    : "Xin chào,";
+  const safeGreeting = escapeHtml(greeting);
+  const subject = "Đặt lại mật khẩu AI Study Hub";
+  const intro =
+    "Chúng tôi vừa nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.";
+  const safeIntro = escapeHtml(intro);
+
+  try {
+    const info = await withTimeout(mailer.sendMail({
+      from,
+      to,
+      subject,
+      text: [
+        greeting,
+        "",
+        intro,
+        "",
+        `Đặt lại mật khẩu: ${resetUrl}`,
+        mobileResetUrl ? `Trên ứng dụng di động: ${mobileResetUrl}` : "",
+        "",
+        "Liên kết có hiệu lực trong 1 giờ. Nếu bạn không yêu cầu điều này, bạn có thể bỏ qua email này.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      html: `<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${escapeHtml(subject)}</title>
+  </head>
+  <body style="margin:0;background:#f3f6f4;color:#1f2937;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${safeIntro}</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6f4;padding:32px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #dce5df;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="background:#173f35;padding:24px 32px;color:#ffffff;">
+              <div style="font-size:12px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:#b9d7ca;">AI Study Hub</div>
+              <div style="margin-top:8px;font-size:22px;font-weight:700;line-height:1.35;">Đặt lại mật khẩu</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">${safeGreeting}</p>
+              <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#4b5563;">${safeIntro}</p>
+
+              <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px;">
+                <tr><td style="border-radius:6px;background:#1f6b52;">
+                  <a href="${safeResetUrl}" style="display:inline-block;padding:13px 22px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">Đặt lại mật khẩu</a>
+                </td></tr>
+              </table>
+
+              <p style="margin:0;font-size:13px;line-height:1.6;color:#64748b;">Liên kết có hiệu lực trong 1 giờ. Nếu bạn không yêu cầu điều này, bạn có thể bỏ qua email này.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="border-top:1px solid #e5ebe7;background:#f8faf9;padding:20px 32px;font-size:12px;line-height:1.6;color:#64748b;">
+              Email này được gửi tự động từ AI Study Hub.
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`,
+    }), getEmailTimeoutMs());
+
+    return {
+      status: "ACCEPTED",
+      messageId: typeof info.messageId === "string" ? info.messageId : undefined,
+    };
+  } catch (error) {
+    const errorCode = getErrorCode(error);
+    console.warn("[email] Password reset email delivery failed", { errorCode, to });
+
+    if (errorCode === "EMAIL_TIMEOUT") {
+      transporter?.close();
+      transporter = null;
+    }
+
+    return { status: "FAILED", errorCode };
+  }
+};

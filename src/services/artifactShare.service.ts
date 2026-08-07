@@ -7,6 +7,11 @@ import {
 } from "../models/artifactShare.model";
 import { User } from "../models/user.model";
 import { AppError } from "../middlewares/error.middleware";
+import { StudyDocument } from "../modules/documents/document.model";
+import {
+  createOrUpdateDocumentShare,
+  getDocumentAccessRole,
+} from "../modules/documentShares/documentShare.service";
 
 export interface ArtifactShareResponse {
   id: string;
@@ -96,12 +101,56 @@ export const resolveArtifactAccess = async (
   return share ? { artifact, isOwner: false } : null;
 };
 
+/**
+ * A summary is unreadable in context without its source document, so sharing
+ * one also grants VIEW on the document it was generated from — best-effort,
+ * and skipped entirely if the recipient already has some access (own,
+ * shared, or via subject) so this can never downgrade an existing EDITOR to
+ * VIEWER. Never throws: a failure here must not roll back the summary share
+ * the caller actually asked for.
+ */
+const shareSourceDocumentIfNeeded = async (
+  summaryDocumentId: Types.ObjectId,
+  ownerId: string,
+  recipientEmail: string
+): Promise<void> => {
+  try {
+    const document = await StudyDocument.findOne({
+      _id: summaryDocumentId,
+      status: { $ne: "DELETED" },
+    });
+    if (!document) return;
+
+    const recipient = await User.findOne({
+      email: recipientEmail.toLowerCase(),
+    }).select("_id");
+    if (!recipient) return;
+
+    const existingRole = await getDocumentAccessRole(
+      document,
+      recipient._id.toString()
+    );
+    if (existingRole) return;
+
+    await createOrUpdateDocumentShare(summaryDocumentId.toString(), ownerId, {
+      email: recipientEmail,
+      permission: "VIEW",
+    });
+  } catch (error) {
+    console.warn("[artifact-share] Failed to share source document", {
+      documentId: summaryDocumentId.toString(),
+      recipientEmail,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
 export const shareArtifact = async (
   artifactId: string,
   ownerId: string,
   payload: { email: string; permission: ArtifactSharePermission }
 ): Promise<ArtifactShareResponse> => {
-  await getOwnedArtifactOrThrow(artifactId, ownerId);
+  const artifact = await getOwnedArtifactOrThrow(artifactId, ownerId);
 
   // "Invite a user in the system" — unlike DocumentShare there is no pending
   // invitation for strangers, because a summary is not a durable asset worth
@@ -137,6 +186,14 @@ export const shareArtifact = async (
   share.sharedBy = new Types.ObjectId(ownerId);
   await share.save();
   await share.populate("sharedWithUserId", "_id fullName email avatar");
+
+  if (artifact.type === "SUMMARY" && artifact.summaryDocumentId) {
+    await shareSourceDocumentIfNeeded(
+      artifact.summaryDocumentId,
+      ownerId,
+      payload.email
+    );
+  }
 
   return toArtifactShareResponse(share);
 };

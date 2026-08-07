@@ -42,6 +42,36 @@ const dispatchWorker = (artifactId: string, documentId: string): void => {
   );
 };
 
+/**
+ * Read-only lookup — never creates or charges. Lets the frontend restore an
+ * already-generated summary on page load without risking a silent quota
+ * charge for a document that was never summarized (that's what the POST
+ * endpoint above is for, and it's deliberately only triggered by a click).
+ */
+export const getExistingDocumentSummary = async (
+  userId: string,
+  documentId: string
+): Promise<IArtifact | null> => {
+  const document = await StudyDocument.findOne({
+    _id: documentId,
+    status: { $ne: "DELETED" },
+  });
+
+  if (!document) {
+    throw new AppError("Document not found", 404);
+  }
+
+  if (document.ownerId.toString() !== userId) {
+    throw new AppError(
+      "Only the document owner can view this.",
+      403,
+      "FORBIDDEN_NOT_OWNER"
+    );
+  }
+
+  return Artifact.findOne({ summaryDocumentId: documentId });
+};
+
 export const createDocumentSummary = async (
   userId: string,
   documentId: string,

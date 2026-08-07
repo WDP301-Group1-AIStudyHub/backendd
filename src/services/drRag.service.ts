@@ -9,6 +9,7 @@ import { rewriteAcademicQuery } from "./queryRewrite.service";
 import {
   calculateAverageRelevance,
   evaluateRetrievedChunks,
+  removeVietnameseAccents,
 } from "./relevance.service";
 import { checkAnswerGrounding } from "./answerCheck.service";
 import {
@@ -53,14 +54,16 @@ export type DynamicCandidateGroup = {
   candidates: EvaluatedChunk[];
 };
 
-const normalizeTerms = (text: string): Set<string> =>
-  new Set(
-    text
-      .toLowerCase()
+const normalizeTerms = (text: string): Set<string> => {
+  const cleanText = text.replace(/^["'«»“”`]+|["'«»“”`]+$/g, "");
+  const unaccented = removeVietnameseAccents(cleanText.toLowerCase());
+  return new Set(
+    unaccented
       .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .split(/\s+/)
-      .filter((term) => term.length >= 4),
+      .filter((term) => term.length >= 2 || /^\d+$/.test(term)),
   );
+};
 
 const sectionKey = (chunk: EvaluatedChunk | RetrievedChunk): string =>
   [
@@ -338,8 +341,8 @@ export const toSources = (
       outlineType: chunk.metadata.outlineType,
       chapterOrdinal: chunk.metadata.chapterOrdinal,
       contentPreview:
-        chunk.content.length > 220
-          ? `${chunk.content.slice(0, 220)}...`
+        chunk.content.length > 500
+          ? `${chunk.content.slice(0, 500)}...`
           : chunk.content,
       relevanceScore: chunk.relevanceScore,
       ...(citationId !== undefined ? { citationId } : {}),
@@ -396,9 +399,10 @@ const buildEmptyDocumentResult = (
   titles: string[],
 ): RagAnswerResult => {
   const fileNames = titles.join(", ");
-  const answer = titles.length === 1
-    ? `"${fileNames}" has no readable text — it looks like a scanned PDF or empty file, so there is nothing to search. Try running OCR or uploading a text-based copy.`
-    : `The following documents have no readable text: "${fileNames}" — they look like scanned PDFs or empty files, so there is nothing to search. Try running OCR or uploading text-based copies.`;
+  const answer =
+    titles.length === 1
+      ? `"${fileNames}" has no readable text — it looks like a scanned PDF or empty file, so there is nothing to search. Try running OCR or uploading a text-based copy.`
+      : `The following documents have no readable text: "${fileNames}" — they look like scanned PDFs or empty files, so there is nothing to search. Try running OCR or uploading text-based copies.`;
 
   return {
     answer,
@@ -482,15 +486,25 @@ export const retrieveDrRagContext = async (
   filters: Parameters<typeof searchRelevantChunks>[1],
   options: { contextLimit?: number; skipGroundingGuard?: boolean } = {},
 ): Promise<DrRagRetrievalResult> => {
+  const cleanQuery = query.replace(/^["'«»“”`]+|["'«»“”`]+$/g, "").trim();
   const contextLimit = options.contextLimit ?? DEFAULT_CONTEXT_CHUNK_LIMIT;
+
+  console.log("[RAG Retrieval Start]", {
+    rawQuery: query,
+    cleanQuery,
+    filters,
+    contextLimit,
+    skipGroundingGuard: options.skipGroundingGuard ?? false,
+  });
+
   const stageOneRaw = await searchRelevantChunks(
-    query,
+    cleanQuery,
     filters,
     DEFAULT_STATIC_CHUNK_LIMIT,
   );
 
   const stageOneChunks = evaluateRetrievedChunks(
-    query,
+    cleanQuery,
     dedupeChunks(stageOneRaw),
     options.skipGroundingGuard ? 0 : RAG_CONFIG.relevanceThreshold,
   );
@@ -502,24 +516,39 @@ export const retrieveDrRagContext = async (
     skipRelevanceFilter: options.skipGroundingGuard,
   });
 
+  console.log("[RAG Stage 1 Complete]", {
+    cleanQuery,
+    stageOneRawCount: stageOneRaw.length,
+    stageOneEvaluatedCount: stageOneChunks.length,
+    staticChunksSelected: staticChunks.length,
+    selectedStaticChunkIds: staticChunks.map((c) => c.id),
+  });
+
   if (
     !options.skipGroundingGuard &&
     (staticChunks.length === 0 ||
-      !hasSufficientStageOneEvidence(query, stageOneChunks))
+      !hasSufficientStageOneEvidence(cleanQuery, stageOneChunks))
   ) {
+    console.log("[RAG Retrieval Short-Circuit]", {
+      reason:
+        staticChunks.length === 0
+          ? "no_static_chunks"
+          : "insufficient_stage_one_evidence",
+      cleanQuery,
+    });
     return {
       chunks: [],
       sources: [],
       stageOneCount: stageOneChunks.length,
       stageTwoCount: 0,
-      retrievalQueries: [query],
+      retrievalQueries: [cleanQuery],
     };
   }
 
   const seeds = staticChunks.slice(0, MAX_DYNAMIC_QUERIES);
 
   const expandedQueries = seeds.map((seed) =>
-    buildExpandedRetrievalQuery(query, seed),
+    buildExpandedRetrievalQuery(cleanQuery, seed),
   );
 
   const stageTwoResults = await Promise.all(
@@ -536,7 +565,7 @@ export const retrieveDrRagContext = async (
     seed,
     query: expandedQueries[index],
     candidates: evaluateRetrievedChunks(
-      `${query} ${expandedQueries[index]}`,
+      cleanQuery,
       dedupeChunks(stageTwoResults[index] || []).filter(
         (chunk) => chunk.id !== seed.id,
       ),
@@ -550,6 +579,14 @@ export const retrieveDrRagContext = async (
     contextLimit,
   );
 
+  console.log("[RAG Stage 2 Complete]", {
+    cleanQuery,
+    seedsCount: seeds.length,
+    dynamicChunksSelected: dynamicChunks.length,
+    finalSelectedCount: selected.length,
+    finalSelectedChunkIds: selected.map((c) => c.id),
+  });
+
   return {
     chunks: selected,
     sources: toSources(selected),
@@ -557,7 +594,7 @@ export const retrieveDrRagContext = async (
     stageTwoCount: dedupeChunks(
       dynamicGroups.flatMap((group) => group.candidates),
     ).length,
-    retrievalQueries: [query, ...expandedQueries],
+    retrievalQueries: [cleanQuery, ...expandedQueries],
   };
 };
 
@@ -572,8 +609,15 @@ export const askQuestionWithDrRag = async (
     return buildProcessingResult(payload.question, startedAt);
   }
 
-  if (chatScope.emptyDocumentTitles && chatScope.emptyDocumentTitles.length > 0) {
-    return buildEmptyDocumentResult(payload.question, startedAt, chatScope.emptyDocumentTitles);
+  if (
+    chatScope.emptyDocumentTitles &&
+    chatScope.emptyDocumentTitles.length > 0
+  ) {
+    return buildEmptyDocumentResult(
+      payload.question,
+      startedAt,
+      chatScope.emptyDocumentTitles,
+    );
   }
 
   const intentClassification = await classifyQuestionIntent(payload.question);

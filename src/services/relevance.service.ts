@@ -2,12 +2,21 @@ import { EvaluatedChunk } from "../types/rag.types";
 import { RetrievedChunk } from "./vector.service";
 import { RAG_CONFIG } from "../config/rag.config";
 
+export const removeVietnameseAccents = (str: string): string => {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+};
+
 const normalizeTerms = (text: string): string[] => {
-  return text
-    .toLowerCase()
+  const cleanText = text.replace(/^["'«»“”`]+|["'«»“”`]+$/g, "");
+  const unaccented = removeVietnameseAccents(cleanText.toLowerCase());
+  return unaccented
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
-    .filter((term) => term.length >= 3);
+    .filter((term) => term.length >= 2 || /^\d+$/.test(term));
 };
 
 export const evaluateChunkRelevance = (
@@ -18,7 +27,9 @@ export const evaluateChunkRelevance = (
   // Semantic retrieval remains the primary signal for Vietnamese study docs.
   // Vietnamese accents, spacing, and paraphrases can reduce lexical overlap,
   // so lexical scoring stays secondary and does not use fixed keyword lists.
-  const questionTerms = new Set(normalizeTerms(question));
+  const cleanQuestion = question.replace(/^["'«»“”`]+|["'«»“”`]+$/g, "").trim();
+  const questionTerms = new Set(normalizeTerms(cleanQuestion));
+
   const chunkTextToEvaluate = [
     chunk.content,
     chunk.metadata?.title,

@@ -72,6 +72,12 @@ export function applyCitations({
     return { answer, citedSources: [] };
   }
 
+  console.log("[RAG Apply Citations Start]", {
+    answerLength: answer.length,
+    inputSourcesCount: sources.length,
+    validCitationIds: [...validOriginalIds],
+  });
+
   const segments = splitCodeBlocks(answer);
 
   // Regex to match citation markers like [1], [12], but NOT markdown links like [1](http...)
@@ -106,6 +112,8 @@ export function applyCitations({
     renumberMap.set(originalId, index + 1);
   });
 
+  const droppedHallucinatedIds: number[] = [];
+
   // Pass 2: Rewrite markers in non-code segments
   const processedSegments = segments.map((segment) => {
     if (segment.isCode) return segment.text;
@@ -124,6 +132,7 @@ export function applyCitations({
         if (originalId <= 0) return fullMatch;
 
         // Drop hallucinated markers along with the space that preceded them.
+        droppedHallucinatedIds.push(originalId);
         return "";
       },
     );
@@ -142,8 +151,32 @@ export function applyCitations({
     },
   );
 
+  console.log("[RAG Citation Review]", {
+    inputAnswerLength: answer.length,
+    outputAnswerLength: finalAnswer.length,
+    totalSourcesAvailable: sources.length,
+    validSourcesCitedCount: citedSources.length,
+    firstAppearanceOrder,
+    citationRenumberMapping: Object.fromEntries(renumberMap),
+    droppedHallucinatedCitationIds: [...new Set(droppedHallucinatedIds)],
+    reviewStatus:
+      citedSources.length > 0
+        ? droppedHallucinatedIds.length > 0
+          ? "CITATIONS_VALIDATED_WITH_HALLUCINATIONS_STRIPPED"
+          : "ALL_CITATIONS_VALIDATED_AND_RENUMBERED"
+        : "NO_CITATIONS_USED",
+    citedSourcesSummary: citedSources.map((s) => ({
+      citationId: s.citationId,
+      documentId: s.documentId,
+      title: s.title,
+      section: s.sectionTitle || s.heading || s.section || "N/A",
+    })),
+  });
+
   return {
     answer: finalAnswer,
     citedSources,
   };
+
 }
+

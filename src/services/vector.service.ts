@@ -422,9 +422,24 @@ export const searchRelevantChunks = async (
     includeValues: false,
   });
 
-  return result.matches.map((match) =>
+  const matches = result.matches.map((match) =>
     toRetrievedChunk(match.id, match.metadata, match.score),
   );
+
+  console.log("[RAG Vector Search]", {
+    query: typeof questionOrEmbedding === "string" ? questionOrEmbedding : "[Embedding Vector]",
+    filters,
+    topK,
+    matchesFound: matches.length,
+    topMatches: matches.slice(0, 3).map((m) => ({
+      id: m.id,
+      score: m.pineconeScore,
+      title: m.metadata.title,
+      sectionTitle: m.metadata.sectionTitle,
+    })),
+  });
+
+  return matches;
 };
 
 /**
@@ -442,6 +457,12 @@ export const searchRelevantChunksPerDocument = async (
   if (!documentIds?.length) {
     return searchRelevantChunks(question, filters, topKPerDocument * 3);
   }
+
+  console.log("[RAG Multi-Doc Search]", {
+    question,
+    documentIds,
+    topKPerDocument,
+  });
 
   const queryEmbedding = await generateEmbedding(question);
   const perDocTopK = Math.max(topKPerDocument, 4);
@@ -462,6 +483,7 @@ export const searchRelevantChunksPerDocument = async (
 
   return results.flat();
 };
+
 
 export const fetchVectorChunksByIds = async (
   ids: string[],

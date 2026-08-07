@@ -7,11 +7,13 @@ export type SemanticQuestionIntent =
   | "extraction"
   | "instruction"
   | "list"
+  | "artifact_request"
   | "meta"
   | "unknown";
 
 export interface IntentClassification {
   intent: SemanticQuestionIntent;
+  requiresArtifact?: boolean;
   confidence: number;
 }
 
@@ -22,6 +24,7 @@ const VALID_INTENTS = new Set<SemanticQuestionIntent>([
   "extraction",
   "instruction",
   "list",
+  "artifact_request",
   "meta",
   "unknown",
 ]);
@@ -48,6 +51,7 @@ const normalizeClassification = (
 
   return {
     intent: intent && VALID_INTENTS.has(intent) ? intent : "unknown",
+    requiresArtifact: Boolean(parsed?.requiresArtifact),
     confidence: Number.isFinite(confidence)
       ? Math.max(0, Math.min(1, confidence))
       : 0,
@@ -57,31 +61,30 @@ const normalizeClassification = (
 export const classifyQuestionIntent = async (
   question: string,
 ): Promise<IntentClassification> => {
-  // Regex intent classifiers become brittle across languages, subjects, and
-  // document formats. This model-driven classifier keeps RAG understanding
-  // semantic while still returning a small typed contract for the pipeline.
   const prompt = `
-Classify the user's question for a Vietnamese-focused educational document RAG system.
-Vietnamese questions must keep their original meaning, accents, and subject-specific terms.
-Do not use document-type assumptions.
-Do not translate the question.
-Return valid JSON only. Do not wrap the response in markdown.
+You are an intent classification module for an educational RAG platform. 
+Analyze the input user message and classify its primary intent and artifact requirements.
 
-Allowed intents:
-- qa: normal question answering
-- summary: user asks to summarize
-- comparison: user asks to compare
-- extraction: user asks to extract specific names, values, dates, entities, facts, or items
-- instruction: user asks for steps, procedure, or what to do
-- list: user asks for an enumerated list
-- meta: user asks about the assistant itself (capabilities, identity, greetings, small talk) rather than about any document, e.g. "what can you do?", "who are you?", "hello"
-- unknown: unclear intent
+INTENT CATEGORIES:
+- "qa": Standard factual Q&A, definitions, explanations.
+- "summary": Requests to summarize documents, chapters, or topics.
+- "comparison": Requests to compare concepts, entities, or theories.
+- "extraction": Requests to extract specific entities, lists of dates, equations, or vocabulary.
+- "instruction": Walkthroughs, procedural steps, problem-solving methods.
+- "artifact_request": Explicit requests to generate flashcards, quizzes, mind maps, reports, or tables.
+- "meta": System capabilities, greetings, small talk, or platform questions.
+- "unknown": Ambiguous or unintelligible input.
 
-Expected JSON:
+JSON OUTPUT SCHEMA:
 {
-  "intent": "qa | summary | comparison | extraction | instruction | list | meta | unknown",
+  "intent": "qa | summary | comparison | extraction | instruction | artifact_request | meta | unknown",
+  "requiresArtifact": boolean,
   "confidence": 0.0
 }
+
+RULES:
+- Return raw JSON ONLY. No markdown wrappers (do NOT use \`\`\`json), no preambles.
+- Preserve original meaning of Vietnamese educational terms without translation.
 
 Question:
 ${question}
@@ -101,7 +104,9 @@ ${question}
 
     return {
       intent: "unknown",
+      requiresArtifact: false,
       confidence: 0,
     };
   }
 };
+

@@ -107,26 +107,27 @@ export const generateFallbackAnswer = async (
       ? "the same language as the user's question"
       : params.language;
   const prompt = `
-Generate a structured fallback response for a RAG document QA system.
-Answer strictly in ${languageInstruction}.
-The retrieved document context was insufficient, so the user's question must not be answered.
-Do not use outside knowledge and do not invent facts about the uploaded document.
-Explain briefly why the answer cannot be found based on the retrieval statistics below.
-Suggest what the user can try next: ask a more specific question, choose the correct document or subject, or delete and re-upload the file if it was not processed correctly.
-${
-  isVietnamese
-    ? "Mention likely reasons only when relevant: tài liệu chưa chứa thông tin này, câu hỏi quá chung chung, file chưa được xử lý đúng, cần hỏi cụ thể hơn."
-    : "Mention likely reasons only when relevant: the document may not contain this information, the question may be too broad, the file may not have been processed correctly."
-}
-If retrievedChunksCount is 0, say no relevant passages were found.
-If retrievedChunksCount is greater than 0 but relevantChunksCount is 0, say passages were found but not relevant enough.
-If reason is grounding_failed or empty_answer, say the generated answer was not well supported by the document content.
-${
-  isVietnamese
-    ? 'Use Markdown with short sections titled "Vấn đề", "Lý do", "Cách hỏi lại tốt hơn".'
-    : 'Use Markdown with short sections titled "Problem", "Reason", "How to ask better".'
-}
-Return only the fallback answer.
+You are an empathetic educational assistant generating a polite fallback response when source retrieval yields insufficient context.
+
+INPUT METRICS PROVIDED:
+- Detected Language: ${languageInstruction}
+- Retrieval Result: Insufficient context / No matching passages found.
+
+INSTRUCTIONS:
+1. State clearly that the uploaded documents do not currently contain enough information to answer the question accurately.
+2. Provide 3 actionable recovery steps:
+   - Ask a more targeted question with specific terms.
+   - Select or upload the specific document/course subject covering this topic.
+   - Check if the source file was fully processed in the Documents panel.
+3. Write the entire response in the primary language specified by ${languageInstruction}.
+
+LOCALIZATION GUIDELINES FOR HEADINGS:
+- If language is Vietnamese: Use "Vấn đề", "Lý do", "Gợi ý tiếp theo".
+- If language is English: Use "Issue", "Reason", "Suggested Next Steps".
+- For other languages: Translate these section headers natively.
+
+OUTPUT FORMAT:
+Return clean Markdown formatting only.
 
 Document title: ${params.documentTitle || "N/A"}
 Subject: ${params.subject || "N/A"}

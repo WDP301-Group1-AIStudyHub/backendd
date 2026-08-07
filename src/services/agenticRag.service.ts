@@ -55,22 +55,34 @@ const AGENT_MODE = "agentic" as const;
 const MAX_HISTORY_TURNS = 6;
 const RECURSION_LIMIT = 12;
 
-const SYSTEM_PROMPT = `You are an AI study assistant for a document Q&A platform. Users upload study documents (PDF, Word, slides) and you answer questions grounded in those documents.
+const SYSTEM_PROMPT = `You are an expert AI Study Assistant for an educational document Q&A system. Your mission is to help students learn by providing strictly grounded answers based on their uploaded study materials.
 
-Rules:
-- Before answering any question about study content, call search_documents to find supporting passages. You may call it multiple times with different focused queries (for example, one query per side of a comparison).
-- Answer ONLY from tool results. Never answer content questions from your own knowledge, and never invent citations.
-- If search_documents returns NO_MATCHES, retry once with a rephrased, more specific query. If it still returns NO_MATCHES, tell the user their documents do not seem to cover this topic and suggest asking more specifically or uploading a relevant document.
-- Questions about you or this platform (greetings, "what can you do?") may be answered directly without tools: you answer questions about the user's uploaded documents, summarize and compare them, and extract facts from them.
-- Use list_documents when the user asks what files or documents they have.
-- Use list_subjects when the user refers to a course or subject rather than a file.
-- When the user names specific documents or a subject for an artifact, call list_documents (or list_subjects) first and pass the resolved ids to create_artifact as documentIds / subjectId. Never guess or invent an id.
-- Use get_document_outline when the user asks about a document's structure, or scopes a request to a chapter or section, so the artifact instructions can name that section.
-- Call list_artifacts before creating an artifact the user may already have; if a matching one exists, point them to it instead of generating a duplicate.
-- If a tool returns ERROR or NOT_FOUND, do not retry with the same arguments — re-resolve the id or tell the user what you could not find.
-- When the user asks you to create, make, or generate flashcards, a quiz, a mind map, a report/study guide, or a data/comparison table, call create_artifact with a fitting type, title, and instructions. Do NOT write the artifact content inline in your answer — the artifact is generated in the background and appears in the Artifacts panel. After calling it, tell the user the artifact is being generated and will appear there shortly.
-- Always answer in the same language as the user's question.
-- Every passage returned by search_documents carries an "id". Whenever you use information from a passage, append an inline citation marker [id] at the end of the sentence that uses it (for example, "Photosynthesis takes place in chloroplasts [1]."). If multiple passages support a statement, append multiple markers (for example, [1][3]). Cite ONLY IDs that you actually received in tool results; never invent or guess IDs. Do NOT include citation markers in greetings, meta answers, or when no passages were used. Do NOT write a manual "Sources" or "References" section at the end of your response, as the system interface renders source chips automatically.`;
+=== OPERATIONAL WORKFLOW ===
+
+1. IDENTIFY QUERY SCOPE:
+   - If the user query is meta/conversational (greetings, "who are you?", capabilities), answer directly without calling tools.
+   - If the user mentions a specific file name or subject, call list_documents or list_subjects first to retrieve the exact IDs.
+
+2. RETRIEVE EVIDENCE:
+   - Call search_documents to fetch supporting passages. Pass documentIds or subjectId if resolved in Step 1.
+   - FOR COMPARISONS / COMPLEX QUESTIONS: Execute multiple distinct search_documents calls (e.g., call once for Entity A, and once for Entity B).
+   - IF NO MATCHES: Rephrase the query with broader academic synonyms and retry ONCE.
+
+3. ARTIFACT CREATION:
+   - For requests requiring flashcards, quizzes, mind maps, reports, or data tables:
+     a. Check list_artifacts to avoid creating duplicates.
+     b. Resolve target documentIds or subjectId.
+     c. Call create_artifact.
+     d. Respond with a brief status message confirming background generation. Do NOT write artifact body text inline.
+
+=== ANSWER GROUNDING & CITATION RULES ===
+
+- Base your answers STRICTLY on passages returned by search_documents.
+- Every factual claim MUST end with an inline bracketed citation matching the exact passage ID returned (e.g., "...takes place in chloroplasts [1].").
+- Combine multiple sources into consecutive markers (e.g., [1][3]).
+- Never invent passage IDs or cite information from general pre-training knowledge.
+- If retrieval yields insufficient information after 1 retry, state clearly that the uploaded documents do not cover the topic, and offer relevant follow-up suggestions.
+- Match the primary language of the user's prompt in your response.`;
 
 type AgentRunContext = {
   collectedChunks: EvaluatedChunk[];
@@ -107,7 +119,14 @@ const buildAgentTools = (
   };
 
   const searchDocuments = tool(
-    async ({ query }: { query: string }, config) => {
+    async (
+      {
+        query,
+        documentIds,
+        subjectId,
+      }: { query: string; documentIds?: string[]; subjectId?: string },
+      config,
+    ) => {
       if (signal?.aborted) {
         throw new DOMException("AbortError", "AbortError");
       }
@@ -116,22 +135,31 @@ const buildAgentTools = (
         type: "tool_start",
         tool: "search_documents",
         toolCallId,
-        input: { query },
+        input: { query, documentIds, subjectId },
       });
+      const cleanQuery = query.replace(/^["'«»“”`]+|["'«»“”`]+$/g, "").trim();
       onEvent?.({
         type: "phase",
         phase: "retrieving",
         // The model often quotes its own query, which would otherwise render
         // as doubled quotes inside the narration.
-        detail: `Searching your documents for "${query.replace(/^["']+|["']+$/g, "")}"`,
+        detail: `Searching your documents for "${cleanQuery}"`,
       });
-      const result = await retrieveDrRagContext(query, vectorFilters);
+
+      const effectiveFilters = {
+        ...vectorFilters,
+        ...(documentIds?.length ? { documentIds, documentId: undefined } : {}),
+        ...(subjectId ? { subjectId } : {}),
+      };
+
+      const result = await retrieveDrRagContext(cleanQuery, effectiveFilters);
+
       run.retrievalQueries.push(...result.retrievalQueries);
 
       if (result.chunks.length === 0) {
         const toolCall = {
           tool: "search_documents",
-          input: { query },
+          input: { query, documentIds, subjectId },
           resultSummary: "NO_MATCHES",
         };
         run.toolCalls.push(toolCall);
@@ -161,7 +189,7 @@ const buildAgentTools = (
       const resultSummary = `${result.chunks.length} passages`;
       run.toolCalls.push({
         tool: "search_documents",
-        input: { query },
+        input: { query, documentIds, subjectId },
         resultSummary,
       });
       onEvent?.({
@@ -192,16 +220,29 @@ const buildAgentTools = (
     {
       name: "search_documents",
       description:
-        "Search the user's uploaded study documents for passages relevant to a query. Returns the most relevant passages with their document titles and sections, or NO_MATCHES when nothing relevant exists.",
+        "Search uploaded study documents for relevant passages. Use optional documentIds or subjectId filters to scope the search when the user specifies a file or subject.",
       schema: z.object({
         query: z
           .string()
           .describe(
             "A focused search query in the language of the documents. Prefer specific terms over broad topics.",
           ),
+        documentIds: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Optional: Filter search strictly within specific document IDs.",
+          ),
+        subjectId: z
+          .string()
+          .optional()
+          .describe(
+            "Optional: Filter search within a specific course/subject ID.",
+          ),
       }),
     },
   );
+
 
   const listDocuments = tool(
     async (_input, config) => {

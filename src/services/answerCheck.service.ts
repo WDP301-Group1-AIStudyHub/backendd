@@ -44,25 +44,29 @@ export const checkAnswerGrounding = async (
     : "";
 
   const prompt = `
-  You are evaluating whether an answer for Vietnamese educational document QA is grounded in the provided context.
-Return valid JSON only. Do not wrap it in markdown.
-Expected JSON:
+You are a strict Hallucination and Grounding Evaluator for an educational RAG platform.
+Evaluate whether the generated answer is fully supported by the provided context passages.
+
+EVALUATION CRITERIA:
+1. FACTUAL ACCURACY: Are all assertions, dates, names, and formulas in the answer directly backed by the context?
+2. CITATION FAITHFULNESS: Do the bracketed citation markers (e.g., [1]) accurately point to the context passage that contains that fact?
+3. EXTRAPOLATION CHECK: Does the answer contain unmentioned external facts or hallucinatory assumptions?
+
+JSON OUTPUT FORMAT:
 {
-  "isGrounded": true,
-  "confidenceScore": 0.0,
-  "reason": "string"
+  "isGrounded": boolean,
+  "citationAccuracy": 1.0,
+  "confidenceScore": 1.0,
+  "reason": "Short explanation of hallucination or missing context if isGrounded is false."
 }
 
-Rules:
-  - isGrounded must be false if the answer contains unsupported factual or theoretical claims.
-- confidenceScore must be from 0 to 1.
-- Vietnamese answers must preserve the meaning and terms found in the context.
-- Do not require translation of Vietnamese educational terms.
-- If the context is insufficient, isGrounded must be false so the backend can generate a safe fallback response.
-  ${paraphraseRules ? `\n${paraphraseRules}` : ""}
-  ${illustrativeExampleRules ? `\n${illustrativeExampleRules}` : ""}
+RULES:
+- Set "isGrounded" to false if any factual claim lacks support in the provided context passages.
+- Return raw JSON ONLY. No markdown code blocks, no intro/outro.
+${paraphraseRules ? `\n${paraphraseRules}` : ""}
+${illustrativeExampleRules ? `\n${illustrativeExampleRules}` : ""}
 
-  Context:
+Context:
 ${context}
 
 Answer:
@@ -80,6 +84,7 @@ ${answer}
     return {
       isGrounded: false,
       confidenceScore: 0,
+      citationAccuracy: 0,
       reason: "",
       warning: "Grounding check parse failed",
     };
@@ -88,6 +93,11 @@ ${answer}
   const confidenceScore = Math.max(
     0,
     Math.min(1, Number(parsed.confidenceScore) || 0),
+  );
+
+  const citationAccuracy = Math.max(
+    0,
+    Math.min(1, Number(parsed.citationAccuracy) ?? 1.0),
   );
 
   const threshold =
@@ -100,6 +110,7 @@ ${answer}
   return {
     isGrounded: Boolean(parsed.isGrounded) && confidenceScore >= threshold,
     confidenceScore,
+    citationAccuracy,
     reason: parsed.reason,
     warning: parsed.warning,
   };

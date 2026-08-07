@@ -37,6 +37,7 @@ export interface EvaluatedChunk {
 export interface AnswerGroundingCheck {
   isGrounded: boolean;
   confidenceScore: number;
+  citationAccuracy?: number;
   reason?: string;
   warning?: string;
 }

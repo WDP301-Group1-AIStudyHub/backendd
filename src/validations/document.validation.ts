@@ -10,6 +10,7 @@ export const uploadDocumentSchema = z.object({
     description: z.string().trim().max(1000).optional(),
     subject: z.string().trim().max(80).optional(),
     subjectId: objectIdSchema,
+    uploadSessionId: z.string().trim().optional(),
   }),
 });
 

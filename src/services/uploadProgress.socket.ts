@@ -11,6 +11,10 @@ export interface UploadProgressPayload {
   step: string;
   progress: number;
   message: string;
+  processedChunks?: number;
+  totalChunks?: number;
+  currentBatch?: number;
+  totalBatches?: number;
 }
 
 let io: Server | null = null;

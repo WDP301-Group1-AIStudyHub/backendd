@@ -56,6 +56,7 @@ export interface UploadDocumentRequest {
   subject?: string;
   subjectId: string;
   visibility?: DocumentVisibility;
+  uploadSessionId?: string;
 }
 
 export interface UpdateDocumentRequest {

@@ -36,6 +36,7 @@ import {
   summarizeDocumentOutline,
   type DocumentOutlineNode,
 } from "../utils/documentOutline";
+import { emitUploadProgress } from "./uploadProgress.socket";
 
 const MAX_DOCUMENT_LIST_LIMIT = 50;
 
@@ -211,11 +212,26 @@ const runCreateDocument = async (
   role: string,
   settler: ReservationSettler,
 ): Promise<DocumentResponse> => {
-  console.log("[document.service: createDocument] Starting document creation pipeline", {
-    title: payload.title,
-    fileName: file.originalname,
-    mimeType: file.mimetype,
-    sizeBytes: file.size
+  console.log(
+    "[document.service: createDocument] Starting document creation pipeline",
+    {
+      title: payload.title,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      uploadSessionId: payload.uploadSessionId,
+    },
+  );
+
+  const uploadSessionId = payload.uploadSessionId;
+
+  emitUploadProgress("upload:progress", {
+    documentId: "",
+    uploadSessionId,
+    status: "processing",
+    step: "UPLOADING_FILE",
+    progress: 10,
+    message: "Validating storage quota and format...",
   });
 
   const subject = await getSubjectOwnedByUser(payload.subjectId, userId, role);
@@ -226,7 +242,18 @@ const runCreateDocument = async (
   let semanticOutline: DocumentOutlineNode[] = [];
 
   try {
-    console.log("[document.service: createDocument] Triggering extractDocumentText stage...");
+    emitUploadProgress("upload:progress", {
+      documentId: "",
+      uploadSessionId,
+      status: "processing",
+      step: "EXTRACTING_TEXT",
+      progress: 25,
+      message: "Extracting text and outline...",
+    });
+
+    console.log(
+      "[document.service: createDocument] Triggering extractDocumentText stage...",
+    );
     const extractionResult = await extractDocumentText(
       file.buffer,
       file.originalname,
@@ -234,28 +261,52 @@ const runCreateDocument = async (
     );
     extractedText = extractionResult.extractedText;
     semanticOutline = extractionResult.metadata?.semanticOutline || [];
-    console.log("[document.service: createDocument] Text extraction completed successfully", {
-      extractedTextLength: extractedText.length,
-      semanticOutlineNodesCount: semanticOutline.length
-    });
+    console.log(
+      "[document.service: createDocument] Text extraction completed successfully",
+      {
+        extractedTextLength: extractedText.length,
+        semanticOutlineNodesCount: semanticOutline.length,
+      },
+    );
   } catch (error) {
-    console.error("[document.service: createDocument] Text extraction FAILED", error);
+    console.error(
+      "[document.service: createDocument] Text extraction FAILED",
+      error,
+    );
     extractionStatus = "FAILED";
     extractionError = error instanceof Error ? error.message : String(error);
   }
 
-  console.log("[document.service: createDocument] Uploading document to Cloudinary...");
+  console.log(
+    "[document.service: createDocument] Uploading document to Cloudinary...",
+  );
   const cloudinaryUpload = await uploadDocumentToCloudinary(file);
   console.log("[document.service: createDocument] Cloudinary upload finished", {
     secureUrl: cloudinaryUpload.result.secure_url,
-    fileExtension: cloudinaryUpload.fileExtension
+    fileExtension: cloudinaryUpload.fileExtension,
   });
 
-  console.log("[document.service: createDocument] Splitting text into chunks for RAG...");
-  const chunkingResult = await splitTextForRag(extractedText);
-  console.log("[document.service: createDocument] Chunking complete. Chunks generated:", chunkingResult.chunks.length);
+  emitUploadProgress("upload:progress", {
+    documentId: "",
+    uploadSessionId,
+    status: "processing",
+    step: "CHUNKING_TEXT",
+    progress: 50,
+    message: "Generating text chunks...",
+  });
 
-  console.log("[document.service: createDocument] Extracting document outline...");
+  console.log(
+    "[document.service: createDocument] Splitting text into chunks for RAG...",
+  );
+  const chunkingResult = await splitTextForRag(extractedText);
+  console.log(
+    "[document.service: createDocument] Chunking complete. Chunks generated:",
+    chunkingResult.chunks.length,
+  );
+
+  console.log(
+    "[document.service: createDocument] Extracting document outline...",
+  );
   const documentOutline = extractDocumentOutline({
     text: extractedText,
     chunkingResult,
@@ -266,7 +317,7 @@ const runCreateDocument = async (
   console.log("[document.service: createDocument] Outline analysis finished", {
     outlineNodesCount: documentOutline.length,
     chapterCount: outlineSummary.chapterCount,
-    sectionCount: outlineSummary.sectionCount
+    sectionCount: outlineSummary.sectionCount,
   });
 
   const document = await StudyDocument.create({
@@ -345,17 +396,24 @@ const runCreateDocument = async (
   await settler.commit();
 
   if (extractionStatus === "COMPLETED") {
-    console.log("[document.service: createDocument] Triggering RAG indexing via indexDocumentForRag...");
-    const indexResult = await indexDocumentForRag(document._id.toString(), userId);
+    console.log(
+      "[document.service: createDocument] Triggering RAG indexing via indexDocumentForRag...",
+    );
+    const indexResult = await indexDocumentForRag(
+      document._id.toString(),
+      userId,
+      {
+        uploadSessionId,
+        versionId: version._id.toString(),
+      },
+    );
     console.log("[document.service: createDocument] RAG indexing completed", {
       chunksCreated: indexResult.chunksCreated,
-      chunkingStrategy: indexResult.chunkingStrategy
+      chunkingStrategy: indexResult.chunkingStrategy,
     });
     const indexedAt = new Date();
-    const { status: indexingStatus, error: indexingError } = computeIndexingStatus(
-      indexResult.chunksCreated,
-      extractedText,
-    );
+    const { status: indexingStatus, error: indexingError } =
+      computeIndexingStatus(indexResult.chunksCreated, extractedText);
 
     // Zero chunks means nothing reached the vector store, so the document
     // cannot answer anything. The line above reads like success on its own —
@@ -373,6 +431,27 @@ const runCreateDocument = async (
           reason: indexingError,
         },
       );
+      emitUploadProgress("upload:progress", {
+        documentId: document._id.toString(),
+        uploadSessionId,
+        versionId: version._id.toString(),
+        status: "failed",
+        step: "FAILED",
+        progress: 0,
+        message: indexingError,
+      });
+    } else {
+      emitUploadProgress("upload:progress", {
+        documentId: document._id.toString(),
+        uploadSessionId,
+        versionId: version._id.toString(),
+        status: "completed",
+        step: "COMPLETED",
+        progress: 100,
+        message: "Document upload and vector indexing complete!",
+        processedChunks: indexResult.chunksCreated,
+        totalChunks: indexResult.chunksCreated,
+      });
     }
 
     version.indexedAt = indexedAt;
@@ -402,7 +481,18 @@ const runCreateDocument = async (
     document.sectionCount = indexResult.sectionCount || 0;
     await document.save();
   } else {
-    console.warn("[document.service: createDocument] Extraction failed, skipping RAG indexing.");
+    console.warn(
+      "[document.service: createDocument] Extraction failed, skipping RAG indexing.",
+    );
+    emitUploadProgress("upload:progress", {
+      documentId: document._id.toString(),
+      uploadSessionId,
+      versionId: version._id.toString(),
+      status: "failed",
+      step: "FAILED",
+      progress: 0,
+      message: extractionError || "Failed to extract text from document",
+    });
   }
 
   return toDocumentResponse(document);
@@ -513,10 +603,8 @@ export const reindexUserDocument = async (
 
   const result = await reembedDocumentForRag(document._id.toString(), userId);
   const indexedAt = new Date();
-  const { status: indexingStatus, error: indexingError } = computeIndexingStatus(
-    result.chunksCreated,
-    document.extractedText,
-  );
+  const { status: indexingStatus, error: indexingError } =
+    computeIndexingStatus(result.chunksCreated, document.extractedText);
 
   await StudyDocument.updateOne(
     { _id: document._id, ownerId: userId },
@@ -655,7 +743,6 @@ export const deleteDocument = async (
   if (!document) {
     throw new AppError("Document not found", 404);
   }
-
 };
 
 export const searchDocuments = async (

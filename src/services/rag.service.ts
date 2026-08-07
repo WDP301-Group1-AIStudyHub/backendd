@@ -4,16 +4,22 @@ import { DocumentVersion } from "../modules/documentVersions/documentVersion.mod
 import { ReindexDocumentResponse } from "../types/api.types";
 import { splitTextForRag } from "../utils/textSplitter";
 import { AppError } from "../middlewares/error.middleware";
-import {
-  deleteDocumentChunks,
-  upsertDocumentChunks,
-} from "./vector.service";
+import { deleteDocumentChunks, upsertDocumentChunks } from "./vector.service";
 import { analyzeDocumentStructure } from "../utils/documentStructure";
 import {
   applyOutlineToChunks,
   extractDocumentOutline,
   summarizeDocumentOutline,
 } from "../utils/documentOutline";
+import {
+  emitUploadProgress,
+  UploadProgressPayload,
+} from "./uploadProgress.socket";
+
+export interface IndexingOptions {
+  uploadSessionId?: string;
+  versionId?: string;
+}
 
 const getSubjectNameForUser = async (
   subjectId: string | undefined,
@@ -35,6 +41,7 @@ const getSubjectNameForUser = async (
 export const indexDocumentForRag = async (
   documentId: string,
   userId: string,
+  options?: IndexingOptions,
 ): Promise<Omit<ReindexDocumentResponse, "deletedVectorCount">> => {
   const document = await StudyDocument.findOne({
     _id: documentId,
@@ -118,7 +125,46 @@ export const indexDocumentForRag = async (
       chapterOrdinal: chunk.metadata.chapterOrdinal || "",
     },
   }));
-  const upsertedVectorCount = await upsertDocumentChunks(vectorChunks);
+
+  emitUploadProgress("upload:progress", {
+    documentId,
+    uploadSessionId: options?.uploadSessionId,
+    versionId: options?.versionId || activeVersion?._id?.toString(),
+    status: "processing",
+    step: "GENERATING_EMBEDDINGS",
+    progress: 65,
+    message: `Generating embeddings for ${vectorChunks.length} chunks...`,
+    totalChunks: vectorChunks.length,
+  });
+
+  const upsertedVectorCount = await upsertDocumentChunks(
+    vectorChunks,
+    (progressInfo) => {
+      const progress = Math.min(
+        95,
+        70 +
+          Math.round(
+            (progressInfo.processedChunks / progressInfo.totalChunks) * 25,
+          ),
+      );
+      emitUploadProgress("upload:progress", {
+        documentId,
+        uploadSessionId: options?.uploadSessionId,
+        versionId: options?.versionId || activeVersion?._id?.toString(),
+        status: "processing",
+        step: "UPSERTING_VECTORS",
+        progress,
+        message:
+          progressInfo.totalBatches > 1
+            ? `Upserting vectors (batch ${progressInfo.currentBatch}/${progressInfo.totalBatches})`
+            : `Upserting ${progressInfo.totalChunks} vectors to Pinecone`,
+        processedChunks: progressInfo.processedChunks,
+        totalChunks: progressInfo.totalChunks,
+        currentBatch: progressInfo.currentBatch,
+        totalBatches: progressInfo.totalBatches,
+      });
+    },
+  );
 
   console.log("[RAG reindex] Indexed document chunks", {
     documentId,
@@ -150,9 +196,10 @@ export const indexDocumentForRag = async (
 export const reindexDocumentForRag = async (
   documentId: string,
   userId: string,
+  options?: IndexingOptions,
 ): Promise<ReindexDocumentResponse> => {
   const deleteResult = await deleteDocumentChunks(documentId, userId);
-  const indexResult = await indexDocumentForRag(documentId, userId);
+  const indexResult = await indexDocumentForRag(documentId, userId, options);
   const result = {
     ...indexResult,
     deletedVectorCount: deleteResult.deletedVectorCount,

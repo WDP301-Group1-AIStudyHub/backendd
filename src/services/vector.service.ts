@@ -242,8 +242,17 @@ export const buildPineconeFilter = (
   return filter;
 };
 
+export interface VectorUpsertProgress {
+  processedChunks: number;
+  totalChunks: number;
+  currentBatch: number;
+  totalBatches: number;
+  percentage: number;
+}
+
 export const upsertDocumentChunks = async (
   chunks: VectorChunkInput[],
+  onProgress?: (progress: VectorUpsertProgress) => void | Promise<void>,
 ): Promise<number> => {
   if (chunks.length === 0) {
     return 0;
@@ -284,18 +293,36 @@ export const upsertDocumentChunks = async (
     },
   }));
 
+  const totalBatches = Math.ceil(records.length / PINECONE_UPSERT_BATCH_SIZE);
+
   for (
     let startIndex = 0;
     startIndex < records.length;
     startIndex += PINECONE_UPSERT_BATCH_SIZE
   ) {
+    const batch = records.slice(
+      startIndex,
+      startIndex + PINECONE_UPSERT_BATCH_SIZE,
+    );
+
     await index.upsert({
       namespace: getPineconeNamespace(),
-      records: records.slice(
-        startIndex,
-        startIndex + PINECONE_UPSERT_BATCH_SIZE,
-      ),
+      records: batch,
     });
+
+    const processedChunks = Math.min(startIndex + batch.length, records.length);
+    const currentBatch = Math.floor(startIndex / PINECONE_UPSERT_BATCH_SIZE) + 1;
+    const percentage = Math.round((processedChunks / records.length) * 100);
+
+    if (onProgress) {
+      await onProgress({
+        processedChunks,
+        totalChunks: records.length,
+        currentBatch,
+        totalBatches,
+        percentage,
+      });
+    }
   }
 
   return chunks.length;

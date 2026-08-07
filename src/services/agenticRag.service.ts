@@ -219,7 +219,7 @@ const buildAgentTools = (
         ownerId: userId,
         status: { $ne: "DELETED" },
       })
-        .select("title status subjectId updatedAt")
+        .select("title fileName originalFileName status subjectId updatedAt")
         .populate("subjectId", "_id name")
         .limit(50);
 
@@ -246,6 +246,7 @@ const buildAgentTools = (
           return {
             id: document._id.toString(),
             title: document.title,
+            fileName: document.fileName || document.originalFileName || undefined,
             status: document.status,
             subjectId: subjectObj
               ? subjectObj._id.toString()
@@ -843,9 +844,10 @@ export const askQuestionWithAgent = async (
 
     let contextPrompt = "";
     if (chatScope.scope === "single_document" && chatScope.documentTitle) {
-      contextPrompt = `\n\nActive Context:\n- Scope: Single Document\n- Active Document: "${chatScope.documentTitle}" (ID: ${chatScope.documentId})\nThe user has already selected/attached this document. If the user asks about the attached document, they are referring to this document. There is no need to call list_documents.`;
+      const fileNameStr = chatScope.fileName ? ` | Filename: "${chatScope.fileName}"` : "";
+      contextPrompt = `\n\nActive Context:\n- Scope: Single Document\n- Active Document: "${chatScope.documentTitle}"${fileNameStr} (ID: ${chatScope.documentId})\nThe user has selected/attached this document. Note that the document's file name may differ from its title (e.g., "@${chatScope.fileName || "filename"}" refers to "${chatScope.documentTitle}"). If the user mentions either the file name or title, they are referring to this active document. Do NOT claim the document is missing.`;
     } else if (chatScope.scope === "document_set" && chatScope.documentIds) {
-      contextPrompt = `\n\nActive Context:\n- Scope: Document Set\n- Active Documents: ${chatScope.documentIds.length} selected documents.`;
+      contextPrompt = `\n\nActive Context:\n- Scope: Document Set\n- Active Documents: ${chatScope.documentIds.length} selected documents. Note that user @mentions (e.g., @filename.pdf) refer to the attached documents. Do NOT claim a document is missing if it matches an attached file name or title.`;
     } else if (chatScope.scope === "subject_all" && chatScope.subject) {
       contextPrompt = `\n\nActive Context:\n- Scope: Subject-wide\n- Subject: "${chatScope.subject}" (ID: ${chatScope.subjectId})`;
     } else {

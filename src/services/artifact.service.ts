@@ -26,10 +26,16 @@ const DEFAULT_TITLES: Record<ArtifactType, string> = {
   SUMMARY: "Summary",
 };
 
+import { resolveCredentialForUser } from "./aiCredentialContext";
+import { assertQuotaAvailable, recordMessage } from "./aiUsage.service";
+
 export const initiateArtifactGeneration = async (
   userId: string,
-  params: InitiateArtifactParams
+  params: InitiateArtifactParams,
+  options: { isAdmin?: boolean } = {}
 ): Promise<IArtifact> => {
+  const credential = await resolveCredentialForUser(userId);
+  await assertQuotaAvailable(userId, credential, options.isAdmin ?? false);
   const chatScope = await resolveChatScope(userId, {
     question: params.instructions || DEFAULT_TITLES[params.type],
     documentId: params.documentId,
@@ -73,6 +79,8 @@ export const initiateArtifactGeneration = async (
     subjectId: chatScope.subjectId || undefined,
     scope: chatScope.scope,
   });
+
+  await recordMessage(userId, { degraded: credential.degraded });
 
   // Fire-and-forget: generation completes in the background while the caller
   // (REST endpoint or agent tool) returns immediately.

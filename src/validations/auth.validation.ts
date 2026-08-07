@@ -33,3 +33,18 @@ export const forgotPasswordSchema = z.object({
     email: z.string().trim().email().toLowerCase(),
   }),
 });
+
+export const resetPasswordSchema = z.object({
+  body: z.object({
+    token: z.string().trim().min(32),
+    email: z.string().trim().email().toLowerCase().optional(),
+    password: z.string().min(6).max(100),
+  }),
+});
+
+export const changePasswordSchema = z.object({
+  body: z.object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(6).max(100),
+  }),
+});

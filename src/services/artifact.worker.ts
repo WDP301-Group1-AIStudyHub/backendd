@@ -24,6 +24,23 @@ const cleanJson = (text: string): string => {
   return cleaned.trim();
 };
 
+// Catches exact/near-exact string duplicates the model still produces despite
+// the prompt instruction — not a substitute for it, since differently-phrased
+// duplicates of the same fact won't normalize to the same key.
+const dedupeArtifactItems = <T>(items: T[], keyFn: (item: T) => string): T[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = keyFn(item)
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, " ")
+      .replace(/[.!?…]+$/, "");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const mindmapNodeSchema: z.ZodType<{
   label: string;
   children?: { label: string; children?: unknown[] }[];
@@ -78,6 +95,7 @@ const buildSystemPrompt = (type: ArtifactType, instructions?: string): string =>
         "Based on the provided CONTEXT, generate 8-12 flashcard items.",
         focus,
         "Each flashcard has a concise term, concept, or question on the 'front', and the detailed explanation/definition/answer on the 'back'.",
+        "Every flashcard must be unique — do not repeat, rephrase, or create near-duplicate items covering the same fact or concept.",
         JSON_RULES,
         'JSON structure: { "items": [ { "front": "Term or question", "back": "Definition or answer" } ] }',
       ].join(" ");
@@ -87,6 +105,7 @@ const buildSystemPrompt = (type: ArtifactType, instructions?: string): string =>
         "Based on the provided CONTEXT, generate 6-10 multiple choice questions.",
         focus,
         "Each question has exactly 4 options, one correct answer, and a brief explanation grounded in the CONTEXT.",
+        "Every question must be unique — do not repeat, rephrase, or create near-duplicate questions covering the same fact.",
         JSON_RULES,
         'JSON structure: { "items": [ { "question": "...?", "options": ["A", "B", "C", "D"], "correctIndex": 0, "explanation": "..." } ] }',
       ].join(" ");
@@ -238,9 +257,25 @@ const generateAndValidate = async (
     : JSON.parse(cleanJson(responseText));
   const content = CONTENT_SCHEMAS[type].parse(parsed);
 
-  // QUIZ: correctIndex must point inside options; zod can't cross-validate.
+  if (type === "FLASHCARD") {
+    const flashcards = content as { items: { front: string; back: string }[] };
+    flashcards.items = dedupeArtifactItems(flashcards.items, (i) => i.front);
+    if (flashcards.items.length === 0) {
+      throw new Error("All generated flashcards were duplicates");
+    }
+  }
+
   if (type === "QUIZ") {
-    for (const item of (content as { items: { options: string[]; correctIndex: number }[] }).items) {
+    const quiz = content as {
+      items: { question: string; options: string[]; correctIndex: number }[];
+    };
+    quiz.items = dedupeArtifactItems(quiz.items, (i) => i.question);
+    if (quiz.items.length === 0) {
+      throw new Error("All generated quiz questions were duplicates");
+    }
+
+    // correctIndex must point inside options; zod can't cross-validate.
+    for (const item of quiz.items) {
       if (item.correctIndex >= item.options.length) {
         throw new Error("correctIndex out of range in generated quiz item");
       }

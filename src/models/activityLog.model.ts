@@ -3,6 +3,7 @@ import mongoose, { Document, Schema, Types } from "mongoose";
 export type ActivityAction =
   | "USER_REGISTER"
   | "USER_LOGIN"
+  | "PASSWORD_CHANGED"
   | "DOCUMENT_UPLOAD"
   | "DOCUMENT_DELETE"
   | "SYSTEM_ERROR"

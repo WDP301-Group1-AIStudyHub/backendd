@@ -143,6 +143,21 @@ export const buildMobileRegistrationUrl = (
   email: string,
 ): string => buildMobileUrl("register", { invite: token, email });
 
+export const buildWebPasswordResetUrl = (
+  token: string,
+  email: string,
+): string => {
+  const url = new URL("/reset-password", `${getWebAppBaseUrl()}/`);
+  url.searchParams.set("token", token);
+  url.searchParams.set("email", email);
+  return url.toString();
+};
+
+export const buildMobilePasswordResetUrl = (
+  token: string,
+  email: string,
+): string => buildMobileUrl("reset-password", { token, email });
+
 export const buildMobileStorageReturnUrl = (
   orderRef: string,
   status: string,

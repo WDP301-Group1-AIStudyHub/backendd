@@ -17,8 +17,9 @@ import { asyncHandler } from "../utils/asyncHandler";
 export const createArtifact = asyncHandler(
   async (req: Request, res: Response): Promise<void> => {
     const userId = req.authUser!.id;
+    const isAdmin = req.authUser?.role === "admin";
 
-    const data = await initiateArtifactGeneration(userId, req.body);
+    const data = await initiateArtifactGeneration(userId, req.body, { isAdmin });
 
     sendResponse(res, 202, {
       success: true,

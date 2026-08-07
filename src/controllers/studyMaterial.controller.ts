@@ -17,8 +17,9 @@ export const generateMaterial = asyncHandler(async (
 ): Promise<void> => {
   const { documentId, type, count, difficulty, topicFocus } = req.body;
   const userId = req.authUser!.id;
+  const isAdmin = req.authUser?.role === "admin";
 
-  const data = await initiateMaterialGeneration(userId, documentId, type, count, difficulty, topicFocus);
+  const data = await initiateMaterialGeneration(userId, documentId, type, count, difficulty, topicFocus, { isAdmin });
 
   sendResponse(res, 202, {
     success: true,

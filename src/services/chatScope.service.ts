@@ -28,6 +28,7 @@ export interface ResolvedChatScope {
   subjectId?: string;
   subject?: string;
   documentTitle?: string;
+  fileName?: string;
   hasProcessingDocument: boolean;
   emptyDocumentTitles: string[];
   vectorFilters: VectorSearchFilters;
@@ -251,7 +252,7 @@ export const resolveChatScope = async (
     const document = await StudyDocument.findOne({
       _id: payload.documentId,
       status: { $ne: "DELETED" },
-    }).select("_id ownerId visibility title subjectId currentVersionId ragStatus totalChunks");
+    }).select("_id ownerId visibility title fileName originalFileName subjectId currentVersionId ragStatus totalChunks");
 
     if (!document) {
       throw new AppError("Document not found", 404);
@@ -291,6 +292,7 @@ export const resolveChatScope = async (
       subjectId,
       subject,
       documentTitle: document.title,
+      fileName: document.fileName || document.originalFileName || undefined,
       hasProcessingDocument,
       emptyDocumentTitles,
       isMultiDocumentScope: false,

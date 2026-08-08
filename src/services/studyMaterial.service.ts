@@ -48,14 +48,20 @@ export const getAllStudyMaterials = async (
   return StudyMaterial.find({ userId }).sort({ createdAt: -1 });
 };
 
+import { resolveCredentialForUser } from "./aiCredentialContext";
+import { assertQuotaAvailable, recordMessage } from "./aiUsage.service";
+
 export const initiateMaterialGeneration = async (
   userId: string,
   documentId: string,
   type: MaterialType,
   count: number = 5,
   difficulty?: string,
-  topicFocus?: string
+  topicFocus?: string,
+  options: { isAdmin?: boolean } = {}
 ): Promise<IStudyMaterial> => {
+  const credential = await resolveCredentialForUser(userId);
+  await assertQuotaAvailable(userId, credential, options.isAdmin ?? false);
   // 1. Verify document exists and belongs to user
   const document = await StudyDocument.findOne({
     _id: documentId,
@@ -83,6 +89,8 @@ export const initiateMaterialGeneration = async (
     status: "PENDING",
     items: [],
   });
+
+  await recordMessage(userId, { degraded: credential.degraded });
 
   // 3. Trigger worker asynchronously (do not await it)
   runMaterialGenerationWorker(
